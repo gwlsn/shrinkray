@@ -1,0 +1,37 @@
+# Binaries
+/shrinkray
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config and state (generated at runtime)
+config/
+*.json
+
+# Test data (videos)
+testdata/
+!testdata/.gitkeep
+
+# Logs
+*.log

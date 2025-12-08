@@ -1,0 +1,7 @@
+version: "3.8"
+
+services:
+  shrinkray:
+    volumes:
+      - ./testdata:/media
+      - ./config:/config

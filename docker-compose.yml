@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  shrinkray:
+    build: .
+    container_name: shrinkray
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config
+      - /path/to/your/media:/media  # Change this to your media path
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+    restart: unless-stopped
+
+# For local development/testing with the testdata directory:
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up

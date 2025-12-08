@@ -1,0 +1,162 @@
+package ffmpeg
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ProbeResult contains metadata about a video file
+type ProbeResult struct {
+	Path       string        `json:"path"`
+	Size       int64         `json:"size"`
+	Duration   time.Duration `json:"duration"`
+	Format     string        `json:"format"`
+	VideoCodec string        `json:"video_codec"`
+	AudioCodec string        `json:"audio_codec"`
+	Width      int           `json:"width"`
+	Height     int           `json:"height"`
+	Bitrate    int64         `json:"bitrate"` // bits per second
+	FrameRate  float64       `json:"frame_rate"`
+	IsHEVC     bool          `json:"is_hevc"` // true if already x265/HEVC
+}
+
+// ffprobeOutput represents the JSON output from ffprobe
+type ffprobeOutput struct {
+	Format  ffprobeFormat   `json:"format"`
+	Streams []ffprobeStream `json:"streams"`
+}
+
+type ffprobeFormat struct {
+	Filename   string `json:"filename"`
+	FormatName string `json:"format_name"`
+	Duration   string `json:"duration"`
+	Size       string `json:"size"`
+	BitRate    string `json:"bit_rate"`
+}
+
+type ffprobeStream struct {
+	CodecType   string `json:"codec_type"`
+	CodecName   string `json:"codec_name"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	RFrameRate  string `json:"r_frame_rate"`
+	AvgFrameRate string `json:"avg_frame_rate"`
+}
+
+// Prober wraps ffprobe functionality
+type Prober struct {
+	ffprobePath string
+}
+
+// NewProber creates a new Prober with the given ffprobe path
+func NewProber(ffprobePath string) *Prober {
+	return &Prober{ffprobePath: ffprobePath}
+}
+
+// Probe returns metadata about a video file
+func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
+	cmd := exec.CommandContext(ctx, p.ffprobePath,
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		path,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("ffprobe failed: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("ffprobe failed: %w", err)
+	}
+
+	var probeOutput ffprobeOutput
+	if err := json.Unmarshal(output, &probeOutput); err != nil {
+		return nil, fmt.Errorf("failed to parse ffprobe output: %w", err)
+	}
+
+	result := &ProbeResult{
+		Path:   path,
+		Format: probeOutput.Format.FormatName,
+	}
+
+	// Parse format-level metadata
+	if probeOutput.Format.Size != "" {
+		result.Size, _ = strconv.ParseInt(probeOutput.Format.Size, 10, 64)
+	}
+	if probeOutput.Format.BitRate != "" {
+		result.Bitrate, _ = strconv.ParseInt(probeOutput.Format.BitRate, 10, 64)
+	}
+	if probeOutput.Format.Duration != "" {
+		durationSec, _ := strconv.ParseFloat(probeOutput.Format.Duration, 64)
+		result.Duration = time.Duration(durationSec * float64(time.Second))
+	}
+
+	// Parse stream-level metadata
+	for _, stream := range probeOutput.Streams {
+		switch stream.CodecType {
+		case "video":
+			if result.VideoCodec == "" { // Take first video stream
+				result.VideoCodec = stream.CodecName
+				result.Width = stream.Width
+				result.Height = stream.Height
+				result.IsHEVC = isHEVCCodec(stream.CodecName)
+				result.FrameRate = parseFrameRate(stream.RFrameRate)
+				if result.FrameRate == 0 {
+					result.FrameRate = parseFrameRate(stream.AvgFrameRate)
+				}
+			}
+		case "audio":
+			if result.AudioCodec == "" { // Take first audio stream
+				result.AudioCodec = stream.CodecName
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// isHEVCCodec returns true if the codec is HEVC/x265
+func isHEVCCodec(codec string) bool {
+	codec = strings.ToLower(codec)
+	return codec == "hevc" || codec == "h265" || codec == "x265"
+}
+
+// parseFrameRate parses a frame rate string like "30000/1001" or "30/1"
+func parseFrameRate(s string) float64 {
+	if s == "" || s == "0/0" {
+		return 0
+	}
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		f, _ := strconv.ParseFloat(s, 64)
+		return f
+	}
+	num, _ := strconv.ParseFloat(parts[0], 64)
+	den, _ := strconv.ParseFloat(parts[1], 64)
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+// IsVideoFile returns true if the file extension suggests a video file
+func IsVideoFile(path string) bool {
+	ext := strings.ToLower(path)
+	videoExtensions := []string{
+		".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv",
+		".webm", ".m4v", ".mpeg", ".mpg", ".m2ts", ".ts",
+	}
+	for _, ve := range videoExtensions {
+		if strings.HasSuffix(ext, ve) {
+			return true
+		}
+	}
+	return false
+}
