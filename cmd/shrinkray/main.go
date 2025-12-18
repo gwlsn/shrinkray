@@ -136,7 +136,7 @@ func main() {
 		uiMode = "debug"
 	}
 	fmt.Printf("  UI mode:      %s\n", uiMode)
-	fmt.Printf("  Starting server on http://localhost:%d\n", *port)
+	fmt.Printf("  Starting server on port %d\n", *port)
 	fmt.Println()
 	fmt.Println("  Press Ctrl+C to stop")
 	fmt.Println()

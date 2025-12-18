@@ -34,3 +34,6 @@ testdata/
 
 # Logs
 *.log
+
+# Housekeeping
+ghcr.sh
