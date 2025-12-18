@@ -302,6 +302,7 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.OutputSize = outputSize
 	job.SpaceSaved = job.InputSize - outputSize
 	job.CompletedAt = time.Now()
+	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
 
 	if err := q.save(); err != nil {

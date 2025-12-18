@@ -13,7 +13,6 @@ func NewRouter(h *Handler, staticFS embed.FS, debugMode bool) *http.ServeMux {
 
 	// API routes
 	mux.HandleFunc("GET /api/browse", h.Browse)
-	mux.HandleFunc("POST /api/estimate", h.Estimate)
 	mux.HandleFunc("GET /api/presets", h.Presets)
 	mux.HandleFunc("GET /api/encoders", h.Encoders)
 
@@ -58,6 +57,30 @@ func NewRouter(h *Handler, staticFS embed.FS, debugMode bool) *http.ServeMux {
 			w.Header().Set("Content-Type", "text/html")
 			w.Write(content)
 		})
+
+		// Serve logo
+		mux.HandleFunc("GET /logo.png", func(w http.ResponseWriter, r *http.Request) {
+			content, err := fs.ReadFile(staticSubFS, "logo.png")
+			if err != nil {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(content)
+		})
+
+		// Serve favicon
+		mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
+			content, err := fs.ReadFile(staticSubFS, "favicon.png")
+			if err != nil {
+				http.Error(w, "Not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Write(content)
+		})
 	}
 
 	return mux
@@ -69,7 +92,6 @@ func NewRouterWithoutStatic(h *Handler) *http.ServeMux {
 
 	// API routes
 	mux.HandleFunc("GET /api/browse", h.Browse)
-	mux.HandleFunc("POST /api/estimate", h.Estimate)
 	mux.HandleFunc("GET /api/presets", h.Presets)
 	mux.HandleFunc("GET /api/encoders", h.Encoders)
 

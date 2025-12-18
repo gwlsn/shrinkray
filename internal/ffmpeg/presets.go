@@ -7,20 +7,18 @@ type Preset struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
-	Encoder     HWAccel `json:"encoder"`      // Which encoder to use
-	Quality     string  `json:"quality"`      // "standard" or "smaller"
-	MaxHeight   int     `json:"max_height"`   // 0 = no scaling, 1080, 720, etc.
+	Encoder     HWAccel `json:"encoder"`    // Which encoder to use
+	Codec       Codec   `json:"codec"`      // Target codec (HEVC or AV1)
+	MaxHeight   int     `json:"max_height"` // 0 = no scaling, 1080, 720, etc.
 }
 
-// Quality settings for each encoder
-// These are tuned to produce similar quality/size results across encoders
+// encoderSettings defines FFmpeg settings for each encoder
 type encoderSettings struct {
-	encoder       string   // FFmpeg encoder name
-	qualityFlag   string   // -crf, -b:v, -global_quality, etc.
-	standardQual  string   // Quality value for "standard"
-	smallerQual   string   // Quality value for "smaller"
-	extraArgs     []string // Additional encoder-specific args
-	usesBitrate   bool     // If true, quality values are bitrate modifiers (0.0-1.0)
+	encoder     string   // FFmpeg encoder name
+	qualityFlag string   // -crf, -b:v, -global_quality, etc.
+	quality     string   // Quality value (CRF or bitrate modifier)
+	extraArgs   []string // Additional encoder-specific args
+	usesBitrate bool     // If true, quality value is a bitrate modifier (0.0-1.0)
 }
 
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox)
@@ -29,46 +27,75 @@ const (
 	maxBitrateKbps = 15000 // Maximum target bitrate in kbps
 )
 
-var encoderConfigs = map[HWAccel]encoderSettings{
-	HWAccelNone: {
-		encoder:      "libx265",
-		qualityFlag:  "-crf",
-		standardQual: "22",
-		smallerQual:  "26",
-		extraArgs:    []string{"-preset", "medium"},
+var encoderConfigs = map[EncoderKey]encoderSettings{
+	// HEVC encoders
+	{HWAccelNone, CodecHEVC}: {
+		encoder:     "libx265",
+		qualityFlag: "-crf",
+		quality:     "26",
+		extraArgs:   []string{"-preset", "medium"},
 	},
-	HWAccelVideoToolbox: {
+	{HWAccelVideoToolbox, CodecHEVC}: {
 		// VideoToolbox uses bitrate control (-b:v) with dynamic calculation
-		// Following Tdarr's approach: target_bitrate = source_bitrate * modifier
-		// HEVC is roughly 50% more efficient than H.264, so 0.5 = same quality
-		// We use slightly lower to get actual compression
-		encoder:      "hevc_videotoolbox",
-		qualityFlag:  "-b:v",
-		standardQual: "0.5",  // 50% of source bitrate (good quality, ~30-40% smaller)
-		smallerQual:  "0.35", // 35% of source bitrate (more aggressive, ~50-60% smaller)
-		extraArgs:    []string{"-allow_sw", "1"}, // Allow software fallback
-		usesBitrate:  true,
+		// Target bitrate = source bitrate * modifier
+		encoder:     "hevc_videotoolbox",
+		qualityFlag: "-b:v",
+		quality:     "0.35", // 35% of source bitrate (~50-60% smaller files)
+		extraArgs:   []string{"-allow_sw", "1"},
+		usesBitrate: true,
 	},
-	HWAccelNVENC: {
-		encoder:      "hevc_nvenc",
-		qualityFlag:  "-cq",
-		standardQual: "24",
-		smallerQual:  "28",
-		extraArgs:    []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
+	{HWAccelNVENC, CodecHEVC}: {
+		encoder:     "hevc_nvenc",
+		qualityFlag: "-cq",
+		quality:     "28",
+		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
 	},
-	HWAccelQSV: {
-		encoder:      "hevc_qsv",
-		qualityFlag:  "-global_quality",
-		standardQual: "23",
-		smallerQual:  "27",
-		extraArgs:    []string{"-preset", "medium"},
+	{HWAccelQSV, CodecHEVC}: {
+		encoder:     "hevc_qsv",
+		qualityFlag: "-global_quality",
+		quality:     "27",
+		extraArgs:   []string{"-preset", "medium"},
 	},
-	HWAccelVAAPI: {
-		encoder:      "hevc_vaapi",
-		qualityFlag:  "-qp",
-		standardQual: "23",
-		smallerQual:  "27",
-		extraArgs:    []string{},
+	{HWAccelVAAPI, CodecHEVC}: {
+		encoder:     "hevc_vaapi",
+		qualityFlag: "-qp",
+		quality:     "27",
+		extraArgs:   []string{},
+	},
+
+	// AV1 encoders
+	// SVT-AV1 CRF 38 ≈ x265 CRF 26 (aggressive compression)
+	{HWAccelNone, CodecAV1}: {
+		encoder:     "libsvtav1",
+		qualityFlag: "-crf",
+		quality:     "38",
+		extraArgs:   []string{"-preset", "6"},
+	},
+	{HWAccelVideoToolbox, CodecAV1}: {
+		// VideoToolbox AV1 (M3+ chips) uses bitrate control
+		encoder:     "av1_videotoolbox",
+		qualityFlag: "-b:v",
+		quality:     "0.25", // 25% of source bitrate (aggressive)
+		extraArgs:   []string{"-allow_sw", "1"},
+		usesBitrate: true,
+	},
+	{HWAccelNVENC, CodecAV1}: {
+		encoder:     "av1_nvenc",
+		qualityFlag: "-cq",
+		quality:     "36",
+		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
+	},
+	{HWAccelQSV, CodecAV1}: {
+		encoder:     "av1_qsv",
+		qualityFlag: "-global_quality",
+		quality:     "34",
+		extraArgs:   []string{"-preset", "medium"},
+	},
+	{HWAccelVAAPI, CodecAV1}: {
+		encoder:     "av1_vaapi",
+		qualityFlag: "-qp",
+		quality:     "34",
+		extraArgs:   []string{},
 	},
 }
 
@@ -77,21 +104,23 @@ var BasePresets = []struct {
 	ID          string
 	Name        string
 	Description string
-	Quality     string
+	Codec       Codec
 	MaxHeight   int
 }{
-	{"compress", "Compress", "Reduce size while keeping quality", "standard", 0},
-	{"compress-small", "Compress (Smaller)", "Prioritize size over quality", "smaller", 0},
-	{"1080p", "1080p", "Downscale to 1080p max", "standard", 1080},
-	{"720p", "720p", "Downscale to 720p (big savings)", "standard", 720},
+	{"compress-hevc", "Compress (HEVC)", "Reduce size with HEVC encoding", CodecHEVC, 0},
+	{"compress-av1", "Compress (AV1)", "Maximum compression with AV1 encoding", CodecAV1, 0},
+	{"1080p", "Downscale to 1080p", "Downscale to 1080p max (HEVC)", CodecHEVC, 1080},
+	{"720p", "Downscale to 720p", "Downscale to 720p (big savings)", CodecHEVC, 720},
 }
 
 // BuildPresetArgs builds FFmpeg arguments for a preset with the specified encoder
 // sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
 func BuildPresetArgs(preset *Preset, sourceBitrate int64) []string {
-	config, ok := encoderConfigs[preset.Encoder]
+	key := EncoderKey{preset.Encoder, preset.Codec}
+	config, ok := encoderConfigs[key]
 	if !ok {
-		config = encoderConfigs[HWAccelNone]
+		// Fallback to software encoder for the target codec
+		config = encoderConfigs[EncoderKey{HWAccelNone, preset.Codec}]
 	}
 
 	args := []string{}
@@ -113,11 +142,8 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64) []string {
 	// Add encoder
 	args = append(args, "-c:v", config.encoder)
 
-	// Add quality setting
-	qualityStr := config.standardQual
-	if preset.Quality == "smaller" {
-		qualityStr = config.smallerQual
-	}
+	// Get quality setting
+	qualityStr := config.quality
 
 	// For encoders that use dynamic bitrate calculation
 	if config.usesBitrate && sourceBitrate > 0 {
@@ -160,20 +186,20 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64) []string {
 	return args
 }
 
-// GeneratePresets creates presets using the best available encoder
+// GeneratePresets creates presets using the best available encoder for each codec
 func GeneratePresets() map[string]*Preset {
 	presets := make(map[string]*Preset)
 
-	// Always use the best available encoder
-	bestEncoder := GetBestEncoder()
-
 	for _, base := range BasePresets {
+		// Get the best available encoder for this preset's target codec
+		bestEncoder := GetBestEncoderForCodec(base.Codec)
+
 		presets[base.ID] = &Preset{
 			ID:          base.ID,
 			Name:        base.Name,
 			Description: base.Description,
 			Encoder:     bestEncoder.Accel,
-			Quality:     base.Quality,
+			Codec:       base.Codec,
 			MaxHeight:   base.MaxHeight,
 		}
 	}
@@ -210,7 +236,7 @@ func getSoftwarePreset(id string) *Preset {
 				Name:        base.Name,
 				Description: base.Description,
 				Encoder:     HWAccelNone,
-				Quality:     base.Quality,
+				Codec:       base.Codec,
 				MaxHeight:   base.MaxHeight,
 			}
 		}
@@ -229,7 +255,7 @@ func ListPresets() []*Preset {
 				Name:        base.Name,
 				Description: base.Description,
 				Encoder:     HWAccelNone,
-				Quality:     base.Quality,
+				Codec:       base.Codec,
 				MaxHeight:   base.MaxHeight,
 			})
 		}
@@ -269,7 +295,7 @@ func ListPresetsForEncoder(accel HWAccel) []*Preset {
 				Name:        base.Name,
 				Description: base.Description,
 				Encoder:     HWAccelNone,
-				Quality:     base.Quality,
+				Codec:       base.Codec,
 				MaxHeight:   base.MaxHeight,
 			})
 		}
@@ -283,7 +309,7 @@ func GetRecommendedPreset() *Preset {
 	bestEncoder := GetBestEncoder()
 	presets := ListPresetsForEncoder(bestEncoder.Accel)
 	if len(presets) > 0 {
-		return presets[0] // First preset (compress) for best encoder
+		return presets[0] // First preset (compress-hevc) for best encoder
 	}
-	return getSoftwarePreset("compress")
+	return getSoftwarePreset("compress-hevc")
 }

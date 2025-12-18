@@ -318,6 +318,15 @@ func (w *Worker) processJob(job *Job) {
 		return
 	}
 
+	// Check if transcoded file is larger than original
+	if result.OutputSize >= job.InputSize {
+		// Delete the temp file and fail the job
+		os.Remove(tempPath)
+		w.queue.FailJob(job.ID, fmt.Sprintf("Transcoded file (%s) is larger than original (%s). File skipped.",
+			formatBytes(result.OutputSize), formatBytes(job.InputSize)))
+		return
+	}
+
 	// Finalize the transcode (handle original file)
 	replace := w.cfg.OriginalHandling == "replace"
 	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, replace)
@@ -381,4 +390,18 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm %ds", m, s)
 	}
 	return fmt.Sprintf("%ds", s)
+}
+
+// formatBytes formats bytes as a human-readable string
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

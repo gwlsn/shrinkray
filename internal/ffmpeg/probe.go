@@ -23,6 +23,7 @@ type ProbeResult struct {
 	Bitrate    int64         `json:"bitrate"` // bits per second
 	FrameRate  float64       `json:"frame_rate"`
 	IsHEVC     bool          `json:"is_hevc"` // true if already x265/HEVC
+	IsAV1      bool          `json:"is_av1"`  // true if already AV1
 }
 
 // ffprobeOutput represents the JSON output from ffprobe
@@ -107,6 +108,7 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 				result.Width = stream.Width
 				result.Height = stream.Height
 				result.IsHEVC = isHEVCCodec(stream.CodecName)
+				result.IsAV1 = isAV1Codec(stream.CodecName)
 				result.FrameRate = parseFrameRate(stream.RFrameRate)
 				if result.FrameRate == 0 {
 					result.FrameRate = parseFrameRate(stream.AvgFrameRate)
@@ -126,6 +128,12 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 func isHEVCCodec(codec string) bool {
 	codec = strings.ToLower(codec)
 	return codec == "hevc" || codec == "h265" || codec == "x265"
+}
+
+// isAV1Codec returns true if the codec is AV1
+func isAV1Codec(codec string) bool {
+	codec = strings.ToLower(codec)
+	return codec == "av1" || codec == "libaom-av1" || codec == "libsvtav1"
 }
 
 // parseFrameRate parses a frame rate string like "30000/1001" or "30/1"
