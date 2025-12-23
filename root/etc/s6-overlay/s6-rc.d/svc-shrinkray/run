@@ -1,0 +1,8 @@
+#!/usr/bin/with-contenv bash
+
+# Set umask (default 000 for 666 file permissions, matching other Unraid containers)
+umask "${UMASK:-000}"
+
+exec \
+    s6-setuidgid abc \
+    /usr/local/bin/shrinkray -config /config/shrinkray.yaml -media /media

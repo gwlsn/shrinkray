@@ -64,37 +64,37 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	},
 
 	// AV1 encoders
-	// Quality matched to HEVC equivalents (AV1 is ~20% more efficient at same quality)
+	// Slightly higher quality than HEVC equivalents (~10% more bitrate/quality)
 	{HWAccelNone, CodecAV1}: {
 		encoder:     "libsvtav1",
 		qualityFlag: "-crf",
-		quality:     "32",
+		quality:     "29",
 		extraArgs:   []string{"-preset", "6"},
 	},
 	{HWAccelVideoToolbox, CodecAV1}: {
 		// VideoToolbox AV1 (M3+ chips) uses bitrate control
 		encoder:     "av1_videotoolbox",
 		qualityFlag: "-b:v",
-		quality:     "0.35", // 35% of source bitrate (same as HEVC)
+		quality:     "0.40", // 40% of source bitrate
 		extraArgs:   []string{"-allow_sw", "1"},
 		usesBitrate: true,
 	},
 	{HWAccelNVENC, CodecAV1}: {
 		encoder:     "av1_nvenc",
 		qualityFlag: "-cq",
-		quality:     "28",
+		quality:     "25",
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
 	},
 	{HWAccelQSV, CodecAV1}: {
 		encoder:     "av1_qsv",
 		qualityFlag: "-global_quality",
-		quality:     "27",
+		quality:     "24",
 		extraArgs:   []string{"-preset", "medium"},
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:     "av1_vaapi",
 		qualityFlag: "-qp",
-		quality:     "27",
+		quality:     "24",
 		extraArgs:   []string{},
 	},
 }

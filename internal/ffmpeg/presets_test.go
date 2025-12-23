@@ -46,7 +46,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 	sourceBitrate := int64(3481000)
 
-	// Create a VideoToolbox AV1 preset (0.35 modifier, same as HEVC)
+	// Create a VideoToolbox AV1 preset (0.40 modifier)
 	preset := &Preset{
 		ID:      "test-av1",
 		Encoder: HWAccelVideoToolbox,
@@ -55,14 +55,14 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 
 	args := BuildPresetArgs(preset, sourceBitrate)
 
-	// Expected: 3481 * 0.35 = ~1218k
+	// Expected: 3481 * 0.40 = ~1392k
 	for i, arg := range args {
 		if arg == "-b:v" && i+1 < len(args) {
 			bitrate := args[i+1]
 			t.Logf("AV1 VideoToolbox: source=%dkbps → target=%s", sourceBitrate/1000, bitrate)
 
-			if bitrate != "1218k" {
-				t.Errorf("expected ~1218k, got %s", bitrate)
+			if bitrate != "1392k" {
+				t.Errorf("expected ~1392k, got %s", bitrate)
 			}
 		}
 	}
