@@ -136,13 +136,25 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		isHardware = preset.Encoder != ffmpeg.HWAccelNone
 	}
 
+	// Check if file should be skipped
+	var skipReason string
+	if preset != nil {
+		skipReason = checkSkipReason(probe, preset)
+	}
+
+	status := StatusPending
+	if skipReason != "" {
+		status = StatusFailed
+	}
+
 	job := &Job{
 		ID:         generateID(),
 		InputPath:  inputPath,
 		PresetID:   presetID,
 		Encoder:    encoder,
 		IsHardware: isHardware,
-		Status:     StatusPending,
+		Status:     status,
+		Error:      skipReason,
 		InputSize:  probe.Size,
 		Duration:   probe.Duration.Milliseconds(),
 		Bitrate:    probe.Bitrate,
@@ -157,7 +169,12 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		fmt.Printf("Warning: failed to persist queue: %v\n", err)
 	}
 
-	q.broadcast(JobEvent{Type: "added", Job: job})
+	// Broadcast appropriate event based on status
+	if skipReason != "" {
+		q.broadcast(JobEvent{Type: "failed", Job: job})
+	} else {
+		q.broadcast(JobEvent{Type: "added", Job: job})
+	}
 
 	return job, nil
 }
@@ -466,4 +483,31 @@ func generateID() string {
 	defer idMu.Unlock()
 	idCounter++
 	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), idCounter)
+}
+
+// checkSkipReason returns an error message if the file should be skipped, empty string otherwise.
+func checkSkipReason(probe *ffmpeg.ProbeResult, preset *ffmpeg.Preset) string {
+	// For downscale presets, check if file already meets resolution target
+	if preset.MaxHeight > 0 && probe.Height <= preset.MaxHeight {
+		return fmt.Sprintf("File is already %dp or smaller", preset.MaxHeight)
+	}
+
+	// Check if file is already in target codec
+	var isAlreadyTarget bool
+	var codecName string
+
+	switch preset.Codec {
+	case ffmpeg.CodecHEVC:
+		isAlreadyTarget = probe.IsHEVC
+		codecName = "HEVC"
+	case ffmpeg.CodecAV1:
+		isAlreadyTarget = probe.IsAV1
+		codecName = "AV1"
+	}
+
+	if isAlreadyTarget {
+		return fmt.Sprintf("File is already encoded in %s", codecName)
+	}
+
+	return "" // Proceed with transcode
 }

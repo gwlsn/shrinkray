@@ -113,8 +113,16 @@ func TestQueuePersistence(t *testing.T) {
 		Duration: 10 * time.Second,
 	}
 
+	// For 1080p preset, use a 4K video that actually needs downscaling
+	probe4K := &ffmpeg.ProbeResult{
+		Path:     "/media/video2.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+		Height:   2160, // 4K needs downscaling to 1080p
+	}
+
 	job1, _ := queue1.Add(probe.Path, "compress", probe)
-	job2, _ := queue1.Add("/media/video2.mkv", "1080p", probe)
+	job2, _ := queue1.Add(probe4K.Path, "1080p", probe4K)
 
 	// Complete one job
 	queue1.StartJob(job1.ID, "/tmp/temp.mkv")
