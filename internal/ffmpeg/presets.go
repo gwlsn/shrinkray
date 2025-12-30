@@ -62,8 +62,9 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-global_quality",
 		quality:     "27",
 		extraArgs:   []string{"-preset", "medium"},
-		// No hwaccelArgs - QSV hardware decode hangs on some HEVC content
-		// Encoder still uses QSV hardware, just decode is done in software
+		// Use VAAPI for hardware decode - works better than QSV decode on HEVC with PGS subtitles
+		// QSV decode hangs, but VAAPI decode works fine and still uses GPU
+		hwaccelArgs: []string{"-hwaccel", "vaapi", "-hwaccel_device", ""}, // Device filled dynamically
 		scaleFilter: "scale",
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
@@ -107,8 +108,9 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-global_quality",
 		quality:     "32",
 		extraArgs:   []string{"-preset", "medium"},
-		// No hwaccelArgs - QSV hardware decode hangs on some HEVC content
-		// Encoder still uses QSV hardware, just decode is done in software
+		// Use VAAPI for hardware decode - works better than QSV decode on HEVC with PGS subtitles
+		// QSV decode hangs, but VAAPI decode works fine and still uses GPU
+		hwaccelArgs: []string{"-hwaccel", "vaapi", "-hwaccel_device", ""}, // Device filled dynamically
 		scaleFilter: "scale",
 	},
 	{HWAccelVAAPI, CodecAV1}: {
@@ -157,8 +159,11 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64) (inputArgs []string, o
 	// Hardware acceleration for decoding
 	for _, arg := range config.hwaccelArgs {
 		// Fill in VAAPI device path dynamically
-		if arg == "" && len(inputArgs) > 0 && inputArgs[len(inputArgs)-1] == "-vaapi_device" {
-			arg = GetVAAPIDevice()
+		if arg == "" && len(inputArgs) > 0 {
+			lastArg := inputArgs[len(inputArgs)-1]
+			if lastArg == "-vaapi_device" || lastArg == "-hwaccel_device" {
+				arg = GetVAAPIDevice()
+			}
 		}
 		inputArgs = append(inputArgs, arg)
 	}
