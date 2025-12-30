@@ -183,19 +183,81 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	return job, nil
 }
 
-// AddMultiple adds multiple jobs at once
+// AddMultiple adds multiple jobs at once with a single batch SSE event.
+// This is a performance optimization: instead of broadcasting N individual "added" events,
+// we broadcast a single "batch_added" event containing all jobs.
+// Jobs that fail skip-reason checks are broadcast separately as "failed" events.
 func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*Job, error) {
-	jobs := make([]*Job, 0, len(probes))
+	q.mu.Lock()
 
-	for _, probe := range probes {
-		job, err := q.Add(probe.Path, presetID, probe)
-		if err != nil {
-			return jobs, err
-		}
-		jobs = append(jobs, job)
+	allJobs := make([]*Job, 0, len(probes))
+	addedJobs := make([]*Job, 0, len(probes))   // Jobs successfully added (pending)
+	skippedJobs := make([]*Job, 0)               // Jobs that failed skip-reason check
+
+	preset := ffmpeg.GetPreset(presetID)
+	encoder := string(ffmpeg.HWAccelNone)
+	isHardware := false
+	if preset != nil {
+		encoder = string(preset.Encoder)
+		isHardware = preset.Encoder != ffmpeg.HWAccelNone
 	}
 
-	return jobs, nil
+	for _, probe := range probes {
+		// Check if file should be skipped
+		var skipReason string
+		if preset != nil {
+			skipReason = checkSkipReason(probe, preset)
+		}
+
+		status := StatusPending
+		if skipReason != "" {
+			status = StatusFailed
+		}
+
+		job := &Job{
+			ID:         generateID(),
+			InputPath:  probe.Path,
+			PresetID:   presetID,
+			Encoder:    encoder,
+			IsHardware: isHardware,
+			Status:     status,
+			Error:      skipReason,
+			InputSize:  probe.Size,
+			Duration:   probe.Duration.Milliseconds(),
+			Bitrate:    probe.Bitrate,
+			CreatedAt:  time.Now(),
+		}
+
+		q.jobs[job.ID] = job
+		q.order = append(q.order, job.ID)
+		allJobs = append(allJobs, job)
+
+		if skipReason != "" {
+			skippedJobs = append(skippedJobs, job)
+		} else {
+			addedJobs = append(addedJobs, job)
+		}
+	}
+
+	// Persist once after all jobs are added (not per-job)
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	q.mu.Unlock()
+
+	// Broadcast events outside the lock to prevent SSE blocking queue operations
+	// Performance: send single batch event instead of N individual events
+	if len(addedJobs) > 0 {
+		q.broadcast(JobEvent{Type: "batch_added", Jobs: addedJobs})
+	}
+
+	// Skipped jobs still get individual "failed" events for proper UI handling
+	for _, job := range skippedJobs {
+		q.broadcast(JobEvent{Type: "failed", Job: job})
+	}
+
+	return allJobs, nil
 }
 
 // Fallback rate limit constants
@@ -347,7 +409,17 @@ func (q *Queue) UpdateProgress(id string, progress float64, speed float64, eta s
 	// Don't persist on every progress update (too expensive)
 	// Just broadcast to subscribers
 
-	q.broadcast(JobEvent{Type: "progress", Job: job})
+	// Performance: Use delta update instead of full Job struct
+	// This reduces SSE payload from ~500+ bytes to ~80 bytes per progress event
+	q.broadcast(JobEvent{
+		Type: "progress",
+		ProgressUpdate: &ProgressUpdate{
+			ID:       id,
+			Progress: progress,
+			Speed:    speed,
+			ETA:      eta,
+		},
+	})
 }
 
 // CompleteJob marks a job as complete

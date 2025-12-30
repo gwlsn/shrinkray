@@ -2736,6 +2736,114 @@
             }
         }
 
+        // Performance: Handle batch of jobs added at once
+        // This is called when AddMultiple() sends a single "batch_added" event
+        // instead of N individual "added" events
+        function handleBatchAdded(jobs) {
+            if (!jobs || jobs.length === 0) return;
+
+            // Add all jobs to cache
+            for (const job of jobs) {
+                cachedJobs.push(job);
+            }
+
+            // Update stats - all batch_added jobs are pending (skipped ones come as separate "failed" events)
+            cachedStats.pending += jobs.length;
+            updateStats(cachedStats);
+
+            // Render all jobs to DOM in a single operation
+            const container = document.getElementById('queue-list');
+            if (container.querySelector('.queue-empty')) {
+                // Was empty, replace with jobs
+                container.innerHTML = jobs.map(job => renderJobHtml(job)).join('');
+            } else {
+                // Append all jobs at once (single DOM operation)
+                const fragment = jobs.map(job => renderJobHtml(job)).join('');
+                container.insertAdjacentHTML('beforeend', fragment);
+            }
+
+            updateActivePanel();
+        }
+
+        // Performance: Handle delta progress updates (compact payload)
+        // Only contains: id, progress, speed, eta
+        function handleProgressDelta(update) {
+            const { id, progress, speed, eta } = update;
+            const isInitializing = progress === 0 && speed === 0;
+            const safeEta = escapeHtml(eta) || '...';
+
+            // Update cached job
+            const cachedJob = cachedJobs.find(j => j.id === id);
+            if (cachedJob) {
+                cachedJob.progress = progress;
+                cachedJob.speed = speed;
+                cachedJob.eta = eta;
+            }
+
+            // Update active panel job
+            const safeId = escapeCssSelector(id);
+            const activeJobEl = document.querySelector(`#now-processing-content .active-job-item[data-job-id="${safeId}"]`);
+
+            if (activeJobEl) {
+                // Update progress bar
+                const activeFill = activeJobEl.querySelector('.progress-fill');
+                if (activeFill) {
+                    activeFill.style.width = (isInitializing ? 0 : progress) + '%';
+                    activeFill.className = 'progress-fill' + (isInitializing ? ' initializing' : '');
+                }
+
+                // Update details
+                const activeDetails = activeJobEl.querySelector('.job-details');
+                if (activeDetails) {
+                    if (isInitializing) {
+                        activeDetails.innerHTML = '<span class="job-detail">Starting encoder...</span>';
+                    } else {
+                        activeDetails.innerHTML = `
+                            <span class="job-detail"><span class="job-detail-value">${progress.toFixed(1)}%</span></span>
+                            <span class="job-detail"><span class="job-detail-value">${speed.toFixed(2)}x</span></span>
+                            <span class="job-detail">ETA: <span class="job-detail-value">${safeEta}</span></span>
+                        `;
+                    }
+                }
+
+                // Update status badge
+                const activeBadge = activeJobEl.querySelector('.job-badge.running, .job-badge.initializing');
+                if (activeBadge) {
+                    activeBadge.className = 'job-badge ' + (isInitializing ? 'initializing' : 'running');
+                    activeBadge.textContent = isInitializing ? 'Initializing' : 'Running';
+                }
+            }
+
+            // Update queue list row
+            const queueRow = document.querySelector(`.job-item[data-job-id="${safeId}"]`);
+            if (queueRow) {
+                const progressFill = queueRow.querySelector('.progress-fill');
+                if (progressFill) {
+                    progressFill.style.width = (isInitializing ? 0 : progress) + '%';
+                    progressFill.className = 'progress-fill' + (isInitializing ? ' initializing' : '');
+                }
+
+                const detailsEl = queueRow.querySelector('.job-details');
+                if (detailsEl) {
+                    if (isInitializing) {
+                        detailsEl.innerHTML = '<span class="job-detail">Starting encoder...</span>';
+                    } else {
+                        detailsEl.innerHTML = `
+                            <span class="job-detail"><span class="job-detail-value">${progress.toFixed(1)}%</span></span>
+                            <span class="job-detail"><span class="job-detail-value">${speed.toFixed(2)}x</span></span>
+                            <span class="job-detail">ETA: <span class="job-detail-value">${safeEta}</span></span>
+                        `;
+                    }
+                }
+
+                const statusBadge = queueRow.querySelector('.job-badge.running, .job-badge.initializing');
+                if (statusBadge) {
+                    statusBadge.className = 'job-badge ' + (isInitializing ? 'initializing' : 'running');
+                    statusBadge.textContent = isInitializing ? 'Initializing' : 'Running';
+                }
+            }
+        }
+
         function connectSSE() {
             if (eventSource) eventSource.close();
 
@@ -2749,11 +2857,20 @@
                 } else if (data.type === 'notify_sent') {
                     // Notification was sent, uncheck the checkbox
                     document.getElementById('notify-checkbox').checked = false;
-                } else if (data.type === 'progress' && data.job) {
-                    // Targeted update for progress - avoid full DOM rebuild
-                    updateActiveJobProgress(data.job);
+                } else if (data.type === 'batch_added' && data.jobs) {
+                    // Performance: Handle batch of jobs in single DOM operation
+                    handleBatchAdded(data.jobs);
+                } else if (data.type === 'progress') {
+                    // Performance: Handle progress updates
+                    if (data.progress_update) {
+                        // New delta format (compact payload)
+                        handleProgressDelta(data.progress_update);
+                    } else if (data.job) {
+                        // Legacy full job format (backwards compatibility)
+                        updateActiveJobProgress(data.job);
+                    }
                 } else if (data.type === 'added' && data.job) {
-                    // Performance: Append new job instead of full refresh
+                    // Single job added (backwards compatibility)
                     handleJobAdded(data.job);
                 } else if ((data.type === 'started' || data.type === 'complete' || data.type === 'failed' || data.type === 'cancelled') && data.job) {
                     // Performance: Update single job instead of full refresh

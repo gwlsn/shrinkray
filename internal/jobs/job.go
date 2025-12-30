@@ -55,6 +55,23 @@ func (j *Job) IsTerminal() bool {
 
 // JobEvent represents an event for SSE streaming
 type JobEvent struct {
-	Type string      `json:"type"` // "update", "complete", "failed", "cancelled"
-	Job  *Job        `json:"job"`
+	Type string `json:"type"` // "added", "batch_added", "started", "progress", "complete", "failed", "cancelled"
+	Job  *Job   `json:"job,omitempty"`
+
+	// Batch of jobs - used for "batch_added" event to reduce SSE event flood
+	// When adding many jobs at once, they are collected and sent in a single event
+	Jobs []*Job `json:"jobs,omitempty"`
+
+	// Lightweight progress update - used for "progress" event
+	// Avoids sending the full Job struct for every progress update
+	ProgressUpdate *ProgressUpdate `json:"progress_update,omitempty"`
+}
+
+// ProgressUpdate contains only the fields that change during transcoding.
+// Used for efficient progress updates without sending the full Job struct.
+type ProgressUpdate struct {
+	ID       string  `json:"id"`
+	Progress float64 `json:"progress"`
+	Speed    float64 `json:"speed"`
+	ETA      string  `json:"eta"`
 }
