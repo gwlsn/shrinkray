@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -120,6 +121,11 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		"status":  "processing",
 		"message": fmt.Sprintf("Processing %d paths in background...", len(req.Paths)),
 	})
+
+	log.Printf("[api] CreateJobs: received %d paths, preset=%s", len(req.Paths), req.PresetID)
+	for i, p := range req.Paths {
+		log.Printf("[api] CreateJobs: path[%d] = %s", i, p)
+	}
 
 	// Process in background goroutine
 	go func() {

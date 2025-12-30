@@ -296,17 +296,32 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 
 // hasNVIDIADevice checks if an NVIDIA GPU is present in the system
 func hasNVIDIADevice() bool {
-	// Check for NVIDIA device files
+	// Check for NVIDIA device files - this is the most reliable check
 	if _, err := os.Stat("/dev/nvidia0"); err == nil {
+		log.Println("[encoder-detect] Found /dev/nvidia0 - NVIDIA GPU present")
 		return true
 	}
-	// Check for nvidia-smi
-	if _, err := exec.LookPath("nvidia-smi"); err == nil {
-		cmd := exec.Command("nvidia-smi", "-L")
-		if err := cmd.Run(); err == nil {
-			return true
+
+	// Check for nvidia-smi and verify it actually lists a GPU
+	if smiPath, err := exec.LookPath("nvidia-smi"); err == nil {
+		cmd := exec.Command(smiPath, "-L")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("[encoder-detect] nvidia-smi -L failed: %v", err)
+			return false
 		}
+		// nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce RTX 3080 (UUID: ...)"
+		// If no GPU, it outputs nothing or an error message
+		outputStr := strings.TrimSpace(string(output))
+		if outputStr == "" || !strings.Contains(strings.ToLower(outputStr), "gpu") {
+			log.Printf("[encoder-detect] nvidia-smi found but no GPU listed: %q", outputStr)
+			return false
+		}
+		log.Printf("[encoder-detect] nvidia-smi found GPU: %s", strings.Split(outputStr, "\n")[0])
+		return true
 	}
+
+	log.Println("[encoder-detect] No NVIDIA device or nvidia-smi found")
 	return false
 }
 
