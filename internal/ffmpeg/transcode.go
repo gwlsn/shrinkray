@@ -254,17 +254,9 @@ func (t *Transcoder) Transcode(
 		scanner := bufio.NewScanner(stdout)
 		var currentProgress Progress
 		progressUpdateCount := 0
-		lineCount := 0
 
 		for scanner.Scan() {
 			line := scanner.Text()
-			lineCount++
-
-			// Log first 20 lines to see what ffmpeg is actually outputting
-			if lineCount <= 20 {
-				log.Printf("[transcode] Line %d: %s", lineCount, line)
-			}
-
 			// Progress output format: key=value
 			if idx := strings.Index(line, "="); idx > 0 {
 				key := line[:idx]
@@ -278,14 +270,12 @@ func (t *Transcoder) Transcode(
 				case "total_size":
 					currentProgress.Size, _ = strconv.ParseInt(value, 10, 64)
 				case "out_time_us":
+					// Use out_time_us exclusively - it's the most precise
+					// Don't parse out_time_ms or out_time because they come AFTER out_time_us
+					// and out_time can be "N/A" for complex files, which would overwrite
+					// the valid microseconds value with 0
 					us, _ := strconv.ParseInt(value, 10, 64)
 					currentProgress.Time = time.Duration(us) * time.Microsecond
-				case "out_time_ms":
-					ms, _ := strconv.ParseInt(value, 10, 64)
-					currentProgress.Time = time.Duration(ms) * time.Millisecond
-				case "out_time":
-					// Format: "HH:MM:SS.microseconds" e.g. "00:01:23.456789"
-					currentProgress.Time = parseOutTime(value)
 				case "bitrate":
 					// Format: "1234.5kbits/s" or "N/A"
 					if value != "N/A" {
@@ -321,21 +311,11 @@ func (t *Transcoder) Transcode(
 							}
 						}
 
-						// Log first few progress updates for debugging
-						if progressUpdateCount <= 3 {
-							log.Printf("[transcode] Progress #%d: frame=%d time=%v duration=%v percent=%.1f%% speed=%.2fx",
-								progressUpdateCount, currentProgress.Frame, currentProgress.Time, duration,
-								currentProgress.Percent, currentProgress.Speed)
-						}
-
 						// Send progress update (non-blocking)
 						select {
 						case progressCh <- currentProgress:
 						default:
-							// Channel full, log if this happens frequently
-							if progressUpdateCount%100 == 0 {
-								log.Printf("[transcode] Warning: progress channel full, update #%d dropped", progressUpdateCount)
-							}
+							// Channel full, skip this update
 						}
 					}
 				}
@@ -344,7 +324,6 @@ func (t *Transcoder) Transcode(
 		if err := scanner.Err(); err != nil {
 			log.Printf("[transcode] Scanner error: %v", err)
 		}
-		log.Printf("[transcode] Scanner finished after %d lines, %d progress updates", lineCount, progressUpdateCount)
 	}()
 
 	// Wait for ffmpeg to complete
@@ -391,44 +370,6 @@ func BuildTempPath(inputPath, tempDir string) string {
 	name := strings.TrimSuffix(base, ext)
 	tempName := fmt.Sprintf("%s.shrinkray.tmp.mkv", name)
 	return filepath.Join(tempDir, tempName)
-}
-
-// parseOutTime parses ffmpeg's out_time format "HH:MM:SS.microseconds"
-func parseOutTime(s string) time.Duration {
-	// Handle "N/A" or empty
-	if s == "" || s == "N/A" {
-		return 0
-	}
-
-	// Split on ":"
-	parts := strings.Split(s, ":")
-	if len(parts) != 3 {
-		return 0
-	}
-
-	hours, _ := strconv.ParseInt(parts[0], 10, 64)
-	minutes, _ := strconv.ParseInt(parts[1], 10, 64)
-
-	// Seconds part may have microseconds: "SS.uuuuuu"
-	secParts := strings.Split(parts[2], ".")
-	seconds, _ := strconv.ParseInt(secParts[0], 10, 64)
-	var microseconds int64
-	if len(secParts) > 1 {
-		// Pad or truncate to 6 digits for microseconds
-		usStr := secParts[1]
-		for len(usStr) < 6 {
-			usStr += "0"
-		}
-		if len(usStr) > 6 {
-			usStr = usStr[:6]
-		}
-		microseconds, _ = strconv.ParseInt(usStr, 10, 64)
-	}
-
-	return time.Duration(hours)*time.Hour +
-		time.Duration(minutes)*time.Minute +
-		time.Duration(seconds)*time.Second +
-		time.Duration(microseconds)*time.Microsecond
 }
 
 // copyFile copies a file from src to dst.

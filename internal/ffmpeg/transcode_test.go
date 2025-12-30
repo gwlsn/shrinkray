@@ -271,35 +271,6 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 	t.Logf("Keep mode: original→%s, final=%s", oldPath, finalPath)
 }
 
-func TestParseOutTime(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected time.Duration
-	}{
-		{"00:00:00.000000", 0},
-		{"00:00:01.000000", 1 * time.Second},
-		{"00:01:00.000000", 1 * time.Minute},
-		{"01:00:00.000000", 1 * time.Hour},
-		{"00:01:23.456789", 1*time.Minute + 23*time.Second + 456789*time.Microsecond},
-		{"02:30:45.123456", 2*time.Hour + 30*time.Minute + 45*time.Second + 123456*time.Microsecond},
-		{"N/A", 0},
-		{"", 0},
-		{"invalid", 0},
-		// Short microsecond padding
-		{"00:00:01.5", 1*time.Second + 500000*time.Microsecond},
-		{"00:00:01.50", 1*time.Second + 500000*time.Microsecond},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := parseOutTime(tt.input)
-			if result != tt.expected {
-				t.Errorf("parseOutTime(%q) = %v, expected %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestTranscodeErrorIsHardwareEncoderFailure(t *testing.T) {
 	tests := []struct {
 		name     string
