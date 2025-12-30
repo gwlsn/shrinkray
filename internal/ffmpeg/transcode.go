@@ -47,6 +47,51 @@ func (e *TranscodeError) Error() string {
 	return e.Message
 }
 
+// IsHardwareEncoderFailure checks if the error indicates a hardware encoder failure
+// that might succeed with a software encoder retry. Only returns true for errors
+// that are specifically related to hardware encoding initialization or execution,
+// not for general errors like corrupt input or missing files.
+func (e *TranscodeError) IsHardwareEncoderFailure() bool {
+	stderr := strings.ToLower(e.Stderr)
+
+	// Hardware encoder initialization/execution patterns
+	hwPatterns := []string{
+		// NVENC
+		"nvenc", "nvcuda", "cuda", "nvidia",
+		"openencodesessionex failed",
+		"cannot load cuda",
+		"no capable devices found",
+		// VAAPI
+		"vaapi", "va-api",
+		"failed to initialise vaapi",
+		"cannot open display",
+		"drm render node",
+		// QSV (Intel Quick Sync)
+		"qsv", "quick sync",
+		"mfxsession",
+		"no devices found",
+		// VideoToolbox
+		"videotoolbox",
+		"vt_encode",
+		// Generic hardware
+		"hardware encoder",
+		"hardware acceleration",
+		"hw accel",
+		"hwaccel",
+		"device initialization",
+		"encoder initialization failed",
+		"no encode device",
+	}
+
+	for _, pattern := range hwPatterns {
+		if strings.Contains(stderr, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // maxStderrSize is the maximum amount of stderr to capture (64KB)
 const maxStderrSize = 64 * 1024
 

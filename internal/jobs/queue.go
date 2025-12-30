@@ -194,6 +194,50 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 	return jobs, nil
 }
 
+// AddSoftwareFallback creates a new job using software encoding after a hardware
+// encoder failure. The new job references the original failed job and is marked
+// as a software fallback for visibility.
+func (q *Queue) AddSoftwareFallback(originalJob *Job, fallbackReason string) *Job {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Get the preset to determine the software encoder for this codec
+	preset := ffmpeg.GetPreset(originalJob.PresetID)
+	if preset == nil {
+		return nil
+	}
+
+	// Create a modified preset that uses software encoding
+	softwareEncoder := string(ffmpeg.HWAccelNone)
+
+	job := &Job{
+		ID:                 generateID(),
+		InputPath:          originalJob.InputPath,
+		PresetID:           originalJob.PresetID,
+		Encoder:            softwareEncoder,
+		IsHardware:         false,
+		Status:             StatusPending,
+		InputSize:          originalJob.InputSize,
+		Duration:           originalJob.Duration,
+		Bitrate:            originalJob.Bitrate,
+		CreatedAt:          time.Now(),
+		IsSoftwareFallback: true,
+		OriginalJobID:      originalJob.ID,
+		FallbackReason:     fallbackReason,
+	}
+
+	q.jobs[job.ID] = job
+	q.order = append(q.order, job.ID)
+
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	q.broadcast(JobEvent{Type: "added", Job: job})
+
+	return job
+}
+
 // Get returns a job by ID
 func (q *Queue) Get(id string) *Job {
 	q.mu.RLock()

@@ -278,6 +278,13 @@ func (w *Worker) processJob(job *Job) {
 		return
 	}
 
+	// For software fallback jobs, override the preset to use software encoding
+	if job.IsSoftwareFallback {
+		softwarePreset := *preset
+		softwarePreset.Encoder = ffmpeg.HWAccelNone
+		preset = &softwarePreset
+	}
+
 	// Build temp output path
 	tempDir := w.cfg.GetTempDir(job.InputPath)
 	tempPath := ffmpeg.BuildTempPath(job.InputPath, tempDir)
@@ -317,6 +324,26 @@ func (w *Worker) processJob(job *Job) {
 
 		// Check if we have detailed error info from the transcoder
 		if te, ok := err.(*ffmpeg.TranscodeError); ok {
+			// Check if this is a hardware encoder failure that should trigger
+			// automatic software fallback. Only fallback if:
+			// 1. This job was using hardware encoding
+			// 2. This is not already a software fallback (prevent infinite retry)
+			// 3. The error pattern indicates a hardware-specific failure
+			if job.IsHardware && !job.IsSoftwareFallback && te.IsHardwareEncoderFailure() {
+				// Create a software fallback job
+				fallbackJob := w.queue.AddSoftwareFallback(job, "Hardware encoder failed, retrying with software")
+				if fallbackJob != nil {
+					// Mark original job as failed but note the auto-retry
+					w.queue.FailJobWithDetails(job.ID, te.Message+" (auto-retrying with software encoder)", &FailJobDetails{
+						Stderr:     te.Stderr,
+						ExitCode:   te.ExitCode,
+						FFmpegArgs: te.Args,
+					})
+					return
+				}
+				// Fallback creation failed, fall through to normal failure handling
+			}
+
 			w.queue.FailJobWithDetails(job.ID, te.Message, &FailJobDetails{
 				Stderr:     te.Stderr,
 				ExitCode:   te.ExitCode,

@@ -196,3 +196,42 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildPresetArgsMuxingQueueSize(t *testing.T) {
+	// Verify -max_muxing_queue_size is present for all encoder types
+	testCases := []struct {
+		name    string
+		encoder HWAccel
+		codec   Codec
+	}{
+		{"software HEVC", HWAccelNone, CodecHEVC},
+		{"software AV1", HWAccelNone, CodecAV1},
+		{"VideoToolbox HEVC", HWAccelVideoToolbox, CodecHEVC},
+		{"NVENC HEVC", HWAccelNVENC, CodecHEVC},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			preset := &Preset{
+				ID:      "test",
+				Encoder: tc.encoder,
+				Codec:   tc.codec,
+			}
+
+			_, outputArgs := BuildPresetArgs(preset, 5000000)
+
+			found := false
+			for i, arg := range outputArgs {
+				if arg == "-max_muxing_queue_size" && i+1 < len(outputArgs) {
+					found = true
+					if outputArgs[i+1] != "4096" {
+						t.Errorf("expected queue size 4096, got %s", outputArgs[i+1])
+					}
+				}
+			}
+			if !found {
+				t.Errorf("expected -max_muxing_queue_size flag in output args: %v", outputArgs)
+			}
+		})
+	}
+}

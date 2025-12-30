@@ -41,6 +41,11 @@ type Job struct {
 	CreatedAt   time.Time `json:"created_at"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
+
+	// Software fallback fields - populated when HW encoding fails and retries with SW
+	IsSoftwareFallback bool   `json:"is_software_fallback,omitempty"` // True if this job is a SW retry
+	OriginalJobID      string `json:"original_job_id,omitempty"`      // ID of the failed HW job
+	FallbackReason     string `json:"fallback_reason,omitempty"`      // Why HW encoding failed
 }
 
 // IsTerminal returns true if the job is in a terminal state

@@ -1873,6 +1873,21 @@
                     'If you still want to convert, consider using a lower quality preset.',
                 ],
             },
+            {
+                id: 'subtitle_copy',
+                pattern: /Subtitle codec .* is not supported|Cannot convert subtitle|subtitle stream.*not supported|Subtitle encoding failed/i,
+                summary: 'A subtitle stream could not be copied to the output container.',
+                confidence: 'medium',
+                causes: [
+                    'The source has bitmap subtitles (DVD/Blu-ray) that MKV cannot remux directly.',
+                    'The subtitle format is incompatible with the output container.',
+                ],
+                steps: [
+                    'Re-run with a preset that skips subtitles, or edit the command manually.',
+                    'Consider extracting subtitles separately if you need them.',
+                    'Some subtitle formats require transcoding rather than copying.',
+                ],
+            },
         ];
 
         // Analyze error and return structured diagnosis

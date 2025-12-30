@@ -270,3 +270,61 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 
 	t.Logf("Keep mode: original→%s, final=%s", oldPath, finalPath)
 }
+
+func TestTranscodeErrorIsHardwareEncoderFailure(t *testing.T) {
+	tests := []struct {
+		name     string
+		stderr   string
+		expected bool
+	}{
+		// Should match: NVENC errors
+		{"nvenc init", "Error: Failed to initialize NVENC", true},
+		{"cuda load", "Cannot load cuda.dll", true},
+		{"nvidia device", "No NVIDIA devices found", true},
+		{"nvenc session", "OpenEncodeSessionEx failed", true},
+
+		// Should match: VAAPI errors
+		{"vaapi init", "Failed to initialise VAAPI connection", true},
+		{"vaapi device", "Cannot open DRM render node", true},
+
+		// Should match: QSV errors
+		{"qsv init", "MFXSession could not be created", true},
+		{"qsv device", "Error initializing QSV device", true},
+
+		// Should match: VideoToolbox errors
+		{"videotoolbox", "VideoToolbox encode failed", true},
+		{"vt encode", "Error in VT_encode", true},
+
+		// Should match: Generic hardware errors
+		{"hwaccel generic", "Hardware acceleration device creation failed", true},
+		{"encoder init", "Encoder initialization failed for hardware device", true},
+
+		// Should NOT match: File errors
+		{"no such file", "No such file or directory: input.mkv", false},
+		{"permission denied", "Permission denied accessing /media/video.mp4", false},
+
+		// Should NOT match: Corrupt input errors
+		{"invalid data", "Invalid data found when processing input", false},
+		{"moov atom", "moov atom not found", false},
+		{"decode error", "Error while decoding stream #0:0", false},
+
+		// Should NOT match: Other errors
+		{"disk full", "No space left on device", false},
+		{"memory", "Cannot allocate memory for filters", false},
+		{"generic error", "Conversion failed!", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := &TranscodeError{
+				Message:  "ffmpeg failed",
+				Stderr:   tt.stderr,
+				ExitCode: 1,
+			}
+			result := te.IsHardwareEncoderFailure()
+			if result != tt.expected {
+				t.Errorf("IsHardwareEncoderFailure() = %v, expected %v for stderr: %q", result, tt.expected, tt.stderr)
+			}
+		})
+	}
+}
