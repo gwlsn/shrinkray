@@ -62,8 +62,9 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-global_quality",
 		quality:     "27",
 		extraArgs:   []string{"-preset", "medium"},
-		hwaccelArgs: []string{"-hwaccel", "qsv", "-hwaccel_output_format", "qsv"},
-		scaleFilter: "scale_qsv",
+		// No hwaccelArgs - QSV hardware decode hangs on some HEVC content
+		// Encoder still uses QSV hardware, just decode is done in software
+		scaleFilter: "scale",
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:     "hevc_vaapi",
@@ -106,8 +107,9 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-global_quality",
 		quality:     "32",
 		extraArgs:   []string{"-preset", "medium"},
-		hwaccelArgs: []string{"-hwaccel", "qsv", "-hwaccel_output_format", "qsv"},
-		scaleFilter: "scale_qsv",
+		// No hwaccelArgs - QSV hardware decode hangs on some HEVC content
+		// Encoder still uses QSV hardware, just decode is done in software
+		scaleFilter: "scale",
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:     "av1_vaapi",

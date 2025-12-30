@@ -2,7 +2,7 @@ package browse
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -122,8 +122,25 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 				mu.Unlock()
 			}(entry, entryPath)
 		} else if ffmpeg.IsVideoFile(e.Name()) {
-			// Don't probe during browsing - too slow for large libraries.
-			// Probing happens when files are added to the queue.
+			// Probe video files to get codec/resolution info for UI
+			wg.Add(1)
+			go func(entry *Entry) {
+				defer wg.Done()
+				// Use independent context - don't let parent request timeout kill probes
+				probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+
+				probeResult := b.getProbeResult(probeCtx, entry.Path)
+				if probeResult != nil {
+					mu.Lock()
+					entry.VideoInfo = probeResult
+					entry.Size = probeResult.Size
+					mu.Unlock()
+				} else {
+					log.Printf("No probe result for %s", entry.Name)
+				}
+			}(entry)
+
 			mu.Lock()
 			result.VideoCount++
 			result.TotalSize += info.Size()
@@ -186,7 +203,7 @@ func (b *Browser) getProbeResult(ctx context.Context, path string) *ffmpeg.Probe
 	// Probe the file
 	result, err := b.prober.Probe(ctx, path)
 	if err != nil {
-		fmt.Printf("Probe failed for %s: %v\n", filepath.Base(path), err)
+		log.Printf("Probe failed for %s: %v", filepath.Base(path), err)
 		return nil
 	}
 
@@ -253,7 +270,11 @@ func (b *Browser) GetVideoFilesWithOptions(ctx context.Context, paths []string, 
 				wg.Add(1)
 				go func(filePath string) {
 					defer wg.Done()
-					if result := b.getProbeResult(ctx, filePath); result != nil {
+					// Use independent context per probe to prevent one hanging probe
+					// from affecting others
+					probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					if result := b.getProbeResult(probeCtx, filePath); result != nil {
 						mu.Lock()
 						results = append(results, result)
 						mu.Unlock()
@@ -264,7 +285,11 @@ func (b *Browser) GetVideoFilesWithOptions(ctx context.Context, paths []string, 
 			wg.Add(1)
 			go func(fp string) {
 				defer wg.Done()
-				if result := b.getProbeResult(ctx, fp); result != nil {
+				// Use independent context per probe to prevent one hanging probe
+				// from affecting others
+				probeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if result := b.getProbeResult(probeCtx, fp); result != nil {
 					mu.Lock()
 					results = append(results, result)
 					mu.Unlock()
