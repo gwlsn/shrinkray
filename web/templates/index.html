@@ -40,6 +40,30 @@
             --transition-normal: 250ms ease;
         }
 
+        /* Dark theme */
+        [data-theme="dark"] {
+            --bg-primary: #0F0F0F;
+            --bg-secondary: #1A1A1A;
+            --bg-tertiary: #252525;
+            --text-primary: #F5F5F5;
+            --text-secondary: #A0A0A0;
+            --text-tertiary: #6B6B6B;
+            --accent: #3B82F6;
+            --accent-hover: #60A5FA;
+            --accent-light: #1E3A5F;
+            --success: #10B981;
+            --success-light: #064E3B;
+            --warning: #F59E0B;
+            --warning-light: #78350F;
+            --error: #EF4444;
+            --error-light: #7F1D1D;
+            --border: #2E2E2E;
+            --border-hover: #404040;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+            --shadow-lg: 0 12px 32px rgba(0,0,0,0.4);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -167,6 +191,20 @@
         .menu-btn svg {
             width: 20px;
             height: 20px;
+        }
+
+        /* Theme toggle icons */
+        .theme-icon-light {
+            display: none;
+        }
+        .theme-icon-dark {
+            display: block;
+        }
+        [data-theme="dark"] .theme-icon-light {
+            display: block;
+        }
+        [data-theme="dark"] .theme-icon-dark {
+            display: none;
         }
 
         .main {
@@ -305,6 +343,9 @@
         .file-item.selected:hover {
             background: #DBEAFE;
         }
+        [data-theme="dark"] .file-item.selected:hover {
+            background: #1E40AF;
+        }
 
         .file-checkbox {
             width: 18px;
@@ -328,6 +369,10 @@
         .file-icon.folder {
             background: #FEF3C7;
             color: #D97706;
+        }
+        [data-theme="dark"] .file-icon.folder {
+            background: #78350F;
+            color: #FBBF24;
         }
 
         .file-icon.video {
@@ -575,6 +620,10 @@
             background: #F3E8FF;
             color: #7C3AED;
         }
+        [data-theme="dark"] .job-badge.initializing {
+            background: #4C1D95;
+            color: #C4B5FD;
+        }
 
         .job-badge.hardware {
             background: var(--success-light);
@@ -608,6 +657,10 @@
             background: linear-gradient(90deg, #DDD6FE 0%, #A78BFA 50%, #DDD6FE 100%);
             background-size: 200% 100%;
             animation: shimmer 2s ease-in-out infinite;
+        }
+        [data-theme="dark"] .progress-fill.initializing {
+            background: linear-gradient(90deg, #4C1D95 0%, #7C3AED 50%, #4C1D95 100%);
+            background-size: 200% 100%;
         }
 
         @keyframes shimmer {
@@ -955,6 +1008,23 @@
             display: none !important;
         }
 
+        /* 🦄 Unicorn Mode (purely cosmetic, easy to remove) */
+        [data-unicorn="true"] .header {
+            border-bottom: 2px solid transparent;
+            border-image: linear-gradient(90deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #ff6b6b) 1;
+            animation: unicorn-shift 3s linear infinite;
+        }
+        @keyframes unicorn-shift {
+            0% { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+        [data-unicorn="true"] .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        [data-unicorn="true"] .btn-primary:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+
         /* Modal */
         .modal-overlay {
             position: fixed;
@@ -1041,6 +1111,24 @@
                 </div>
             </div>
             <div class="header-right">
+                <button class="menu-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+                    <!-- Sun icon (shown in dark mode) -->
+                    <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"/>
+                        <line x1="12" y1="1" x2="12" y2="3"/>
+                        <line x1="12" y1="21" x2="12" y2="23"/>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                        <line x1="1" y1="12" x2="3" y2="12"/>
+                        <line x1="21" y1="12" x2="23" y2="12"/>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                    <!-- Moon icon (shown in light mode) -->
+                    <svg class="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
                 <button class="menu-btn" onclick="openSettings()" title="Settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -1198,6 +1286,18 @@
                         </div>
                     </div>
                 </div>
+                <div class="setting-group">
+                    <div class="setting-group-title">Fun</div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <div class="setting-name">🦄 Unicorn Mode</div>
+                            <div class="setting-desc">Purely cosmetic sparkles (easy to remove)</div>
+                        </div>
+                        <div class="setting-control">
+                            <input type="checkbox" id="setting-unicorn-mode" onchange="toggleUnicornMode(this.checked)" style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="settings-status" id="settings-status"></div>
             <div class="settings-footer">Shrinkray v<span id="app-version"></span></div>
@@ -1217,6 +1317,54 @@
     </div>
 
     <script>
+        // Theme handling
+        function getSystemTheme() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('shrinkray-theme', theme);
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            const next = current === 'dark' ? 'light' : 'dark';
+            applyTheme(next);
+        }
+
+        // Apply theme immediately to prevent flash
+        (function() {
+            const saved = localStorage.getItem('shrinkray-theme');
+            const theme = saved || getSystemTheme();
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+
+        // 🦄 Unicorn Mode (purely cosmetic, easy to remove)
+        function toggleUnicornMode(enabled) {
+            document.documentElement.setAttribute('data-unicorn', enabled);
+            localStorage.setItem('shrinkray-unicorn', enabled);
+            updateStartButtonText();
+            if (enabled) {
+                console.log('🦄✨ Unicorn Mode activated! Your transcodes are now 100% more magical ✨🦄');
+            }
+        }
+
+        function updateStartButtonText() {
+            const btn = document.getElementById('start-btn');
+            if (!btn) return;
+            const unicornEnabled = document.documentElement.getAttribute('data-unicorn') === 'true';
+            btn.textContent = unicornEnabled ? '✨ Start Magic ✨' : 'Start Transcode';
+        }
+
+        // Apply unicorn mode on load
+        (function() {
+            const unicorn = localStorage.getItem('shrinkray-unicorn') === 'true';
+            if (unicorn) {
+                document.documentElement.setAttribute('data-unicorn', 'true');
+            }
+        })();
+
         let currentPath = '';
         let selectedPaths = new Set();
         let eventSource = null;
@@ -1671,6 +1819,11 @@
                 } else {
                     notifyContainer.style.display = 'none';
                 }
+
+                // 🦄 Unicorn Mode (stored locally, not in config)
+                const unicornEnabled = localStorage.getItem('shrinkray-unicorn') === 'true';
+                document.getElementById('setting-unicorn-mode').checked = unicornEnabled;
+                updateStartButtonText();
             } catch (err) {
                 console.error('Load settings error:', err);
             }
