@@ -149,24 +149,28 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 	return result, nil
 }
 
-// countVideos counts video files in a directory (non-recursive for speed)
+// countVideos counts video files in a directory recursively
 func (b *Browser) countVideos(dirPath string) (count int, totalSize int64) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return 0, 0
-	}
-
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
 		}
-		if ffmpeg.IsVideoFile(e.Name()) {
-			count++
-			if info, err := e.Info(); err == nil {
-				totalSize += info.Size()
+		// Skip hidden files and directories
+		if strings.HasPrefix(info.Name(), ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
 			}
+			return nil
 		}
-	}
+		if info.IsDir() {
+			return nil
+		}
+		if ffmpeg.IsVideoFile(path) {
+			count++
+			totalSize += info.Size()
+		}
+		return nil
+	})
 	return count, totalSize
 }
 
