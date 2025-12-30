@@ -110,21 +110,19 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 		}
 
 		if e.IsDir() {
-			// For directories, count video files (non-recursive for speed)
-			entry.FileCount, entry.TotalSize = b.countVideos(entryPath)
-		} else if ffmpeg.IsVideoFile(e.Name()) {
-			// For video files, get probe info (with caching)
+			// Count videos in subdirectories asynchronously
 			wg.Add(1)
-			go func(entry *Entry) {
+			go func(entry *Entry, path string) {
 				defer wg.Done()
-				if probeResult := b.getProbeResult(ctx, entry.Path); probeResult != nil {
-					mu.Lock()
-					entry.VideoInfo = probeResult
-					entry.Size = probeResult.Size // Use probe size (more accurate)
-					mu.Unlock()
-				}
-			}(entry)
-
+				count, size := b.countVideos(path)
+				mu.Lock()
+				entry.FileCount = count
+				entry.TotalSize = size
+				mu.Unlock()
+			}(entry, entryPath)
+		} else if ffmpeg.IsVideoFile(e.Name()) {
+			// Don't probe during browsing - too slow for large libraries.
+			// Probing happens when files are added to the queue.
 			mu.Lock()
 			result.VideoCount++
 			result.TotalSize += info.Size()
@@ -149,28 +147,23 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 	return result, nil
 }
 
-// countVideos counts video files in a directory recursively
+// countVideos counts video files in a directory (immediate children only for speed)
 func (b *Browser) countVideos(dirPath string) (count int, totalSize int64) {
-	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip errors
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
 		}
-		// Skip hidden files and directories
-		if strings.HasPrefix(info.Name(), ".") {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if ffmpeg.IsVideoFile(path) {
+		if ffmpeg.IsVideoFile(e.Name()) {
 			count++
-			totalSize += info.Size()
+			if info, err := e.Info(); err == nil {
+				totalSize += info.Size()
+			}
 		}
-		return nil
-	})
+	}
 	return count, totalSize
 }
 
