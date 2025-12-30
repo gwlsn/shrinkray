@@ -451,6 +451,28 @@
             flex-shrink: 0;
         }
 
+        .subfolder-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .subfolder-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .subfolder-toggle input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
         .preset-select {
             padding: 10px 14px;
             border: 1px solid var(--border);
@@ -1254,6 +1276,10 @@
                         <select class="preset-select" id="preset-select" onchange="onPresetChange()">
                             <option value="compress-hevc">Compress (HEVC)</option>
                         </select>
+                        <label class="subfolder-toggle" title="When enabled, selecting a folder will include all video files from its subfolders">
+                            <input type="checkbox" id="include-subfolders" checked>
+                            <span>Include subfolders</span>
+                        </label>
                         <button class="btn btn-primary" onclick="startJobs()" id="start-btn" disabled>Start Transcode</button>
                         <span class="selection-count" id="selection-summary"></span>
                     </div>
@@ -1682,6 +1708,7 @@
 
             try {
                 const preset = document.getElementById('preset-select').value;
+                const includeSubfolders = document.getElementById('include-subfolders').checked;
                 const pathCount = selectedPaths.size;
 
                 const resp = await fetch('/api/jobs', {
@@ -1689,7 +1716,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         paths: Array.from(selectedPaths),
-                        preset_id: preset
+                        preset_id: preset,
+                        include_subfolders: includeSubfolders
                     })
                 });
                 const data = await resp.json();

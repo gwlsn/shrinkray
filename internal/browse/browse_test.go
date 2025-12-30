@@ -215,3 +215,227 @@ func TestCaching(t *testing.T) {
 
 	t.Logf("Third probe (after cache clear): %v", thirdDuration)
 }
+
+// TestDiscoverMediaFiles tests the recursive file discovery with depth control
+func TestDiscoverMediaFiles(t *testing.T) {
+	// Create a test directory structure:
+	// root/
+	//   a.mp4
+	//   b.txt
+	//   sub1/
+	//     c.mkv
+	//     sub2/
+	//       d.mp4
+	//   .hidden/
+	//     e.mp4
+
+	tmpDir := t.TempDir()
+
+	// Create directories
+	sub1 := filepath.Join(tmpDir, "sub1")
+	sub2 := filepath.Join(sub1, "sub2")
+	hidden := filepath.Join(tmpDir, ".hidden")
+
+	for _, dir := range []string{sub1, sub2, hidden} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("failed to create dir %s: %v", dir, err)
+		}
+	}
+
+	// Create test files
+	files := map[string]string{
+		filepath.Join(tmpDir, "a.mp4"):   "video",
+		filepath.Join(tmpDir, "b.txt"):   "text",
+		filepath.Join(sub1, "c.mkv"):     "video",
+		filepath.Join(sub2, "d.mp4"):     "video",
+		filepath.Join(hidden, "e.mp4"):   "video in hidden dir",
+	}
+
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to create file %s: %v", path, err)
+		}
+	}
+
+	// Test cases
+	tests := []struct {
+		name      string
+		recursive bool
+		maxDepth  *int
+		want      []string // expected file names (not full paths)
+	}{
+		{
+			name:      "recursion off - only root files",
+			recursive: false,
+			maxDepth:  nil,
+			want:      []string{"a.mp4"},
+		},
+		{
+			name:      "recursion on - unlimited depth",
+			recursive: true,
+			maxDepth:  nil,
+			want:      []string{"a.mp4", "c.mkv", "d.mp4"},
+		},
+		{
+			name:      "recursion on - maxDepth 0 (same as recursion off)",
+			recursive: true,
+			maxDepth:  intPtr(0),
+			want:      []string{"a.mp4"},
+		},
+		{
+			name:      "recursion on - maxDepth 1 (root + one level)",
+			recursive: true,
+			maxDepth:  intPtr(1),
+			want:      []string{"a.mp4", "c.mkv"},
+		},
+		{
+			name:      "recursion on - maxDepth 2 (all levels)",
+			recursive: true,
+			maxDepth:  intPtr(2),
+			want:      []string{"a.mp4", "c.mkv", "d.mp4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			paths, err := DiscoverMediaFiles(tmpDir, tt.recursive, tt.maxDepth)
+			if err != nil {
+				t.Fatalf("DiscoverMediaFiles failed: %v", err)
+			}
+
+			// Extract just file names for comparison
+			var gotNames []string
+			for _, p := range paths {
+				gotNames = append(gotNames, filepath.Base(p))
+			}
+
+			if len(gotNames) != len(tt.want) {
+				t.Errorf("got %d files %v, want %d files %v", len(gotNames), gotNames, len(tt.want), tt.want)
+				return
+			}
+
+			for i, name := range tt.want {
+				if gotNames[i] != name {
+					t.Errorf("at index %d: got %s, want %s", i, gotNames[i], name)
+				}
+			}
+		})
+	}
+}
+
+// TestDiscoverMediaFilesStableSort tests that results are sorted consistently
+func TestDiscoverMediaFilesStableSort(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files with names that would sort differently lexically
+	fileNames := []string{"z.mp4", "a.mp4", "m.mp4", "b.mkv"}
+	for _, name := range fileNames {
+		path := filepath.Join(tmpDir, name)
+		if err := os.WriteFile(path, []byte("video"), 0644); err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+	}
+
+	// Run multiple times to verify consistent ordering
+	for i := 0; i < 3; i++ {
+		paths, err := DiscoverMediaFiles(tmpDir, false, nil)
+		if err != nil {
+			t.Fatalf("DiscoverMediaFiles failed: %v", err)
+		}
+
+		expected := []string{"a.mp4", "b.mkv", "m.mp4", "z.mp4"}
+		for j, p := range paths {
+			if filepath.Base(p) != expected[j] {
+				t.Errorf("run %d: at index %d got %s, want %s", i, j, filepath.Base(p), expected[j])
+			}
+		}
+	}
+}
+
+// TestDiscoverMediaFilesNonexistent tests error handling for nonexistent directories
+func TestDiscoverMediaFilesNonexistent(t *testing.T) {
+	_, err := DiscoverMediaFiles("/nonexistent/path/that/does/not/exist", true, nil)
+	if err == nil {
+		t.Error("expected error for nonexistent directory, got nil")
+	}
+}
+
+// TestDiscoverMediaFilesHiddenFiles tests that hidden files are skipped
+func TestDiscoverMediaFilesHiddenFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create normal and hidden files
+	files := []string{
+		filepath.Join(tmpDir, "normal.mp4"),
+		filepath.Join(tmpDir, ".hidden.mp4"),
+	}
+
+	for _, f := range files {
+		if err := os.WriteFile(f, []byte("video"), 0644); err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+	}
+
+	paths, err := DiscoverMediaFiles(tmpDir, false, nil)
+	if err != nil {
+		t.Fatalf("DiscoverMediaFiles failed: %v", err)
+	}
+
+	if len(paths) != 1 {
+		t.Errorf("expected 1 file, got %d", len(paths))
+	}
+
+	if len(paths) > 0 && filepath.Base(paths[0]) != "normal.mp4" {
+		t.Errorf("expected normal.mp4, got %s", filepath.Base(paths[0]))
+	}
+}
+
+// TestGetVideoFilesWithOptions tests the full flow with options
+func TestGetVideoFilesWithOptions(t *testing.T) {
+	// Create a test directory structure
+	tmpDir := t.TempDir()
+
+	sub1 := filepath.Join(tmpDir, "sub1")
+	if err := os.MkdirAll(sub1, 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+
+	// Create video files
+	rootVideo := filepath.Join(tmpDir, "root.mp4")
+	subVideo := filepath.Join(sub1, "sub.mkv")
+
+	for _, f := range []string{rootVideo, subVideo} {
+		if err := os.WriteFile(f, []byte("fake video"), 0644); err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+	}
+
+	prober := ffmpeg.NewProber("ffprobe")
+	browser := NewBrowser(prober, tmpDir)
+
+	ctx := context.Background()
+
+	// Test with recursion off - should only find root video
+	opts := GetVideoFilesOptions{Recursive: false}
+	results, err := browser.GetVideoFilesWithOptions(ctx, []string{tmpDir}, opts)
+	if err != nil {
+		t.Fatalf("GetVideoFilesWithOptions failed: %v", err)
+	}
+
+	// Note: We can't test exact count here since ffprobe may fail on fake files,
+	// but the discovery logic is tested in TestDiscoverMediaFiles
+	t.Logf("Found %d video files with recursion off", len(results))
+
+	// Test with recursion on
+	opts = GetVideoFilesOptions{Recursive: true}
+	results, err = browser.GetVideoFilesWithOptions(ctx, []string{tmpDir}, opts)
+	if err != nil {
+		t.Fatalf("GetVideoFilesWithOptions failed: %v", err)
+	}
+	t.Logf("Found %d video files with recursion on", len(results))
+}
+
+// intPtr is a helper to create an int pointer for tests
+func intPtr(i int) *int {
+	return &i
+}

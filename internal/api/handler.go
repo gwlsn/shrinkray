@@ -89,8 +89,10 @@ func (h *Handler) Encoders(w http.ResponseWriter, r *http.Request) {
 
 // CreateJobsRequest is the request body for creating jobs
 type CreateJobsRequest struct {
-	Paths    []string `json:"paths"`
-	PresetID string   `json:"preset_id"`
+	Paths             []string `json:"paths"`
+	PresetID          string   `json:"preset_id"`
+	IncludeSubfolders *bool    `json:"include_subfolders,omitempty"` // Default: true (for backwards compatibility)
+	MaxDepth          *int     `json:"max_depth,omitempty"`          // nil = unlimited, 0 = current dir only, 1 = one level, etc.
 }
 
 // CreateJobs handles POST /api/jobs
@@ -124,8 +126,18 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
+		// Build options for video file discovery
+		// Default to recursive for backwards compatibility
+		opts := browse.GetVideoFilesOptions{
+			Recursive: true,
+			MaxDepth:  req.MaxDepth,
+		}
+		if req.IncludeSubfolders != nil {
+			opts.Recursive = *req.IncludeSubfolders
+		}
+
 		// Get all video files (this is the slow part - probing with ffprobe)
-		probes, err := h.browser.GetVideoFiles(ctx, req.Paths)
+		probes, err := h.browser.GetVideoFilesWithOptions(ctx, req.Paths, opts)
 		if err != nil {
 			fmt.Printf("Error getting video files: %v\n", err)
 			return

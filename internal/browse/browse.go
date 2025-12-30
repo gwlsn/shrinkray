@@ -194,9 +194,29 @@ func (b *Browser) getProbeResult(ctx context.Context, path string) *ffmpeg.Probe
 	return result
 }
 
+// GetVideoFilesOptions controls how directories are traversed when finding video files
+type GetVideoFilesOptions struct {
+	// Recursive controls whether to search subdirectories.
+	// If false, only files in the immediate directory are included.
+	Recursive bool
+
+	// MaxDepth limits how deep to recurse into subdirectories.
+	// nil means unlimited depth.
+	// 0 means only the current directory (same as Recursive=false).
+	// 1 means current directory plus one level of subdirectories.
+	// Only used when Recursive is true.
+	MaxDepth *int
+}
+
 // GetVideoFiles returns all video files in the given paths (files or directories)
-// For directories, it recursively finds all video files
+// For directories, it recursively finds all video files (backwards-compatible version)
 func (b *Browser) GetVideoFiles(ctx context.Context, paths []string) ([]*ffmpeg.ProbeResult, error) {
+	// Default to recursive with unlimited depth for backwards compatibility
+	return b.GetVideoFilesWithOptions(ctx, paths, GetVideoFilesOptions{Recursive: true, MaxDepth: nil})
+}
+
+// GetVideoFilesWithOptions returns all video files in the given paths with recursion control
+func (b *Browser) GetVideoFilesWithOptions(ctx context.Context, paths []string, opts GetVideoFilesOptions) ([]*ffmpeg.ProbeResult, error) {
 	var results []*ffmpeg.ProbeResult
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -219,32 +239,22 @@ func (b *Browser) GetVideoFiles(ctx context.Context, paths []string) ([]*ffmpeg.
 		}
 
 		if info.IsDir() {
-			// Recursively find video files
-			err := filepath.Walk(cleanPath, func(filePath string, info os.FileInfo, err error) error {
-				if err != nil {
-					return nil // Skip errors
-				}
-				if info.IsDir() {
-					return nil
-				}
-				if !ffmpeg.IsVideoFile(filePath) {
-					return nil
-				}
+			// Find video files with recursion control
+			videoPaths, err := b.discoverMediaFiles(cleanPath, opts.Recursive, opts.MaxDepth)
+			if err != nil {
+				return nil, err
+			}
 
+			for _, fp := range videoPaths {
 				wg.Add(1)
-				go func(fp string) {
+				go func(filePath string) {
 					defer wg.Done()
-					if result := b.getProbeResult(ctx, fp); result != nil {
+					if result := b.getProbeResult(ctx, filePath); result != nil {
 						mu.Lock()
 						results = append(results, result)
 						mu.Unlock()
 					}
-				}(filePath)
-
-				return nil
-			})
-			if err != nil {
-				return nil, err
+				}(fp)
 			}
 		} else if ffmpeg.IsVideoFile(cleanPath) {
 			wg.Add(1)
@@ -267,6 +277,93 @@ func (b *Browser) GetVideoFiles(ctx context.Context, paths []string) ([]*ffmpeg.
 	})
 
 	return results, nil
+}
+
+// discoverMediaFiles finds all video files in a directory with recursion control.
+// If recursive is false, only files in the immediate directory are returned.
+// If maxDepth is set, it limits how deep to recurse (0 = current only, 1 = one level, nil = unlimited).
+// Returns paths sorted for deterministic ordering.
+func (b *Browser) discoverMediaFiles(root string, recursive bool, maxDepth *int) ([]string, error) {
+	var paths []string
+
+	// Verify the directory exists
+	if _, err := os.Stat(root); err != nil {
+		return nil, err
+	}
+
+	// If not recursive, just read the immediate directory
+	if !recursive || (maxDepth != nil && *maxDepth == 0) {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			// Skip hidden files
+			if strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			filePath := filepath.Join(root, e.Name())
+			if ffmpeg.IsVideoFile(filePath) {
+				paths = append(paths, filePath)
+			}
+		}
+		sort.Strings(paths)
+		return paths, nil
+	}
+
+	// Recursive walk with optional depth limit
+	err := filepath.Walk(root, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Skip hidden files and directories
+		if strings.HasPrefix(info.Name(), ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check depth limit if set
+		if maxDepth != nil && info.IsDir() && filePath != root {
+			// Calculate depth relative to root
+			relPath, err := filepath.Rel(root, filePath)
+			if err == nil {
+				depth := len(strings.Split(relPath, string(filepath.Separator)))
+				if depth > *maxDepth {
+					return filepath.SkipDir
+				}
+			}
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if ffmpeg.IsVideoFile(filePath) {
+			paths = append(paths, filePath)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// DiscoverMediaFiles is a public wrapper for discovering media files with recursion control.
+// This is useful for testing and direct access from other packages.
+func DiscoverMediaFiles(root string, recursive bool, maxDepth *int) ([]string, error) {
+	// Create a temporary browser just for discovery (no prober or media root needed for this)
+	b := &Browser{mediaRoot: root}
+	return b.discoverMediaFiles(root, recursive, maxDepth)
 }
 
 // ClearCache clears the probe cache (useful after transcoding completes)
