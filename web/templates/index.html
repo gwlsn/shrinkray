@@ -1883,6 +1883,21 @@
                 ],
             },
             {
+                id: 'already_target_codec',
+                pattern: /already encoded in (AV1|HEVC)/i,
+                summary: 'The file is already encoded in the target codec.',
+                confidence: 'high',
+                causes: [
+                    'The source file is already using the same codec as the selected preset.',
+                    'Re-encoding would not provide any compression benefits.',
+                ],
+                steps: [
+                    'No action needed - your file is already optimally encoded.',
+                    'If you want to reduce the file size further, try a lower quality preset.',
+                    'Consider using a different codec preset if you need to re-encode.',
+                ],
+            },
+            {
                 id: 'subtitle_copy',
                 pattern: /Subtitle codec .* is not supported|Cannot convert subtitle|subtitle stream.*not supported|Subtitle encoding failed/i,
                 summary: 'A subtitle stream could not be copied to the output container.',
