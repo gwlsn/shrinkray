@@ -2079,14 +2079,16 @@
             return `${s}s`;
         }
 
-        async function browse(path = '') {
+        async function browse(path = '', preserveSelections = false) {
             try {
                 const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
                 const resp = await fetch(url);
                 const data = await resp.json();
 
                 currentPath = data.path;
-                selectedPaths.clear();
+                if (!preserveSelections) {
+                    selectedPaths.clear();
+                }
                 updateButtons();
 
                 // Update breadcrumb
@@ -2152,8 +2154,9 @@
                         metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span><span>${vi.width}x${vi.height}</span>`;
                     }
 
-                    return `<li class="file-item" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
-                        ${isSelectable ? `<input type="checkbox" class="file-checkbox" onclick="handleCheckbox(this, event)" data-path="${entry.path}">` : '<div style="width: 18px"></div>'}
+                    const isSelected = selectedPaths.has(entry.path);
+                    return `<li class="file-item${isSelected ? ' selected' : ''}" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
+                        ${isSelectable ? `<input type="checkbox" class="file-checkbox" onclick="handleCheckbox(this, event)" data-path="${entry.path}"${isSelected ? ' checked' : ''}>` : '<div style="width: 18px"></div>'}
                         <div class="file-icon ${iconClass}">${icon}</div>
                         <div class="file-info">
                             <div class="file-name">${entry.name}</div>
@@ -2670,7 +2673,8 @@
                     // Full refresh for structural changes (complete, failed, cancelled, etc.)
                     refreshJobs();
                     if (data.type === 'complete' || data.type === 'failed') {
-                        browse(currentPath);
+                        // Refresh file list to update metadata, but preserve selections
+                        browse(currentPath, true);
                     }
                 }
             };
