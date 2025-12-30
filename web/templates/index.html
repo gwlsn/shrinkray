@@ -2454,7 +2454,8 @@
                     }
 
                     const isSelected = selectedPaths.has(entry.path);
-                    return `<li class="file-item${isSelected ? ' selected' : ''}" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
+                    const dblClickHandler = entry.is_dir ? ' ondblclick="handleFolderDoubleClick(this, event)"' : '';
+                    return `<li class="file-item${isSelected ? ' selected' : ''}" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)"${dblClickHandler}>
                         ${isSelectable ? `<input type="checkbox" class="file-checkbox" onclick="handleCheckbox(this, event)" data-path="${entry.path}"${isSelected ? ' checked' : ''}>` : '<div style="width: 18px"></div>'}
                         <div class="file-icon ${iconClass}">${icon}</div>
                         <div class="file-info">
@@ -2490,11 +2491,27 @@
 
             const path = el.dataset.path;
             const isDir = el.dataset.isDir === 'true';
+            const checkbox = el.querySelector('.file-checkbox');
 
             if (isDir) {
-                browse(path);
+                // If folder has a checkbox (has videos), single click selects it
+                // Double click navigates into it
+                if (checkbox) {
+                    checkbox.checked = !checkbox.checked;
+                    if (checkbox.checked) {
+                        selectedPaths.add(path);
+                        el.classList.add('selected');
+                    } else {
+                        selectedPaths.delete(path);
+                        el.classList.remove('selected');
+                    }
+                    updateButtons();
+                } else {
+                    // Folder has no videos, navigate into it
+                    browse(path);
+                }
             } else {
-                const checkbox = el.querySelector('.file-checkbox');
+                // File: toggle selection
                 if (checkbox) {
                     checkbox.checked = !checkbox.checked;
                     if (checkbox.checked) {
@@ -2507,6 +2524,11 @@
                     updateButtons();
                 }
             }
+        }
+
+        function handleFolderDoubleClick(el, event) {
+            const path = el.dataset.path;
+            browse(path);
         }
 
         function toggleSelectAll(checkbox) {
