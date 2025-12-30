@@ -308,6 +308,67 @@ func (b *Browser) GetVideoFilesWithOptions(ctx context.Context, paths []string, 
 	return results, nil
 }
 
+// DiscoveredFile contains minimal file info for deferred probing
+type DiscoveredFile struct {
+	Path string
+	Size int64
+}
+
+// DiscoverVideoFiles discovers video files without probing them.
+// Returns file paths and sizes quickly - full probe data is obtained later.
+// This is used for deferred probing mode to make job creation instant.
+func (b *Browser) DiscoverVideoFiles(ctx context.Context, paths []string, opts GetVideoFilesOptions) ([]DiscoveredFile, error) {
+	var results []DiscoveredFile
+
+	for _, path := range paths {
+		// Convert to absolute path for consistent comparisons
+		cleanPath, err := filepath.Abs(path)
+		if err != nil {
+			cleanPath = filepath.Clean(path)
+		}
+
+		// Ensure path is within media root
+		if !strings.HasPrefix(cleanPath, b.mediaRoot) {
+			continue
+		}
+
+		info, err := os.Stat(cleanPath)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			// Find video files with recursion control
+			videoPaths, err := b.discoverMediaFiles(cleanPath, opts.Recursive, opts.MaxDepth)
+			if err != nil {
+				return nil, err
+			}
+
+			// Get file sizes for each discovered file
+			for _, fp := range videoPaths {
+				if finfo, err := os.Stat(fp); err == nil {
+					results = append(results, DiscoveredFile{
+						Path: fp,
+						Size: finfo.Size(),
+					})
+				}
+			}
+		} else if ffmpeg.IsVideoFile(cleanPath) {
+			results = append(results, DiscoveredFile{
+				Path: cleanPath,
+				Size: info.Size(),
+			})
+		}
+	}
+
+	// Sort by path for consistent ordering
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Path < results[j].Path
+	})
+
+	return results, nil
+}
+
 // discoverMediaFiles finds all video files in a directory with recursion control.
 // If recursive is false, only files in the immediate directory are returned.
 // If maxDepth is set, it limits how deep to recurse (0 = current only, 1 = one level, nil = unlimited).

@@ -142,19 +142,46 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 			opts.Recursive = *req.IncludeSubfolders
 		}
 
-		// Get all video files (this is the slow part - probing with ffprobe)
-		probes, err := h.browser.GetVideoFilesWithOptions(ctx, req.Paths, opts)
-		if err != nil {
-			fmt.Printf("Error getting video files: %v\n", err)
-			return
-		}
+		// Check if deferred probing is enabled
+		if h.cfg.Features.DeferredProbing {
+			// Streaming discovery: add jobs immediately without probing
+			// Files are probed by workers when they pick up the job
+			files, err := h.browser.DiscoverVideoFiles(ctx, req.Paths, opts)
+			if err != nil {
+				fmt.Printf("Error discovering video files: %v\n", err)
+				return
+			}
 
-		if len(probes) == 0 {
-			return
-		}
+			if len(files) == 0 {
+				return
+			}
 
-		// Add jobs to queue - SSE will notify frontend of new jobs
-		h.queue.AddMultiple(probes, req.PresetID)
+			// Convert to FileInfo for queue
+			fileInfos := make([]jobs.FileInfo, len(files))
+			for i, f := range files {
+				fileInfos[i] = jobs.FileInfo{
+					Path: f.Path,
+					Size: f.Size,
+				}
+			}
+
+			// Add jobs in pending_probe status - SSE will notify frontend
+			h.queue.AddMultipleWithoutProbe(fileInfos, req.PresetID)
+		} else {
+			// Original behavior: probe all files first (slower but complete info)
+			probes, err := h.browser.GetVideoFilesWithOptions(ctx, req.Paths, opts)
+			if err != nil {
+				fmt.Printf("Error getting video files: %v\n", err)
+				return
+			}
+
+			if len(probes) == 0 {
+				return
+			}
+
+			// Add jobs to queue - SSE will notify frontend of new jobs
+			h.queue.AddMultiple(probes, req.PresetID)
+		}
 	}()
 }
 
@@ -229,15 +256,23 @@ func (h *Handler) ClearQueue(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	// Return a sanitized config (no sensitive paths exposed)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"version":               shrinkray.Version,
-		"media_path":            h.cfg.MediaPath,
-		"original_handling":     h.cfg.OriginalHandling,
-		"workers":               h.cfg.Workers,
-		"has_temp_path":         h.cfg.TempPath != "",
-		"pushover_user_key":     h.cfg.PushoverUserKey,
-		"pushover_app_token":    h.cfg.PushoverAppToken,
-		"pushover_configured":   h.pushover.IsConfigured(),
-		"notify_on_complete":    h.cfg.NotifyOnComplete,
+		"version":             shrinkray.Version,
+		"media_path":          h.cfg.MediaPath,
+		"original_handling":   h.cfg.OriginalHandling,
+		"workers":             h.cfg.Workers,
+		"has_temp_path":       h.cfg.TempPath != "",
+		"pushover_user_key":   h.cfg.PushoverUserKey,
+		"pushover_app_token":  h.cfg.PushoverAppToken,
+		"pushover_configured": h.pushover.IsConfigured(),
+		"notify_on_complete":  h.cfg.NotifyOnComplete,
+		// Feature flags for frontend
+		"features": map[string]bool{
+			"virtual_scroll":   h.cfg.Features.VirtualScroll,
+			"deferred_probing": h.cfg.Features.DeferredProbing,
+			"paginated_init":   h.cfg.Features.PaginatedInit,
+			"batched_sse":      h.cfg.Features.BatchedSSE,
+			"delta_progress":   h.cfg.Features.DeltaProgress,
+		},
 	})
 }
 

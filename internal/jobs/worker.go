@@ -272,6 +272,34 @@ func (w *Worker) processJob(job *Job) {
 		w.currentJobMu.Unlock()
 	}()
 
+	// If job needs probing (deferred probing mode), probe it first
+	if job.NeedsProbe() {
+		log.Printf("[worker-%d] Probing pending_probe job %s: %s", w.id, job.ID, job.InputPath)
+
+		probe, err := w.prober.Probe(jobCtx, job.InputPath)
+		if err != nil {
+			w.queue.FailJob(job.ID, fmt.Sprintf("probe failed: %v", err))
+			return
+		}
+
+		// Update job with probe results (this may fail the job if skip reason found)
+		if err := w.queue.UpdateJobAfterProbe(job.ID, probe); err != nil {
+			log.Printf("[worker-%d] Failed to update job after probe: %v", w.id, err)
+			return
+		}
+
+		// Re-fetch the job to get updated state
+		job = w.queue.Get(job.ID)
+		if job == nil || job.Status != StatusPending {
+			// Job was skipped or no longer workable
+			return
+		}
+
+		// Update local job reference with probe data
+		log.Printf("[worker-%d] Job %s probed successfully: duration=%dms bitrate=%d",
+			w.id, job.ID, job.Duration, job.Bitrate)
+	}
+
 	// Get the preset
 	preset := ffmpeg.GetPreset(job.PresetID)
 	if preset == nil {

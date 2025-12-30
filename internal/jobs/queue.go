@@ -260,6 +260,151 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 	return allJobs, nil
 }
 
+// AddWithoutProbe adds a job in pending_probe status for deferred probing.
+// The job will be probed by a worker when picked up for processing.
+// This enables streaming discovery: files are added immediately without waiting for ffprobe.
+func (q *Queue) AddWithoutProbe(inputPath string, presetID string, fileSize int64) (*Job, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Look up preset to get encoder info
+	preset := ffmpeg.GetPreset(presetID)
+	encoder := string(ffmpeg.HWAccelNone)
+	isHardware := false
+	if preset != nil {
+		encoder = string(preset.Encoder)
+		isHardware = preset.Encoder != ffmpeg.HWAccelNone
+	}
+
+	job := &Job{
+		ID:         generateID(),
+		InputPath:  inputPath,
+		PresetID:   presetID,
+		Encoder:    encoder,
+		IsHardware: isHardware,
+		Status:     StatusPendingProbe, // Will be probed when worker picks it up
+		InputSize:  fileSize,           // File size is known from directory listing
+		Duration:   0,                   // Will be populated after probe
+		Bitrate:    0,                   // Will be populated after probe
+		CreatedAt:  time.Now(),
+	}
+
+	q.jobs[job.ID] = job
+	q.order = append(q.order, job.ID)
+
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	q.broadcast(JobEvent{Type: "added", Job: job})
+
+	return job, nil
+}
+
+// AddMultipleWithoutProbe adds multiple jobs in pending_probe status as a batch.
+// Files are added immediately without waiting for ffprobe - probing happens when
+// workers pick them up. Returns the created jobs.
+func (q *Queue) AddMultipleWithoutProbe(files []FileInfo, presetID string) []*Job {
+	q.mu.Lock()
+
+	preset := ffmpeg.GetPreset(presetID)
+	encoder := string(ffmpeg.HWAccelNone)
+	isHardware := false
+	if preset != nil {
+		encoder = string(preset.Encoder)
+		isHardware = preset.Encoder != ffmpeg.HWAccelNone
+	}
+
+	jobs := make([]*Job, 0, len(files))
+	for _, f := range files {
+		job := &Job{
+			ID:         generateID(),
+			InputPath:  f.Path,
+			PresetID:   presetID,
+			Encoder:    encoder,
+			IsHardware: isHardware,
+			Status:     StatusPendingProbe,
+			InputSize:  f.Size,
+			Duration:   0,
+			Bitrate:    0,
+			CreatedAt:  time.Now(),
+		}
+
+		q.jobs[job.ID] = job
+		q.order = append(q.order, job.ID)
+		jobs = append(jobs, job)
+	}
+
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	q.mu.Unlock()
+
+	// Broadcast batch event
+	if len(jobs) > 0 {
+		q.broadcast(JobEvent{Type: "batch_added", Jobs: jobs})
+	}
+
+	return jobs
+}
+
+// FileInfo contains minimal info for deferred probing
+type FileInfo struct {
+	Path string
+	Size int64
+}
+
+// UpdateJobAfterProbe updates a pending_probe job with probe results.
+// Called by worker after probing the file. Changes status to pending (or failed if skip).
+func (q *Queue) UpdateJobAfterProbe(id string, probe *ffmpeg.ProbeResult) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		return fmt.Errorf("job not found: %s", id)
+	}
+
+	if job.Status != StatusPendingProbe {
+		return fmt.Errorf("job not in pending_probe status: %s", job.Status)
+	}
+
+	// Update job with probe results
+	job.Duration = probe.Duration.Milliseconds()
+	job.Bitrate = probe.Bitrate
+	job.InputSize = probe.Size
+
+	// Check if file should be skipped
+	preset := ffmpeg.GetPreset(job.PresetID)
+	var skipReason string
+	if preset != nil {
+		skipReason = checkSkipReason(probe, preset)
+	}
+
+	if skipReason != "" {
+		job.Status = StatusFailed
+		job.Error = skipReason
+		job.CompletedAt = time.Now()
+	} else {
+		job.Status = StatusPending
+	}
+
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	// Broadcast appropriate event
+	if skipReason != "" {
+		q.broadcast(JobEvent{Type: "failed", Job: job})
+	} else {
+		// Use a "probed" event type so frontend can update job details
+		q.broadcast(JobEvent{Type: "probed", Job: job})
+	}
+
+	return nil
+}
+
 // Fallback rate limit constants
 const (
 	fallbackRateLimitWindow = 5 * time.Minute // Time window for rate limiting
@@ -352,20 +497,22 @@ func (q *Queue) GetAll() []*Job {
 	return jobs
 }
 
-// GetNext returns the next pending job (for workers to pick up)
+// GetNext returns the next workable job (pending_probe or pending) for workers to pick up.
+// Jobs with pending_probe status need to be probed first by the worker.
 func (q *Queue) GetNext() *Job {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	for _, id := range q.order {
-		if job, ok := q.jobs[id]; ok && job.Status == StatusPending {
+		if job, ok := q.jobs[id]; ok && job.IsWorkable() {
 			return job
 		}
 	}
 	return nil
 }
 
-// StartJob marks a job as running
+// StartJob marks a job as running.
+// Accepts jobs in pending or pending_probe status.
 func (q *Queue) StartJob(id string, tempPath string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -375,8 +522,8 @@ func (q *Queue) StartJob(id string, tempPath string) error {
 		return fmt.Errorf("job not found: %s", id)
 	}
 
-	if job.Status != StatusPending {
-		return fmt.Errorf("job not pending: %s", job.Status)
+	if !job.IsWorkable() {
+		return fmt.Errorf("job not workable: %s", job.Status)
 	}
 
 	job.Status = StatusRunning
@@ -606,13 +753,14 @@ func (q *Queue) broadcast(event JobEvent) {
 
 // Stats returns queue statistics
 type Stats struct {
-	Pending   int   `json:"pending"`
-	Running   int   `json:"running"`
-	Complete  int   `json:"complete"`
-	Failed    int   `json:"failed"`
-	Cancelled int   `json:"cancelled"`
-	Total     int   `json:"total"`
-	TotalSaved int64 `json:"total_saved"` // Total bytes saved by completed jobs
+	PendingProbe int   `json:"pending_probe"` // Awaiting probe (deferred probing)
+	Pending      int   `json:"pending"`
+	Running      int   `json:"running"`
+	Complete     int   `json:"complete"`
+	Failed       int   `json:"failed"`
+	Cancelled    int   `json:"cancelled"`
+	Total        int   `json:"total"`
+	TotalSaved   int64 `json:"total_saved"` // Total bytes saved by completed jobs
 }
 
 func (q *Queue) Stats() Stats {
@@ -623,6 +771,8 @@ func (q *Queue) Stats() Stats {
 	for _, job := range q.jobs {
 		stats.Total++
 		switch job.Status {
+		case StatusPendingProbe:
+			stats.PendingProbe++
 		case StatusPending:
 			stats.Pending++
 		case StatusRunning:

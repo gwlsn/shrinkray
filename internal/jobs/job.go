@@ -8,11 +8,12 @@ import (
 type Status string
 
 const (
-	StatusPending   Status = "pending"
-	StatusRunning   Status = "running"
-	StatusComplete  Status = "complete"
-	StatusFailed    Status = "failed"
-	StatusCancelled Status = "cancelled"
+	StatusPendingProbe Status = "pending_probe" // File discovered but not probed yet
+	StatusPending      Status = "pending"       // Probed and ready to process
+	StatusRunning      Status = "running"
+	StatusComplete     Status = "complete"
+	StatusFailed       Status = "failed"
+	StatusCancelled    Status = "cancelled"
 )
 
 // Job represents a transcoding job
@@ -53,9 +54,19 @@ func (j *Job) IsTerminal() bool {
 	return j.Status == StatusComplete || j.Status == StatusFailed || j.Status == StatusCancelled
 }
 
+// IsWorkable returns true if the job can be picked up by a worker
+func (j *Job) IsWorkable() bool {
+	return j.Status == StatusPendingProbe || j.Status == StatusPending
+}
+
+// NeedsProbe returns true if the job needs to be probed before processing
+func (j *Job) NeedsProbe() bool {
+	return j.Status == StatusPendingProbe
+}
+
 // JobEvent represents an event for SSE streaming
 type JobEvent struct {
-	Type string `json:"type"` // "added", "batch_added", "started", "progress", "complete", "failed", "cancelled"
+	Type string `json:"type"` // "added", "batch_added", "probed", "started", "progress", "complete", "failed", "cancelled"
 	Job  *Job   `json:"job,omitempty"`
 
 	// Batch of jobs - used for "batch_added" event to reduce SSE event flood
