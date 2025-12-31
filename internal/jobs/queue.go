@@ -13,10 +13,11 @@ import (
 
 // Queue manages the job queue with persistence
 type Queue struct {
-	mu       sync.RWMutex
-	jobs     map[string]*Job
-	order    []string // Job IDs in order of creation
-	filePath string   // Path to persistence file
+	mu         sync.RWMutex
+	jobs       map[string]*Job
+	order      []string // Job IDs in order of creation
+	filePath   string   // Path to persistence file
+	totalSaved int64    // Total bytes saved across completed job history
 
 	// Subscribers for job events
 	subsMu      sync.RWMutex
@@ -48,8 +49,9 @@ func NewQueue(filePath string) (*Queue, error) {
 
 // persistenceData is the structure saved to disk
 type persistenceData struct {
-	Jobs  []*Job   `json:"jobs"`
-	Order []string `json:"order"`
+	Jobs       []*Job   `json:"jobs"`
+	Order      []string `json:"order"`
+	TotalSaved int64    `json:"total_saved,omitempty"`
 }
 
 // load reads the queue from disk
@@ -73,6 +75,14 @@ func (q *Queue) load() error {
 		q.jobs[job.ID] = job
 	}
 	q.order = pd.Order
+	q.totalSaved = pd.TotalSaved
+	if q.totalSaved == 0 {
+		for _, job := range q.jobs {
+			if job.Status == StatusComplete {
+				q.totalSaved += job.SpaceSaved
+			}
+		}
+	}
 
 	// Reset any running jobs to pending (they were interrupted)
 	for _, job := range q.jobs {
@@ -108,8 +118,9 @@ func (q *Queue) save() error {
 	}
 
 	pd := persistenceData{
-		Jobs:  jobs,
-		Order: q.order,
+		Jobs:       jobs,
+		Order:      q.order,
+		TotalSaved: q.totalSaved,
 	}
 
 	data, err := json.MarshalIndent(pd, "", "  ")
@@ -579,6 +590,9 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 		return fmt.Errorf("job not found: %s", id)
 	}
 
+	wasComplete := job.Status == StatusComplete
+	previousSaved := job.SpaceSaved
+
 	job.Status = StatusComplete
 	job.Progress = 100
 	job.OutputPath = outputPath
@@ -587,6 +601,11 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.CompletedAt = time.Now()
 	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
+
+	if wasComplete {
+		q.totalSaved -= previousSaved
+	}
+	q.totalSaved += job.SpaceSaved
 
 	if err := q.save(); err != nil {
 		fmt.Printf("Warning: failed to persist queue: %v\n", err)
@@ -768,7 +787,7 @@ func (q *Queue) Stats() Stats {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 
-	var stats Stats
+	stats := Stats{TotalSaved: q.totalSaved}
 	for _, job := range q.jobs {
 		stats.Total++
 		switch job.Status {
@@ -780,7 +799,6 @@ func (q *Queue) Stats() Stats {
 			stats.Running++
 		case StatusComplete:
 			stats.Complete++
-			stats.TotalSaved += job.SpaceSaved
 		case StatusFailed:
 			stats.Failed++
 		case StatusCancelled:
