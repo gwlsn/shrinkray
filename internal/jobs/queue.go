@@ -618,12 +618,12 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
 	q.recordProcessedPathLocked(job.InputPath, job.CompletedAt)
-	q.totalSaved += job.SpaceSaved
 
 	if wasComplete {
-		q.totalSaved -= previousSaved
+		q.totalSaved += job.SpaceSaved - previousSaved
+	} else {
+		q.totalSaved += job.SpaceSaved
 	}
-	q.totalSaved += job.SpaceSaved
 
 	if err := q.save(); err != nil {
 		fmt.Printf("Warning: failed to persist queue: %v\n", err)
