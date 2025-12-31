@@ -3001,19 +3001,42 @@
             localStorage.setItem(storageKeys.selectedPreset, preset);
         }
 
+        function isEntryFullyProcessed(entry) {
+            if (!entry) return false;
+            if (entry.is_dir) {
+                const count = entry.file_count || 0;
+                const processed = entry.processed_count || 0;
+                return count > 0 && processed === count;
+            }
+            return !!entry.processed;
+        }
+
         async function startJobs() {
             if (selectedPaths.size === 0) return;
 
             try {
                 const preset = document.getElementById('preset-select').value;
                 const includeSubfolders = document.getElementById('include-subfolders').checked;
-                const pathCount = selectedPaths.size;
+                const entryMap = new Map((fileListEntries || []).map(entry => [entry.path, entry]));
+                const selectedPathList = Array.from(selectedPaths);
+                const selectedEntries = selectedPathList.map(path => entryMap.get(path)).filter(Boolean);
+                const processedPaths = new Set(selectedEntries.filter(isEntryFullyProcessed).map(entry => entry.path));
+                const hasProcessed = processedPaths.size > 0;
+                const hasUnprocessed = selectedPathList.some(path => !processedPaths.has(path));
+                let selectedJobPaths = selectedPathList;
+
+                if (hasProcessed && hasUnprocessed) {
+                    const includeProcessed = window.confirm('Some selected items are already processed. Include them in this transcode?');
+                    if (!includeProcessed) {
+                        selectedJobPaths = selectedPathList.filter(path => !processedPaths.has(path));
+                    }
+                }
 
                 const resp = await fetch('/api/jobs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        paths: Array.from(selectedPaths),
+                        paths: selectedJobPaths,
                         preset_id: preset,
                         include_subfolders: includeSubfolders
                     })
