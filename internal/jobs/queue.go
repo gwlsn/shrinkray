@@ -179,16 +179,66 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	return job, nil
 }
 
-// AddMultiple adds multiple jobs at once
+// AddMultiple adds multiple jobs at once with batched persistence and SSE
 func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*Job, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Look up preset once
+	preset := ffmpeg.GetPreset(presetID)
+	encoder := string(ffmpeg.HWAccelNone)
+	isHardware := false
+	if preset != nil {
+		encoder = string(preset.Encoder)
+		isHardware = preset.Encoder != ffmpeg.HWAccelNone
+	}
+
 	jobs := make([]*Job, 0, len(probes))
+	addedCount := 0
+	failedCount := 0
 
 	for _, probe := range probes {
-		job, err := q.Add(probe.Path, presetID, probe)
-		if err != nil {
-			return jobs, err
+		// Check if file should be skipped
+		var skipReason string
+		if preset != nil {
+			skipReason = checkSkipReason(probe, preset)
 		}
+
+		status := StatusPending
+		if skipReason != "" {
+			status = StatusFailed
+			failedCount++
+		} else {
+			addedCount++
+		}
+
+		job := &Job{
+			ID:         generateID(),
+			InputPath:  probe.Path,
+			PresetID:   presetID,
+			Encoder:    encoder,
+			IsHardware: isHardware,
+			Status:     status,
+			Error:      skipReason,
+			InputSize:  probe.Size,
+			Duration:   probe.Duration.Milliseconds(),
+			Bitrate:    probe.Bitrate,
+			CreatedAt:  time.Now(),
+		}
+
+		q.jobs[job.ID] = job
+		q.order = append(q.order, job.ID)
 		jobs = append(jobs, job)
+	}
+
+	// Save once after all jobs are added
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	// Broadcast single batch event (frontend will refresh once)
+	if addedCount > 0 || failedCount > 0 {
+		q.broadcast(JobEvent{Type: "jobs_added", Count: addedCount + failedCount})
 	}
 
 	return jobs, nil

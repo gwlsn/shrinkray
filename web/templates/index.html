@@ -1280,6 +1280,7 @@
 
         let currentPath = '';
         let selectedPaths = new Set();
+        let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
         let eventSource = null;
 
         function formatBytes(bytes) {
@@ -1330,14 +1331,14 @@
                     return;
                 }
 
-                // Check if there are any selectable items (videos or folders)
-                const hasSelectableItems = data.entries.some(e =>
+                // Count selectable items (videos or folders) to avoid DOM queries later
+                totalSelectableCount = data.entries.filter(e =>
                     (!e.is_dir && e.video_info) || e.is_dir
-                );
+                ).length;
                 const header = document.getElementById('file-list-header');
                 const selectAllCheckbox = document.getElementById('select-all-checkbox');
 
-                if (hasSelectableItems) {
+                if (totalSelectableCount > 0) {
                     header.classList.remove('hidden');
                 } else {
                     header.classList.add('hidden');
@@ -1431,19 +1432,33 @@
         }
 
         function toggleSelectAll(checkbox) {
+            const isChecked = checkbox.checked;
             const allCheckboxes = document.querySelectorAll('.file-item .file-checkbox');
+
+            // Batch DOM operations: collect all data first (reads), then do all updates (writes)
+            const items = [];
             allCheckboxes.forEach(cb => {
-                cb.checked = checkbox.checked;
-                const row = cb.closest('.file-item');
-                const path = cb.dataset.path;
-                if (checkbox.checked) {
-                    selectedPaths.add(path);
-                    row.classList.add('selected');
-                } else {
-                    selectedPaths.delete(path);
-                    row.classList.remove('selected');
-                }
+                items.push({
+                    cb,
+                    row: cb.closest('.file-item'),
+                    path: cb.dataset.path
+                });
             });
+
+            // Clear or populate selectedPaths in one go
+            if (isChecked) {
+                items.forEach(({cb, row, path}) => {
+                    cb.checked = true;
+                    row.classList.add('selected');
+                    selectedPaths.add(path);
+                });
+            } else {
+                selectedPaths.clear();
+                items.forEach(({cb, row}) => {
+                    cb.checked = false;
+                    row.classList.remove('selected');
+                });
+            }
             updateButtons();
         }
 
@@ -1458,12 +1473,11 @@
                 summary.textContent = '';
             }
 
-            // Update select-all checkbox
+            // Update select-all checkbox using cached count (avoids O(n) DOM query)
             const selectAllCheckbox = document.getElementById('select-all-checkbox');
-            const allCheckboxes = document.querySelectorAll('.file-item .file-checkbox');
-            if (allCheckboxes.length > 0) {
-                const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
-                const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
+            if (totalSelectableCount > 0) {
+                const allChecked = selectedPaths.size === totalSelectableCount;
+                const someChecked = selectedPaths.size > 0;
                 selectAllCheckbox.checked = allChecked;
                 selectAllCheckbox.indeterminate = someChecked && !allChecked;
             }
@@ -1680,6 +1694,26 @@
             document.getElementById('stat-saved').textContent = formatBytes(saved);
         }
 
+        // Debounced refresh to avoid UI thrashing when many jobs are added
+        let refreshTimeout = null;
+        let browseTimeout = null;
+        function scheduleRefresh() {
+            if (!refreshTimeout) {
+                refreshTimeout = setTimeout(() => {
+                    refreshTimeout = null;
+                    refreshJobs();
+                }, 200);
+            }
+        }
+        function scheduleBrowseRefresh() {
+            if (!browseTimeout) {
+                browseTimeout = setTimeout(() => {
+                    browseTimeout = null;
+                    browse(currentPath);
+                }, 500);
+            }
+        }
+
         function connectSSE() {
             if (eventSource) eventSource.close();
 
@@ -1694,9 +1728,9 @@
                     // Notification was sent, uncheck the checkbox
                     document.getElementById('notify-checkbox').checked = false;
                 } else {
-                    refreshJobs();
+                    scheduleRefresh();
                     if (data.type === 'complete' || data.type === 'failed') {
-                        browse(currentPath);
+                        scheduleBrowseRefresh();
                     }
                 }
             };

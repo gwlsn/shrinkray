@@ -47,6 +47,7 @@ func (j *Job) IsTerminal() bool {
 
 // JobEvent represents an event for SSE streaming
 type JobEvent struct {
-	Type string      `json:"type"` // "update", "complete", "failed", "cancelled"
-	Job  *Job        `json:"job"`
+	Type  string `json:"type"`            // "added", "jobs_added", "complete", "failed", "cancelled", "progress"
+	Job   *Job   `json:"job,omitempty"`   // Single job for most events
+	Count int    `json:"count,omitempty"` // Number of jobs for batch events (jobs_added)
 }
