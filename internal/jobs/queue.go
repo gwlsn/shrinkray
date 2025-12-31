@@ -646,6 +646,36 @@ func (q *Queue) ProcessedPaths() map[string]struct{} {
 	return paths
 }
 
+// MarkProcessedPaths records input paths as processed.
+// Returns the number of new entries added.
+func (q *Queue) MarkProcessedPaths(paths []string) int {
+	if len(paths) == 0 {
+		return 0
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	added := 0
+	now := time.Now()
+	for _, path := range paths {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			absPath = path
+		}
+		if _, ok := q.processedPaths[absPath]; !ok {
+			added++
+		}
+		q.processedPaths[absPath] = now
+	}
+
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+
+	return added
+}
+
 // ClearProcessedHistory removes all recorded processed paths.
 func (q *Queue) ClearProcessedHistory() int {
 	q.mu.Lock()

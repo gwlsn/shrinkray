@@ -668,6 +668,13 @@
             font-size: 0.8125rem;
         }
 
+        .file-action-btn {
+            padding: 4px 8px;
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
         .selection-count {
             margin-left: auto;
             font-size: 0.8125rem;
@@ -1749,6 +1756,7 @@
                             <input type="checkbox" id="include-subfolders" checked>
                             <span>Include subfolders</span>
                         </label>
+                        <button class="btn btn-secondary" onclick="markSelectedProcessed()" id="mark-processed-btn" disabled>Mark Processed</button>
                         <button class="btn btn-primary" onclick="startJobs()" id="start-btn" disabled>Start Transcode</button>
                         <span class="selection-count" id="selection-summary"></span>
                     </div>
@@ -2912,6 +2920,10 @@
                 const processed = entry.processed_count || 0;
                 const isFullyProcessed = entry.is_dir ? count > 0 && processed === count : entry.processed;
                 const processedTag = isFullyProcessed ? '<span class="processed-tag">Processed</span>' : '';
+                const canMarkProcessed = isSelectable && !isFullyProcessed;
+                const markProcessedButton = canMarkProcessed
+                    ? `<button class="btn btn-secondary btn-sm file-action-btn" data-path="${escapeHtml(entry.path)}" onclick="handleMarkProcessedClick(event, this)">Mark Processed</button>`
+                    : '';
                 const isSelected = selectedPaths.has(entry.path);
                 const dblClickHandler = entry.is_dir ? ' ondblclick="handleFolderDoubleClick(this, event)"' : '';
                 return `<li class="file-item${isSelected ? ' selected' : ''}" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)"${dblClickHandler}>
@@ -2923,6 +2935,7 @@
                     </div>
                     <div class="file-trailing">
                         ${processedTag}
+                        ${markProcessedButton}
                         <div class="file-size">${formatBytes(getEntrySize(entry))}</div>
                     </div>
                 </li>`;
@@ -3055,6 +3068,7 @@
         function updateButtons() {
             const hasSelection = selectedPaths.size > 0;
             document.getElementById('start-btn').disabled = !hasSelection;
+            document.getElementById('mark-processed-btn').disabled = !hasSelection;
 
             const summary = document.getElementById('selection-summary');
             if (hasSelection) {
@@ -3088,6 +3102,22 @@
                 return count > 0 && processed === count;
             }
             return !!entry.processed;
+        }
+
+        function clearSelections() {
+            selectedPaths.clear();
+            document.querySelectorAll('.file-item.selected').forEach(el => {
+                el.classList.remove('selected');
+                const cb = el.querySelector('.file-checkbox');
+                if (cb) cb.checked = false;
+            });
+            updateButtons();
+
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
         }
 
         async function startJobs() {
@@ -3129,23 +3159,57 @@
                 }
 
                 // Clear selections immediately - jobs will appear via SSE as they're processed
-                selectedPaths.clear();
-                document.querySelectorAll('.file-item.selected').forEach(el => {
-                    el.classList.remove('selected');
-                    const cb = el.querySelector('.file-checkbox');
-                    if (cb) cb.checked = false;
-                });
-                updateButtons();
-
-                // Reset select-all checkbox
-                const selectAllCheckbox = document.getElementById('select-all-checkbox');
-                if (selectAllCheckbox) {
-                    selectAllCheckbox.checked = false;
-                    selectAllCheckbox.indeterminate = false;
-                }
+                clearSelections();
 
             } catch (err) {
                 console.error('Start jobs error:', err);
+            }
+        }
+
+        function handleMarkProcessedClick(event, button) {
+            event.stopPropagation();
+            const path = button.dataset.path;
+            if (!path) return;
+            const includeSubfolders = document.getElementById('include-subfolders').checked;
+            markPathsProcessed([path], includeSubfolders);
+        }
+
+        async function markSelectedProcessed() {
+            if (selectedPaths.size === 0) return;
+            const includeSubfolders = document.getElementById('include-subfolders').checked;
+            const entryMap = new Map((fileListEntries || []).map(entry => [entry.path, entry]));
+            const selectedPathList = Array.from(selectedPaths);
+            const selectedEntries = selectedPathList.map(path => entryMap.get(path)).filter(Boolean);
+            const processedPaths = new Set(selectedEntries.filter(isEntryFullyProcessed).map(entry => entry.path));
+            const unprocessedPaths = selectedPathList.filter(path => !processedPaths.has(path));
+
+            if (unprocessedPaths.length === 0) {
+                alert('Selected items are already marked as processed.');
+                return;
+            }
+
+            await markPathsProcessed(unprocessedPaths, includeSubfolders);
+            clearSelections();
+        }
+
+        async function markPathsProcessed(paths, includeSubfolders) {
+            try {
+                const resp = await fetch('/api/processed/mark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        paths: paths,
+                        include_subfolders: includeSubfolders
+                    })
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(data.error || 'Failed to mark processed items');
+                }
+                await browse(currentPath, true);
+            } catch (err) {
+                console.error('Mark processed error:', err);
+                alert(err.message || 'Failed to mark processed items');
             }
         }
 

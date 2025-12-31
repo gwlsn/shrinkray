@@ -24,6 +24,7 @@ func NewRouter(h *Handler, staticFS embed.FS, debugMode bool) *http.ServeMux {
 	mux.HandleFunc("DELETE /api/jobs/{id}", h.CancelJob)
 	mux.HandleFunc("POST /api/jobs/{id}/retry", h.RetryJob)
 	mux.HandleFunc("POST /api/processed/clear", h.ClearProcessedHistory)
+	mux.HandleFunc("POST /api/processed/mark", h.MarkProcessed)
 
 	mux.HandleFunc("GET /api/config", h.GetConfig)
 	mux.HandleFunc("PUT /api/config", h.UpdateConfig)
@@ -107,6 +108,7 @@ func NewRouterWithoutStatic(h *Handler) *http.ServeMux {
 	mux.HandleFunc("DELETE /api/jobs/{id}", h.CancelJob)
 	mux.HandleFunc("POST /api/jobs/{id}/retry", h.RetryJob)
 	mux.HandleFunc("POST /api/processed/clear", h.ClearProcessedHistory)
+	mux.HandleFunc("POST /api/processed/mark", h.MarkProcessed)
 
 	mux.HandleFunc("GET /api/config", h.GetConfig)
 	mux.HandleFunc("PUT /api/config", h.UpdateConfig)

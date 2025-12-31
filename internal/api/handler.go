@@ -129,6 +129,12 @@ type CreateJobsRequest struct {
 	MaxDepth          *int     `json:"max_depth,omitempty"`          // nil = unlimited, 0 = current dir only, 1 = one level, etc.
 }
 
+// MarkProcessedRequest is the request body for marking processed paths.
+type MarkProcessedRequest struct {
+	Paths             []string `json:"paths"`
+	IncludeSubfolders *bool    `json:"include_subfolders,omitempty"`
+}
+
 // CreateJobs handles POST /api/jobs
 // Responds immediately and processes files in background to avoid UI freeze
 func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
@@ -222,6 +228,53 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 			h.queue.AddMultiple(probes, req.PresetID)
 		}
 	}()
+}
+
+// MarkProcessed handles POST /api/processed/mark
+func (h *Handler) MarkProcessed(w http.ResponseWriter, r *http.Request) {
+	var req MarkProcessedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		writeError(w, http.StatusBadRequest, "no paths provided")
+		return
+	}
+
+	opts := browse.GetVideoFilesOptions{
+		Recursive: true,
+		MaxDepth:  nil,
+	}
+	if req.IncludeSubfolders != nil {
+		opts.Recursive = *req.IncludeSubfolders
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	files, err := h.browser.DiscoverVideoFiles(ctx, req.Paths, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if len(files) == 0 {
+		writeError(w, http.StatusBadRequest, "no video files found")
+		return
+	}
+
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+
+	added := h.queue.MarkProcessedPaths(paths)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"processed": added,
+		"total":     len(paths),
+	})
 }
 
 // ListJobs handles GET /api/jobs
