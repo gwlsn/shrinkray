@@ -124,8 +124,20 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		// Get all video files (this is the slow part - probing with ffprobe)
-		probes, err := h.browser.GetVideoFiles(ctx, req.Paths)
+		// Progress callback broadcasts SSE events (throttled to max 10/sec)
+		var lastBroadcast time.Time
+		onProgress := func(probed, total int) {
+			now := time.Now()
+			// Throttle broadcasts, but always send first (0/N) and last (N/N)
+			if probed > 0 && probed < total && now.Sub(lastBroadcast) < 100*time.Millisecond {
+				return
+			}
+			lastBroadcast = now
+			h.queue.BroadcastProgress(probed, total)
+		}
+
+		// Get all video files with progress reporting
+		probes, err := h.browser.GetVideoFilesWithProgress(ctx, req.Paths, onProgress)
 		if err != nil {
 			fmt.Printf("Error getting video files: %v\n", err)
 			return

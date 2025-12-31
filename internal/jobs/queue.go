@@ -488,6 +488,15 @@ func (q *Queue) broadcast(event JobEvent) {
 	}
 }
 
+// BroadcastProgress sends a discovery progress event to all subscribers
+func (q *Queue) BroadcastProgress(probed, total int) {
+	q.broadcast(JobEvent{
+		Type:   "discovery_progress",
+		Probed: probed,
+		Total:  total,
+	})
+}
+
 // Stats returns queue statistics
 type Stats struct {
 	Pending   int   `json:"pending"`

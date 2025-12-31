@@ -7,10 +7,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
 )
+
+// ProgressCallback is called during file discovery to report progress
+type ProgressCallback func(probed, total int)
 
 // Entry represents a file or directory in the browser
 type Entry struct {
@@ -257,6 +261,81 @@ func (b *Browser) GetVideoFiles(ctx context.Context, paths []string) ([]*ffmpeg.
 				}
 			}(cleanPath)
 		}
+	}
+
+	wg.Wait()
+
+	// Sort by path for consistent ordering
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Path < results[j].Path
+	})
+
+	return results, nil
+}
+
+// GetVideoFilesWithProgress returns all video files with progress reporting
+// The onProgress callback is called periodically with (probed, total) counts
+func (b *Browser) GetVideoFilesWithProgress(ctx context.Context, paths []string, onProgress ProgressCallback) ([]*ffmpeg.ProbeResult, error) {
+	// First pass: count total video files (fast, no probing)
+	var videoPaths []string
+	for _, path := range paths {
+		cleanPath, err := filepath.Abs(path)
+		if err != nil {
+			cleanPath = filepath.Clean(path)
+		}
+
+		if !strings.HasPrefix(cleanPath, b.mediaRoot) {
+			continue
+		}
+
+		info, err := os.Stat(cleanPath)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			filepath.Walk(cleanPath, func(filePath string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				if ffmpeg.IsVideoFile(filePath) {
+					videoPaths = append(videoPaths, filePath)
+				}
+				return nil
+			})
+		} else if ffmpeg.IsVideoFile(cleanPath) {
+			videoPaths = append(videoPaths, cleanPath)
+		}
+	}
+
+	total := len(videoPaths)
+
+	// Report initial count (0 probed)
+	if onProgress != nil {
+		onProgress(0, total)
+	}
+
+	// Second pass: probe files with progress updates
+	var results []*ffmpeg.ProbeResult
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var probed int64
+
+	for _, filePath := range videoPaths {
+		wg.Add(1)
+		go func(fp string) {
+			defer wg.Done()
+			if result := b.getProbeResult(ctx, fp); result != nil {
+				mu.Lock()
+				results = append(results, result)
+				mu.Unlock()
+			}
+			// Report progress after each probe completes
+			current := atomic.AddInt64(&probed, 1)
+			if onProgress != nil {
+				onProgress(int(current), total)
+			}
+		}(filePath)
 	}
 
 	wg.Wait()

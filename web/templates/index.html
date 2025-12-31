@@ -1778,6 +1778,12 @@
                 } else if (data.type === 'notify_sent') {
                     // Notification was sent, uncheck the checkbox
                     document.getElementById('notify-checkbox').checked = false;
+                } else if (data.type === 'discovery_progress') {
+                    // Update processing banner with progress
+                    const banner = document.getElementById('processing-banner');
+                    banner.classList.remove('hidden');
+                    document.getElementById('processing-text').textContent =
+                        `Processing file ${data.probed}/${data.total}...`;
                 } else if (data.type === 'jobs_added') {
                     // Batch of jobs finished processing, hide banner and refresh
                     document.getElementById('processing-banner').classList.add('hidden');
