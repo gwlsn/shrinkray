@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -75,14 +74,14 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	completedPaths := h.completedInputPaths()
-	if len(completedPaths) > 0 {
+	processedPaths := h.queue.ProcessedPaths()
+	if len(processedPaths) > 0 {
 		for _, entry := range result.Entries {
 			if entry.IsDir {
-				entry.ProcessedCount = countProcessedInDir(entry.Path, completedPaths)
+				entry.ProcessedCount = countProcessedInDir(entry.Path, processedPaths)
 				continue
 			}
-			if _, ok := completedPaths[entry.Path]; ok {
+			if _, ok := processedPaths[entry.Path]; ok {
 				entry.Processed = true
 			}
 		}
@@ -91,28 +90,13 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *Handler) completedInputPaths() map[string]struct{} {
-	completed := make(map[string]struct{})
-	for _, job := range h.queue.GetAll() {
-		if job.Status != jobs.StatusComplete {
-			continue
-		}
-		absPath, err := filepath.Abs(job.InputPath)
-		if err != nil {
-			absPath = job.InputPath
-		}
-		completed[absPath] = struct{}{}
-	}
-	return completed
-}
-
-func countProcessedInDir(dirPath string, completedPaths map[string]struct{}) int {
-	if len(completedPaths) == 0 {
+func countProcessedInDir(dirPath string, processedPaths map[string]struct{}) int {
+	if len(processedPaths) == 0 {
 		return 0
 	}
 	prefix := dirPath + string(os.PathSeparator)
 	count := 0
-	for path := range completedPaths {
+	for path := range processedPaths {
 		if strings.HasPrefix(path, prefix) {
 			count++
 		}
@@ -318,6 +302,15 @@ func (h *Handler) ClearQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"cleared": count,
 		"message": fmt.Sprintf("Cleared %d jobs", count),
+	})
+}
+
+// ClearProcessedHistory handles POST /api/processed/clear
+func (h *Handler) ClearProcessedHistory(w http.ResponseWriter, r *http.Request) {
+	count := h.queue.ClearProcessedHistory()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cleared": count,
+		"message": fmt.Sprintf("Cleared %d processed items", count),
 	})
 }
 

@@ -13,11 +13,12 @@ import (
 
 // Queue manages the job queue with persistence
 type Queue struct {
-	mu         sync.RWMutex
-	jobs       map[string]*Job
-	order      []string // Job IDs in order of creation
-	filePath   string   // Path to persistence file
-	totalSaved int64    // Total bytes saved across completed job history
+	mu             sync.RWMutex
+	jobs           map[string]*Job
+	order          []string             // Job IDs in order of creation
+	filePath       string               // Path to persistence file
+	processedPaths map[string]time.Time // All successfully processed input paths
+	totalSaved     int64                // Total bytes saved across completed job history
 
 	// Subscribers for job events
 	subsMu      sync.RWMutex
@@ -30,11 +31,12 @@ type Queue struct {
 // NewQueue creates a new job queue, optionally loading from a persistence file
 func NewQueue(filePath string) (*Queue, error) {
 	q := &Queue{
-		jobs:          make(map[string]*Job),
-		order:         make([]string, 0),
-		filePath:      filePath,
-		subscribers:   make(map[chan JobEvent]struct{}),
-		fallbackTimes: make([]time.Time, 0),
+		jobs:           make(map[string]*Job),
+		order:          make([]string, 0),
+		filePath:       filePath,
+		processedPaths: make(map[string]time.Time),
+		subscribers:    make(map[chan JobEvent]struct{}),
+		fallbackTimes:  make([]time.Time, 0),
 	}
 
 	// Try to load existing queue
@@ -49,9 +51,10 @@ func NewQueue(filePath string) (*Queue, error) {
 
 // persistenceData is the structure saved to disk
 type persistenceData struct {
-	Jobs       []*Job   `json:"jobs"`
-	Order      []string `json:"order"`
-	TotalSaved int64    `json:"total_saved,omitempty"`
+	Jobs           []*Job               `json:"jobs"`
+	Order          []string             `json:"order"`
+	ProcessedPaths map[string]time.Time `json:"processed_paths,omitempty"`
+	TotalSaved     *int64               `json:"total_saved,omitempty"`
 }
 
 // load reads the queue from disk
@@ -75,8 +78,19 @@ func (q *Queue) load() error {
 		q.jobs[job.ID] = job
 	}
 	q.order = pd.Order
-	q.totalSaved = pd.TotalSaved
-	if q.totalSaved == 0 {
+	if pd.ProcessedPaths != nil {
+		q.processedPaths = pd.ProcessedPaths
+	} else {
+		q.processedPaths = make(map[string]time.Time)
+		for _, job := range q.jobs {
+			if job.Status == StatusComplete {
+				q.recordProcessedPathLocked(job.InputPath, job.CompletedAt)
+			}
+		}
+	}
+	if pd.TotalSaved != nil {
+		q.totalSaved = *pd.TotalSaved
+	} else {
 		for _, job := range q.jobs {
 			if job.Status == StatusComplete {
 				q.totalSaved += job.SpaceSaved
@@ -117,10 +131,12 @@ func (q *Queue) save() error {
 		}
 	}
 
+	totalSaved := q.totalSaved
 	pd := persistenceData{
-		Jobs:       jobs,
-		Order:      q.order,
-		TotalSaved: q.totalSaved,
+		Jobs:           jobs,
+		Order:          q.order,
+		ProcessedPaths: q.processedPaths,
+		TotalSaved:     &totalSaved,
 	}
 
 	data, err := json.MarshalIndent(pd, "", "  ")
@@ -601,6 +617,8 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.CompletedAt = time.Now()
 	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
+	q.recordProcessedPathLocked(job.InputPath, job.CompletedAt)
+	q.totalSaved += job.SpaceSaved
 
 	if wasComplete {
 		q.totalSaved -= previousSaved
@@ -614,6 +632,39 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	q.broadcast(JobEvent{Type: "complete", Job: job})
 
 	return nil
+}
+
+// ProcessedPaths returns a copy of processed input paths.
+func (q *Queue) ProcessedPaths() map[string]struct{} {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	paths := make(map[string]struct{}, len(q.processedPaths))
+	for path := range q.processedPaths {
+		paths[path] = struct{}{}
+	}
+	return paths
+}
+
+// ClearProcessedHistory removes all recorded processed paths.
+func (q *Queue) ClearProcessedHistory() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	count := len(q.processedPaths)
+	q.processedPaths = make(map[string]time.Time)
+	if err := q.save(); err != nil {
+		fmt.Printf("Warning: failed to persist queue: %v\n", err)
+	}
+	return count
+}
+
+func (q *Queue) recordProcessedPathLocked(inputPath string, completedAt time.Time) {
+	absPath, err := filepath.Abs(inputPath)
+	if err != nil {
+		absPath = inputPath
+	}
+	q.processedPaths[absPath] = completedAt
 }
 
 // FailJobDetails contains optional diagnostic information for failed jobs
@@ -805,6 +856,7 @@ func (q *Queue) Stats() Stats {
 			stats.Cancelled++
 		}
 	}
+	stats.TotalSaved = q.totalSaved
 	return stats
 }
 

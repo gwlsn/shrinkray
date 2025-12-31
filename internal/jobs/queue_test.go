@@ -150,6 +150,16 @@ func TestQueuePersistence(t *testing.T) {
 		t.Errorf("job2 not persisted correctly: %+v", got2)
 	}
 
+	stats := queue2.Stats()
+	if stats.TotalSaved != 500000 {
+		t.Errorf("expected total saved 500000, got %d", stats.TotalSaved)
+	}
+
+	processed := queue2.ProcessedPaths()
+	if _, ok := processed[probe.Path]; !ok {
+		t.Errorf("expected processed history to include %s", probe.Path)
+	}
+
 	t.Log("Queue persisted and loaded successfully")
 }
 

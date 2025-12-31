@@ -1875,6 +1875,18 @@
                     </div>
                 </div>
                 <div class="setting-group">
+                    <div class="setting-group-title">History</div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <div class="setting-name">Processed videos</div>
+                            <div class="setting-desc">Clear the stored processed history used for badges</div>
+                        </div>
+                        <div class="setting-control">
+                            <button class="btn btn-secondary btn-sm" onclick="clearProcessedHistory()">Clear</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-group">
                     <div class="setting-group-title">Notifications</div>
                     <div class="setting-item">
                         <div class="setting-info">
@@ -3890,6 +3902,32 @@
                 if (key === 'pushover_user_key' || key === 'pushover_app_token' || key === 'ntfy_server' || key === 'ntfy_topic' || key === 'ntfy_token') {
                     loadSettings();
                 }
+            } catch (err) {
+                statusEl.textContent = `Error: ${err.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function clearProcessedHistory() {
+            const statusEl = document.getElementById('settings-status');
+            const confirmed = window.confirm('Clear processed history? This will reset processed badges and counts.');
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/processed/clear', { method: 'POST' });
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    throw new Error(data.error || 'Failed to clear processed history');
+                }
+
+                statusEl.textContent = data.message || 'Processed history cleared';
+                statusEl.className = 'settings-status';
+                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+
+                browse(currentPath, true);
             } catch (err) {
                 statusEl.textContent = `Error: ${err.message}`;
                 statusEl.className = 'settings-status error';
