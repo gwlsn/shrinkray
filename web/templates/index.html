@@ -1123,6 +1123,23 @@
 
         .job-actions {
             margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .job-item.draggable {
+            cursor: grab;
+        }
+
+        .job-item.dragging {
+            opacity: 0.6;
+            cursor: grabbing;
+        }
+
+        .job-item.drag-over {
+            outline: 2px dashed var(--accent);
+            outline-offset: 4px;
         }
 
         .queue-empty {
@@ -3221,6 +3238,42 @@
             }
         }
 
+        async function moveJob(id, direction) {
+            try {
+                const resp = await fetch(`/api/jobs/${id}/reorder`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction })
+                });
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    throw new Error(data.error || 'Failed to move job');
+                }
+                refreshJobs();
+            } catch (err) {
+                console.error('Reorder error:', err);
+                alert(err.message || 'Failed to move job');
+            }
+        }
+
+        async function moveJobTo(id, beforeId) {
+            try {
+                const resp = await fetch(`/api/jobs/${id}/move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ before_id: beforeId || '' })
+                });
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    throw new Error(data.error || 'Failed to move job');
+                }
+                refreshJobs();
+            } catch (err) {
+                console.error('Move error:', err);
+                alert(err.message || 'Failed to move job');
+            }
+        }
+
         async function retryJob(id) {
             try {
                 const resp = await fetch(`/api/jobs/${id}/retry`, { method: 'POST' });
@@ -3324,6 +3377,7 @@
             const isPendingProbe = job.status === 'pending_probe';
             const statusClass = isInitializing ? 'initializing' : (isPendingProbe ? 'pending' : job.status);
             const statusLabel = isInitializing ? 'Initializing' : (isPendingProbe ? 'Scanning' : job.status.charAt(0).toUpperCase() + job.status.slice(1));
+            const canReorder = job.status === 'pending' || job.status === 'pending_probe';
 
             let detailsHtml = '';
             if (isPendingProbe) {
@@ -3350,7 +3404,7 @@
             const safeError = escapeHtml(job.error);
 
             return `
-                <div class="job-item" data-job-id="${safeId}">
+                <div class="job-item ${canReorder ? 'draggable' : ''}" data-job-id="${safeId}" ${canReorder ? 'draggable="true"' : ''}>
                     <div class="job-header">
                         <span class="job-name" title="${safePath}">${safeFilename}</span>
                         <div class="job-badges">
@@ -3371,6 +3425,10 @@
                     ${job.status === 'failed' ? renderErrorHelper(job) : ''}
                     ${job.status === 'pending' || job.status === 'pending_probe' || job.status === 'running' ? `
                         <div class="job-actions">
+                            ${canReorder ? `
+                                <button class="btn btn-secondary btn-sm" onclick="moveJob('${safeId}', 'up')" aria-label="Move job up">↑</button>
+                                <button class="btn btn-secondary btn-sm" onclick="moveJob('${safeId}', 'down')" aria-label="Move job down">↓</button>
+                            ` : ''}
                             <button class="btn btn-secondary btn-sm" onclick="cancelJob('${safeId}')">Cancel</button>
                         </div>
                     ` : ''}
@@ -3543,6 +3601,115 @@
             document.getElementById('stat-running').textContent = stats.running;
             const saved = Math.max(0, stats.total_saved || 0);
             document.getElementById('stat-saved').textContent = formatBytes(saved);
+        }
+
+        // ========================================
+        // Drag-and-drop Queue Reordering
+        // ========================================
+
+        let dragJobId = null;
+        let dragScrollTimer = null;
+
+        function getPendingOrderIds() {
+            return cachedJobs
+                .filter(job => job.status === 'pending' || job.status === 'pending_probe')
+                .map(job => job.id);
+        }
+
+        function stopDragScroll() {
+            if (dragScrollTimer) {
+                clearInterval(dragScrollTimer);
+                dragScrollTimer = null;
+            }
+        }
+
+        function startDragScroll(container, direction) {
+            if (dragScrollTimer) {
+                return;
+            }
+            dragScrollTimer = setInterval(() => {
+                container.scrollTop += direction * 18;
+            }, 16);
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            if (!dragJobId) return;
+
+            const container = document.getElementById('queue-list');
+            if (!container) return;
+
+            const rect = container.getBoundingClientRect();
+            const offset = event.clientY - rect.top;
+            const edge = 48;
+            if (offset < edge) {
+                startDragScroll(container, -1);
+            } else if (offset > rect.height - edge) {
+                startDragScroll(container, 1);
+            } else {
+                stopDragScroll();
+            }
+        }
+
+        function attachQueueDragHandlers() {
+            const container = document.getElementById('queue-list');
+            if (!container) return;
+
+            container.addEventListener('dragstart', (event) => {
+                const item = event.target.closest('.job-item.draggable');
+                if (!item) return;
+                dragJobId = item.dataset.jobId;
+                item.classList.add('dragging');
+                event.dataTransfer.setData('text/plain', dragJobId);
+                event.dataTransfer.effectAllowed = 'move';
+            });
+
+            container.addEventListener('dragend', () => {
+                stopDragScroll();
+                dragJobId = null;
+                container.querySelectorAll('.job-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+                container.querySelectorAll('.job-item.dragging').forEach(el => el.classList.remove('dragging'));
+            });
+
+            container.addEventListener('dragover', handleDragOver);
+
+            container.addEventListener('dragenter', (event) => {
+                const item = event.target.closest('.job-item.draggable');
+                if (!item || item.dataset.jobId === dragJobId) return;
+                item.classList.add('drag-over');
+            });
+
+            container.addEventListener('dragleave', (event) => {
+                const item = event.target.closest('.job-item.draggable');
+                if (!item) return;
+                item.classList.remove('drag-over');
+            });
+
+            container.addEventListener('drop', (event) => {
+                event.preventDefault();
+                stopDragScroll();
+                const targetItem = event.target.closest('.job-item.draggable');
+                if (!dragJobId) return;
+
+                const pendingIds = getPendingOrderIds();
+                if (pendingIds.length === 0) return;
+
+                if (!targetItem) {
+                    moveJobTo(dragJobId, '');
+                    return;
+                }
+
+                const targetId = targetItem.dataset.jobId;
+                if (targetId === dragJobId) return;
+
+                const rect = targetItem.getBoundingClientRect();
+                const dropAfter = event.clientY > rect.top + rect.height / 2;
+                const targetIdx = pendingIds.indexOf(targetId);
+                if (targetIdx === -1) return;
+
+                const beforeId = dropAfter ? pendingIds[targetIdx + 1] : pendingIds[targetIdx];
+                moveJobTo(dragJobId, beforeId);
+            });
         }
 
         // ========================================
@@ -4223,6 +4390,7 @@
         loadLocalPreferences();
         bindPreferenceHandlers();
         browse();
+        attachQueueDragHandlers();
         connectSSE();
         loadSettings();
         loadPresets();

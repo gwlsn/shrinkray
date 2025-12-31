@@ -335,6 +335,90 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
+// ReorderJob handles POST /api/jobs/:id/reorder
+func (h *Handler) ReorderJob(w http.ResponseWriter, r *http.Request) {
+	type reorderJobRequest struct {
+		Direction string `json:"direction"`
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "job ID required")
+		return
+	}
+
+	job := h.queue.Get(id)
+	if job == nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	if job.Status != jobs.StatusPending && job.Status != jobs.StatusPendingProbe {
+		writeError(w, http.StatusConflict, "job is not pending")
+		return
+	}
+
+	var req reorderJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Direction == "" {
+		writeError(w, http.StatusBadRequest, "direction required")
+		return
+	}
+
+	moved, err := h.queue.ReorderPending(id, req.Direction)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"moved": moved,
+	})
+}
+
+// MoveJob handles POST /api/jobs/:id/move
+func (h *Handler) MoveJob(w http.ResponseWriter, r *http.Request) {
+	type moveJobRequest struct {
+		BeforeID string `json:"before_id"`
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "job ID required")
+		return
+	}
+
+	job := h.queue.Get(id)
+	if job == nil {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	if job.Status != jobs.StatusPending && job.Status != jobs.StatusPendingProbe {
+		writeError(w, http.StatusConflict, "job is not pending")
+		return
+	}
+
+	var req moveJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	moved, err := h.queue.MovePending(id, req.BeforeID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"moved": moved,
+	})
+}
+
 // ClearQueue handles POST /api/jobs/clear
 func (h *Handler) ClearQueue(w http.ResponseWriter, r *http.Request) {
 	type clearQueueRequest struct {
