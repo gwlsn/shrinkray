@@ -1652,8 +1652,73 @@
             }
         }
 
+        // Helper to render a single job's HTML
+        function renderJobHTML(job) {
+            const filename = job.input_path.split('/').pop();
+            const isInitializing = job.status === 'running' && job.progress === 0 && job.speed === 0;
+            const statusClass = isInitializing ? 'initializing' : job.status;
+            const statusLabel = isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1);
+
+            let detailsHtml = '';
+            if (job.status === 'running') {
+                if (isInitializing) {
+                    detailsHtml = '<span class="job-detail">Starting encoder...</span>';
+                } else {
+                    detailsHtml = `
+                        <span class="job-detail"><span class="job-detail-value">${job.progress.toFixed(1)}%</span></span>
+                        <span class="job-detail"><span class="job-detail-value">${job.speed.toFixed(2)}x</span></span>
+                        <span class="job-detail">ETA: <span class="job-detail-value">${job.eta || '...'}</span></span>
+                    `;
+                }
+            } else if (job.status === 'complete') {
+                detailsHtml = `
+                    <span class="job-detail job-saved">Saved <span class="job-detail-value">${formatBytes(job.space_saved)}</span></span>
+                    <span class="job-detail">${formatBytes(job.input_size)} → ${formatBytes(job.output_size)}</span>
+                    ${job.transcode_secs ? `<span class="job-detail">in <span class="job-detail-value">${formatDuration(job.transcode_secs)}</span></span>` : ''}
+                `;
+            }
+
+            return `
+                <div class="job-item">
+                    <div class="job-header">
+                        <span class="job-name" title="${job.input_path}">${filename}</span>
+                        <div class="job-badges">
+                            <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
+                            <span class="job-badge ${statusClass}">${statusLabel}</span>
+                        </div>
+                    </div>
+                    ${job.status === 'running' ? `
+                        <div class="job-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill ${isInitializing ? 'initializing' : ''}" style="width: ${isInitializing ? 100 : job.progress}%"></div>
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="job-details">${detailsHtml}</div>
+                    ${job.status === 'failed' ? `<div class="job-error">${job.error}</div>` : ''}
+                    ${job.status === 'pending' || job.status === 'running' ? `
+                        <div class="job-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="cancelJob('${job.id}')">Cancel</button>
+                        </div>
+                    ` : ''}
+                    ${job.status === 'failed' ? `
+                        <div class="job-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="retryJob('${job.id}')">Retry</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Track render state for cancellation
+        let currentRenderID = 0;
+
         function updateJobs(jobs) {
             const container = document.getElementById('queue-list');
+
+            // Cancel any in-progress render
+            currentRenderID++;
+            const thisRenderID = currentRenderID;
 
             if (!jobs || jobs.length === 0) {
                 container.innerHTML = `
@@ -1680,62 +1745,32 @@
                 return orderA - orderB;
             });
 
-            container.innerHTML = sortedJobs.map(job => {
-                const filename = job.input_path.split('/').pop();
-                const isInitializing = job.status === 'running' && job.progress === 0 && job.speed === 0;
-                const statusClass = isInitializing ? 'initializing' : job.status;
-                const statusLabel = isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1);
+            // Progressive rendering: render in batches to keep UI responsive
+            const BATCH_SIZE = 50;
+            container.innerHTML = '';
 
-                let detailsHtml = '';
-                if (job.status === 'running') {
-                    if (isInitializing) {
-                        detailsHtml = '<span class="job-detail">Starting encoder...</span>';
-                    } else {
-                        detailsHtml = `
-                            <span class="job-detail"><span class="job-detail-value">${job.progress.toFixed(1)}%</span></span>
-                            <span class="job-detail"><span class="job-detail-value">${job.speed.toFixed(2)}x</span></span>
-                            <span class="job-detail">ETA: <span class="job-detail-value">${job.eta || '...'}</span></span>
-                        `;
-                    }
-                } else if (job.status === 'complete') {
-                    detailsHtml = `
-                        <span class="job-detail job-saved">Saved <span class="job-detail-value">${formatBytes(job.space_saved)}</span></span>
-                        <span class="job-detail">${formatBytes(job.input_size)} → ${formatBytes(job.output_size)}</span>
-                        ${job.transcode_secs ? `<span class="job-detail">in <span class="job-detail-value">${formatDuration(job.transcode_secs)}</span></span>` : ''}
-                    `;
+            function renderBatch(startIndex) {
+                // Check if this render was cancelled
+                if (thisRenderID !== currentRenderID) return;
+
+                const endIndex = Math.min(startIndex + BATCH_SIZE, sortedJobs.length);
+                const fragment = document.createDocumentFragment();
+                const temp = document.createElement('div');
+
+                for (let i = startIndex; i < endIndex; i++) {
+                    temp.innerHTML = renderJobHTML(sortedJobs[i]);
+                    fragment.appendChild(temp.firstElementChild);
                 }
 
-                return `
-                    <div class="job-item">
-                        <div class="job-header">
-                            <span class="job-name" title="${job.input_path}">${filename}</span>
-                            <div class="job-badges">
-                                <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
-                                <span class="job-badge ${statusClass}">${statusLabel}</span>
-                            </div>
-                        </div>
-                        ${job.status === 'running' ? `
-                            <div class="job-progress">
-                                <div class="progress-bar">
-                                    <div class="progress-fill ${isInitializing ? 'initializing' : ''}" style="width: ${isInitializing ? 100 : job.progress}%"></div>
-                                </div>
-                            </div>
-                        ` : ''}
-                        <div class="job-details">${detailsHtml}</div>
-                        ${job.status === 'failed' ? `<div class="job-error">${job.error}</div>` : ''}
-                        ${job.status === 'pending' || job.status === 'running' ? `
-                            <div class="job-actions">
-                                <button class="btn btn-secondary btn-sm" onclick="cancelJob('${job.id}')">Cancel</button>
-                            </div>
-                        ` : ''}
-                        ${job.status === 'failed' ? `
-                            <div class="job-actions">
-                                <button class="btn btn-secondary btn-sm" onclick="retryJob('${job.id}')">Retry</button>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            }).join('');
+                container.appendChild(fragment);
+
+                // Schedule next batch if there are more jobs
+                if (endIndex < sortedJobs.length) {
+                    requestAnimationFrame(() => renderBatch(endIndex));
+                }
+            }
+
+            renderBatch(0);
         }
 
         function updateStats(stats) {
