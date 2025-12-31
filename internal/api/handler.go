@@ -7,6 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +75,49 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	completedPaths := h.completedInputPaths()
+	if len(completedPaths) > 0 {
+		for _, entry := range result.Entries {
+			if entry.IsDir {
+				entry.ProcessedCount = countProcessedInDir(entry.Path, completedPaths)
+				continue
+			}
+			if _, ok := completedPaths[entry.Path]; ok {
+				entry.Processed = true
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) completedInputPaths() map[string]struct{} {
+	completed := make(map[string]struct{})
+	for _, job := range h.queue.GetAll() {
+		if job.Status != jobs.StatusComplete {
+			continue
+		}
+		absPath, err := filepath.Abs(job.InputPath)
+		if err != nil {
+			absPath = job.InputPath
+		}
+		completed[absPath] = struct{}{}
+	}
+	return completed
+}
+
+func countProcessedInDir(dirPath string, completedPaths map[string]struct{}) int {
+	if len(completedPaths) == 0 {
+		return 0
+	}
+	prefix := dirPath + string(os.PathSeparator)
+	count := 0
+	for path := range completedPaths {
+		if strings.HasPrefix(path, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // Presets handles GET /api/presets

@@ -15,14 +15,16 @@ import (
 
 // Entry represents a file or directory in the browser
 type Entry struct {
-	Name        string             `json:"name"`
-	Path        string             `json:"path"`
-	IsDir       bool               `json:"is_dir"`
-	Size        int64              `json:"size"`
-	ModTime     time.Time          `json:"mod_time"`
-	VideoInfo   *ffmpeg.ProbeResult `json:"video_info,omitempty"`
-	FileCount   int                `json:"file_count,omitempty"`   // For directories: number of video files
-	TotalSize   int64              `json:"total_size,omitempty"`   // For directories: total size of video files
+	Name           string              `json:"name"`
+	Path           string              `json:"path"`
+	IsDir          bool                `json:"is_dir"`
+	Size           int64               `json:"size"`
+	ModTime        time.Time           `json:"mod_time"`
+	VideoInfo      *ffmpeg.ProbeResult `json:"video_info,omitempty"`
+	FileCount      int                 `json:"file_count,omitempty"` // For directories: number of video files
+	TotalSize      int64               `json:"total_size,omitempty"` // For directories: total size of video files
+	Processed      bool                `json:"processed,omitempty"`  // For video files: true if already processed
+	ProcessedCount int                 `json:"processed_count"`      // For directories: number of processed video files
 }
 
 // BrowseResult contains the result of browsing a directory

@@ -517,6 +517,22 @@
             color: var(--text-secondary);
         }
 
+        .processed-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 6px;
+            border-radius: 999px;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            background: rgba(16, 185, 129, 0.15);
+            color: #059669;
+        }
+
+        [data-theme="dark"] .processed-badge {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+        }
+
         .file-list-empty {
             padding: 60px 20px;
             text-align: center;
@@ -2765,8 +2781,9 @@
                 let metaHtml = '';
                 if (entry.is_dir) {
                     const count = entry.file_count || 0;
+                    const processed = entry.processed_count || 0;
                     const size = formatBytes(entry.total_size || 0);
-                    metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
+                    metaHtml = `<span>${processed}/${count} processed</span><span>${size}</span>`;
                 } else if (isVideo) {
                     const vi = entry.video_info;
                     const codec = vi.video_codec?.toLowerCase() || '';
@@ -2776,7 +2793,8 @@
                     } else if (codec.includes('av1')) {
                         codecClass = 'av1';
                     }
-                    metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span><span>${vi.width}x${vi.height}</span>`;
+                    const processedBadge = entry.processed ? '<span class="processed-badge">Processed</span>' : '';
+                    metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span><span>${vi.width}x${vi.height}</span>${processedBadge}`;
                 }
 
                 const isSelected = selectedPaths.has(entry.path);
