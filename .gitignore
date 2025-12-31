@@ -1,5 +1,6 @@
 # Binaries
 /shrinkray
+/build
 *.exe
 *.exe~
 *.dll
