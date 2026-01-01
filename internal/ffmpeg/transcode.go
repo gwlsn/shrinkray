@@ -16,32 +16,32 @@ import (
 
 // Progress represents the current transcoding progress
 type Progress struct {
-	Frame       int64         `json:"frame"`
-	FPS         float64       `json:"fps"`
-	Size        int64         `json:"size"`        // Current output size in bytes
-	Time        time.Duration `json:"time"`        // Current position in video
-	Bitrate     float64       `json:"bitrate"`     // Current bitrate in kbits/s
-	Speed       float64       `json:"speed"`       // Encoding speed (1.0 = realtime)
-	Percent     float64       `json:"percent"`     // Progress percentage (0-100)
-	ETA         time.Duration `json:"eta"`         // Estimated time remaining
+	Frame   int64         `json:"frame"`
+	FPS     float64       `json:"fps"`
+	Size    int64         `json:"size"`    // Current output size in bytes
+	Time    time.Duration `json:"time"`    // Current position in video
+	Bitrate float64       `json:"bitrate"` // Current bitrate in kbits/s
+	Speed   float64       `json:"speed"`   // Encoding speed (1.0 = realtime)
+	Percent float64       `json:"percent"` // Progress percentage (0-100)
+	ETA     time.Duration `json:"eta"`     // Estimated time remaining
 }
 
 // TranscodeResult contains the result of a transcode operation
 type TranscodeResult struct {
-	InputPath   string `json:"input_path"`
-	OutputPath  string `json:"output_path"`
-	InputSize   int64  `json:"input_size"`
-	OutputSize  int64  `json:"output_size"`
-	SpaceSaved  int64  `json:"space_saved"`
-	Duration    time.Duration `json:"duration"` // How long the transcode took
+	InputPath  string        `json:"input_path"`
+	OutputPath string        `json:"output_path"`
+	InputSize  int64         `json:"input_size"`
+	OutputSize int64         `json:"output_size"`
+	SpaceSaved int64         `json:"space_saved"`
+	Duration   time.Duration `json:"duration"` // How long the transcode took
 }
 
 // TranscodeError contains detailed error information from a failed transcode
 type TranscodeError struct {
-	Message   string   // The error message
-	Stderr    string   // Bounded stderr output (last ~64KB)
-	ExitCode  int      // FFmpeg exit code
-	Args      []string // FFmpeg command arguments
+	Message  string   // The error message
+	Stderr   string   // Bounded stderr output (last ~64KB)
+	ExitCode int      // FFmpeg exit code
+	Args     []string // FFmpeg command arguments
 }
 
 func (e *TranscodeError) Error() string {
@@ -200,6 +200,8 @@ func (t *Transcoder) Transcode(
 	preset *Preset,
 	duration time.Duration,
 	sourceBitrate int64,
+	subtitleCodecs []string,
+	subtitleHandling string,
 	progressCh chan<- Progress,
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
@@ -213,7 +215,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, subtitleCodecs, subtitleHandling)
 
 	// Build ffmpeg command
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output
@@ -221,9 +223,9 @@ func (t *Transcoder) Transcode(
 	args = append(args, inputArgs...)
 	args = append(args,
 		"-i", inputPath,
-		"-y",                   // Overwrite output without asking
+		"-y",                  // Overwrite output without asking
 		"-progress", "pipe:1", // Output progress to stdout
-		"-nostats",            // Disable default stats output
+		"-nostats", // Disable default stats output
 	)
 	args = append(args, outputArgs...)
 	args = append(args, outputPath)

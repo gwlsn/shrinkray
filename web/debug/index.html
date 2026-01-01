@@ -416,6 +416,18 @@
             </div>
             <div class="setting-row">
                 <div class="setting-label">
+                    <span class="setting-name">Subtitles</span>
+                    <span class="setting-description">Handle unsupported subtitle codecs for MKV output</span>
+                </div>
+                <div class="setting-control">
+                    <select id="setting-subtitle-handling" onchange="updateSetting('subtitle_handling', this.value)">
+                        <option value="convert">Convert mov_text to SRT</option>
+                        <option value="drop">Drop unsupported subtitles</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">
                     <span class="setting-name">Concurrent jobs</span>
                     <span class="setting-description">Number of files to transcode simultaneously</span>
                 </div>
@@ -978,6 +990,8 @@
                 // Set original handling dropdown
                 const handlingSelect = document.getElementById('setting-original-handling');
                 handlingSelect.value = config.original_handling || 'replace';
+                const subtitleSelect = document.getElementById('setting-subtitle-handling');
+                subtitleSelect.value = config.subtitle_handling || 'convert';
 
                 // Set workers dropdown
                 const workersSelect = document.getElementById('setting-workers');

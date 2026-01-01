@@ -18,6 +18,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.OriginalHandling != "replace" {
 		t.Errorf("expected OriginalHandling replace, got %s", cfg.OriginalHandling)
 	}
+	if cfg.SubtitleHandling != "convert" {
+		t.Errorf("expected SubtitleHandling convert, got %s", cfg.SubtitleHandling)
+	}
 	if cfg.FFmpegPath != "ffmpeg" {
 		t.Errorf("expected FFmpegPath ffmpeg, got %s", cfg.FFmpegPath)
 	}
@@ -44,6 +47,7 @@ func TestLoadAndSave(t *testing.T) {
 		MediaPath:        "/my/media",
 		TempPath:         "/tmp/shrinkray",
 		OriginalHandling: "keep",
+		SubtitleHandling: "drop",
 		Workers:          2,
 		FFmpegPath:       "/usr/bin/ffmpeg",
 		FFprobePath:      "/usr/bin/ffprobe",

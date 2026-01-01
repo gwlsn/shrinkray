@@ -179,17 +179,18 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	}
 
 	job := &Job{
-		ID:         generateID(),
-		InputPath:  inputPath,
-		PresetID:   presetID,
-		Encoder:    encoder,
-		IsHardware: isHardware,
-		Status:     status,
-		Error:      skipReason,
-		InputSize:  probe.Size,
-		Duration:   probe.Duration.Milliseconds(),
-		Bitrate:    probe.Bitrate,
-		CreatedAt:  time.Now(),
+		ID:             generateID(),
+		InputPath:      inputPath,
+		PresetID:       presetID,
+		Encoder:        encoder,
+		IsHardware:     isHardware,
+		Status:         status,
+		Error:          skipReason,
+		InputSize:      probe.Size,
+		Duration:       probe.Duration.Milliseconds(),
+		Bitrate:        probe.Bitrate,
+		CreatedAt:      time.Now(),
+		SubtitleCodecs: probe.SubtitleCodecs,
 	}
 
 	q.jobs[job.ID] = job
@@ -242,17 +243,18 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		}
 
 		job := &Job{
-			ID:         generateID(),
-			InputPath:  probe.Path,
-			PresetID:   presetID,
-			Encoder:    encoder,
-			IsHardware: isHardware,
-			Status:     status,
-			Error:      skipReason,
-			InputSize:  probe.Size,
-			Duration:   probe.Duration.Milliseconds(),
-			Bitrate:    probe.Bitrate,
-			CreatedAt:  time.Now(),
+			ID:             generateID(),
+			InputPath:      probe.Path,
+			PresetID:       presetID,
+			Encoder:        encoder,
+			IsHardware:     isHardware,
+			Status:         status,
+			Error:          skipReason,
+			InputSize:      probe.Size,
+			Duration:       probe.Duration.Milliseconds(),
+			Bitrate:        probe.Bitrate,
+			CreatedAt:      time.Now(),
+			SubtitleCodecs: probe.SubtitleCodecs,
 		}
 
 		q.jobs[job.ID] = job
@@ -401,6 +403,7 @@ func (q *Queue) UpdateJobAfterProbe(id string, probe *ffmpeg.ProbeResult) error 
 	job.Duration = probe.Duration.Milliseconds()
 	job.Bitrate = probe.Bitrate
 	job.InputSize = probe.Size
+	job.SubtitleCodecs = probe.SubtitleCodecs
 
 	// Check if file should be skipped
 	preset := ffmpeg.GetPreset(job.PresetID)

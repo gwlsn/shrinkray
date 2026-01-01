@@ -462,6 +462,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"version":             shrinkray.Version,
 		"media_path":          h.cfg.MediaPath,
 		"original_handling":   h.cfg.OriginalHandling,
+		"subtitle_handling":   h.cfg.SubtitleHandling,
 		"workers":             h.cfg.Workers,
 		"has_temp_path":       h.cfg.TempPath != "",
 		"pushover_user_key":   h.cfg.PushoverUserKey,
@@ -487,6 +488,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 // UpdateConfigRequest is the request body for updating config
 type UpdateConfigRequest struct {
 	OriginalHandling  *string `json:"original_handling,omitempty"`
+	SubtitleHandling  *string `json:"subtitle_handling,omitempty"`
 	Workers           *int    `json:"workers,omitempty"`
 	PushoverUserKey   *string `json:"pushover_user_key,omitempty"`
 	PushoverAppToken  *string `json:"pushover_app_token,omitempty"`
@@ -512,6 +514,13 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.OriginalHandling = *req.OriginalHandling
+	}
+	if req.SubtitleHandling != nil {
+		if *req.SubtitleHandling != "convert" && *req.SubtitleHandling != "drop" {
+			writeError(w, http.StatusBadRequest, "subtitle_handling must be 'convert' or 'drop'")
+			return
+		}
+		h.cfg.SubtitleHandling = *req.SubtitleHandling
 	}
 
 	if req.Workers != nil && *req.Workers > 0 {

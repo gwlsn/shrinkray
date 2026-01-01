@@ -12,18 +12,19 @@ import (
 
 // ProbeResult contains metadata about a video file
 type ProbeResult struct {
-	Path       string        `json:"path"`
-	Size       int64         `json:"size"`
-	Duration   time.Duration `json:"duration"`
-	Format     string        `json:"format"`
-	VideoCodec string        `json:"video_codec"`
-	AudioCodec string        `json:"audio_codec"`
-	Width      int           `json:"width"`
-	Height     int           `json:"height"`
-	Bitrate    int64         `json:"bitrate"` // bits per second
-	FrameRate  float64       `json:"frame_rate"`
-	IsHEVC     bool          `json:"is_hevc"` // true if already x265/HEVC
-	IsAV1      bool          `json:"is_av1"`  // true if already AV1
+	Path           string        `json:"path"`
+	Size           int64         `json:"size"`
+	Duration       time.Duration `json:"duration"`
+	Format         string        `json:"format"`
+	VideoCodec     string        `json:"video_codec"`
+	AudioCodec     string        `json:"audio_codec"`
+	SubtitleCodecs []string      `json:"subtitle_codecs"`
+	Width          int           `json:"width"`
+	Height         int           `json:"height"`
+	Bitrate        int64         `json:"bitrate"` // bits per second
+	FrameRate      float64       `json:"frame_rate"`
+	IsHEVC         bool          `json:"is_hevc"` // true if already x265/HEVC
+	IsAV1          bool          `json:"is_av1"`  // true if already AV1
 }
 
 // ffprobeOutput represents the JSON output from ffprobe
@@ -41,11 +42,11 @@ type ffprobeFormat struct {
 }
 
 type ffprobeStream struct {
-	CodecType   string `json:"codec_type"`
-	CodecName   string `json:"codec_name"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
-	RFrameRate  string `json:"r_frame_rate"`
+	CodecType    string `json:"codec_type"`
+	CodecName    string `json:"codec_name"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	RFrameRate   string `json:"r_frame_rate"`
 	AvgFrameRate string `json:"avg_frame_rate"`
 }
 
@@ -117,6 +118,10 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 		case "audio":
 			if result.AudioCodec == "" { // Take first audio stream
 				result.AudioCodec = stream.CodecName
+			}
+		case "subtitle":
+			if stream.CodecName != "" {
+				result.SubtitleCodecs = append(result.SubtitleCodecs, strings.ToLower(stream.CodecName))
 			}
 		}
 	}

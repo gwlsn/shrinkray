@@ -56,6 +56,10 @@ type Config struct {
 	// Options: "replace" (rename original to .old), "keep" (keep original, new file replaces)
 	OriginalHandling string `yaml:"original_handling"`
 
+	// SubtitleHandling controls how unsupported subtitle codecs are handled when outputting MKV.
+	// Options: "convert" (convert mov_text to SRT) or "drop" (drop unsupported subtitles).
+	SubtitleHandling string `yaml:"subtitle_handling"`
+
 	// Workers is the number of concurrent transcode jobs (default 1)
 	Workers int `yaml:"workers"`
 
@@ -144,6 +148,7 @@ func DefaultConfig() *Config {
 		MediaPath:        "/media",
 		TempPath:         "", // same directory as source
 		OriginalHandling: "replace",
+		SubtitleHandling: "convert",
 		Workers:          1,
 		FFmpegPath:       "ffmpeg",
 		FFprobePath:      "ffprobe",
@@ -189,6 +194,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Workers < 1 {
 		cfg.Workers = 1
+	}
+	if cfg.SubtitleHandling == "" {
+		cfg.SubtitleHandling = "convert"
+	} else if cfg.SubtitleHandling != "convert" && cfg.SubtitleHandling != "drop" {
+		cfg.SubtitleHandling = "convert"
 	}
 
 	// Apply environment variable overrides for feature flags

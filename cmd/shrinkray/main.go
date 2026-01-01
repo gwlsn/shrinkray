@@ -91,6 +91,7 @@ func main() {
 	}
 	fmt.Printf("  Workers:      %d\n", cfg.Workers)
 	fmt.Printf("  Original:     %s\n", cfg.OriginalHandling)
+	fmt.Printf("  Subtitles:    %s\n", cfg.SubtitleHandling)
 	fmt.Println()
 
 	// Check ffmpeg/ffprobe availability

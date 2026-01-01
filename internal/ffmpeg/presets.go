@@ -1,6 +1,9 @@
 package ffmpeg
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Preset defines a transcoding preset with its FFmpeg parameters
 type Preset struct {
@@ -21,6 +24,23 @@ type encoderSettings struct {
 	usesBitrate bool     // If true, quality value is a bitrate modifier (0.0-1.0)
 	hwaccelArgs []string // Args to prepend before -i for hardware decoding
 	scaleFilter string   // Hardware-specific scale filter (e.g., "scale_qsv", "scale_cuda")
+}
+
+// SubtitleHandling determines how to handle subtitle streams when transcoding to MKV.
+type SubtitleHandling string
+
+const (
+	SubtitleHandlingConvert SubtitleHandling = "convert"
+	SubtitleHandlingDrop    SubtitleHandling = "drop"
+)
+
+func normalizeSubtitleHandling(value string) SubtitleHandling {
+	switch strings.ToLower(value) {
+	case string(SubtitleHandlingDrop):
+		return SubtitleHandlingDrop
+	default:
+		return SubtitleHandlingConvert
+	}
 }
 
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox)
@@ -140,7 +160,7 @@ var BasePresets = []struct {
 // BuildPresetArgs builds FFmpeg arguments for a preset with the specified encoder
 // sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
 // Returns (inputArgs, outputArgs) - inputArgs go before -i, outputArgs go after
-func BuildPresetArgs(preset *Preset, sourceBitrate int64) (inputArgs []string, outputArgs []string) {
+func BuildPresetArgs(preset *Preset, sourceBitrate int64, subtitleCodecs []string, subtitleHandling string) (inputArgs []string, outputArgs []string) {
 	key := EncoderKey{preset.Encoder, preset.Codec}
 	config, ok := encoderConfigs[key]
 	if !ok {
@@ -211,7 +231,7 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64) (inputArgs []string, o
 	// fail to encode due to unsupported frame rates (90k fps)
 	outputArgs = append(outputArgs,
 		"-map", "0",
-		"-c:v", "copy",       // Default: copy all video streams (cover art, etc.)
+		"-c:v", "copy", // Default: copy all video streams (cover art, etc.)
 		"-c:v:0", config.encoder, // Override: encode only the first video stream
 	)
 
@@ -219,13 +239,30 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64) (inputArgs []string, o
 	outputArgs = append(outputArgs, config.qualityFlag, qualityStr)
 	outputArgs = append(outputArgs, config.extraArgs...)
 
-	// Copy audio and subtitles
-	outputArgs = append(outputArgs,
-		"-c:a", "copy",
-		"-c:s", "copy",
-	)
+	// Copy audio and handle subtitle codecs (convert mov_text if present).
+	outputArgs = append(outputArgs, "-c:a", "copy")
+
+	if containsSubtitleCodec(subtitleCodecs, "mov_text") {
+		switch normalizeSubtitleHandling(subtitleHandling) {
+		case SubtitleHandlingDrop:
+			outputArgs = append(outputArgs, "-sn")
+		default:
+			outputArgs = append(outputArgs, "-c:s", "srt")
+		}
+	} else {
+		outputArgs = append(outputArgs, "-c:s", "copy")
+	}
 
 	return inputArgs, outputArgs
+}
+
+func containsSubtitleCodec(codecs []string, target string) bool {
+	for _, codec := range codecs {
+		if strings.EqualFold(codec, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // GeneratePresets creates presets using the best available encoder for each codec
@@ -314,4 +351,3 @@ func ListPresets() []*Preset {
 
 	return result
 }
-

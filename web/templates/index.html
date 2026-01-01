@@ -1927,6 +1927,18 @@
                     </div>
                     <div class="setting-item">
                         <div class="setting-info">
+                            <div class="setting-name">Subtitles</div>
+                            <div class="setting-desc">Handle unsupported subtitle codecs for MKV output</div>
+                        </div>
+                        <div class="setting-control">
+                            <select class="setting-select" id="setting-subtitle-handling" onchange="updateSetting('subtitle_handling', this.value)">
+                                <option value="convert">Convert mov_text to SRT</option>
+                                <option value="drop">Drop unsupported subtitles</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
                             <div class="setting-name">Concurrent jobs</div>
                             <div class="setting-desc">Simultaneous transcode tasks</div>
                         </div>
@@ -4350,6 +4362,7 @@
                 }
 
                 document.getElementById('setting-original-handling').value = config.original_handling || 'replace';
+                document.getElementById('setting-subtitle-handling').value = config.subtitle_handling || 'convert';
                 document.getElementById('setting-workers').value = config.workers || 1;
 
                 // Pushover settings

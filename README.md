@@ -50,7 +50,7 @@ For hardware acceleration, add the appropriate device:
 | **1080p** | Downscale to 1080p + HEVC |
 | **720p** | Downscale to 720p + HEVC |
 
-All presets copy audio and subtitles unchanged.
+All presets copy audio, and subtitle streams are copied unless a `mov_text` subtitle needs conversion for MKV output.
 
 ## Hardware Acceleration
 
@@ -99,6 +99,7 @@ Config is stored in `/config/shrinkray.yaml`. Most settings are available in the
 | `media_path` | `/media` | Root directory to browse for media files |
 | `temp_path` | *(empty)* | Directory for temp files during transcode. If empty, uses same directory as source file |
 | `original_handling` | `replace` | What to do with originals: `replace` (delete) or `keep` (rename to `.old`) |
+| `subtitle_handling` | `convert` | How to handle unsupported subtitles: `convert` (convert `mov_text` to SRT) or `drop` (remove unsupported subtitles) |
 | `workers` | `1` | Number of concurrent transcode jobs (1-6) |
 | `ffmpeg_path` | `ffmpeg` | Path to ffmpeg binary |
 | `ffprobe_path` | `ffprobe` | Path to ffprobe binary |
@@ -127,6 +128,7 @@ Example:
 media_path: /media
 temp_path: /tmp/shrinkray
 original_handling: replace
+subtitle_handling: convert
 workers: 2
 ```
 
