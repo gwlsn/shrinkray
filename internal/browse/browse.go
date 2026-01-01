@@ -488,7 +488,8 @@ func (b *Browser) discoverMediaFiles(root string, recursive bool, maxDepth *int)
 }
 
 func isTrickplayTmp(name string) bool {
-	return strings.HasSuffix(strings.ToLower(name), "shrinkray.tmp")
+	lowerName := strings.ToLower(name)
+	return strings.HasSuffix(lowerName, "shrinkray.tmp") || strings.Contains(lowerName, ".shrinkray.tmp.")
 }
 
 // DiscoverMediaFiles is a public wrapper for discovering media files with recursion control.
