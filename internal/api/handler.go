@@ -206,7 +206,7 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if excludeProcessed && len(processedPaths) > 0 {
-				filtered := make([]browse.FileInfo, 0, len(files))
+				filtered := make([]browse.DiscoveredFile, 0, len(files))
 				for _, file := range files {
 					if _, ok := processedPaths[file.Path]; ok {
 						continue
