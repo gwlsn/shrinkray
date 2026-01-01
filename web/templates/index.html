@@ -3445,6 +3445,18 @@
             }
         }
 
+        async function removeJob(id) {
+            try {
+                const resp = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to remove job');
+                }
+            } catch (err) {
+                console.error('Remove error:', err);
+            }
+        }
+
         function clearQueue() {
             showConfirmModal(
                 'Clear Queue',
@@ -3626,6 +3638,12 @@
                     ${job.status === 'failed' ? `
                         <div class="job-actions">
                             <button class="btn btn-secondary btn-sm" onclick="retryJob('${safeId}')">Retry</button>
+                            <button class="btn btn-secondary btn-sm" onclick="removeJob('${safeId}')">Remove</button>
+                        </div>
+                    ` : ''}
+                    ${job.status === 'cancelled' ? `
+                        <div class="job-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="removeJob('${safeId}')">Remove</button>
                         </div>
                     ` : ''}
                 </div>
@@ -3733,6 +3751,60 @@
                 if (el) {
                     el.outerHTML = renderJobHtml(job);
                 }
+            }
+
+            updateActivePanel();
+        }
+
+        function handleJobRemoved(job) {
+            const idx = cachedJobs.findIndex(j => j.id === job.id);
+            if (idx >= 0) {
+                const removed = cachedJobs.splice(idx, 1)[0];
+                if (removed.status === 'pending') cachedStats.pending--;
+                if (removed.status === 'pending_probe') cachedStats.pending_probe--;
+                if (removed.status === 'running') cachedStats.running--;
+                if (removed.status === 'complete') {
+                    cachedStats.complete--;
+                    cachedStats.total_saved -= removed.space_saved || 0;
+                }
+                if (removed.status === 'failed') cachedStats.failed--;
+                if (removed.status === 'cancelled') cachedStats.cancelled--;
+                updateStats(cachedStats);
+            }
+
+            errorHelperExpanded.delete(job.id);
+            errorRawExpanded.delete(job.id);
+
+            if (virtualScrollEnabled) {
+                removeJobFromVirtualState(job.id);
+                updateVisibleRange();
+                renderVirtualJobs();
+            } else {
+                const safeId = escapeCssSelector(job.id);
+                const el = document.querySelector(`.job-item[data-job-id="${safeId}"]`);
+                if (el) {
+                    el.remove();
+                }
+            }
+
+            updateCompletedSection(cachedJobs.filter(j => j.status === 'complete'));
+
+            const activeJobs = cachedJobs.filter(j => j.status !== 'complete');
+            const container = document.getElementById('queue-list');
+            if (activeJobs.length === 0 && container) {
+                container.innerHTML = `
+                    <div class="queue-empty">
+                        <div class="queue-empty-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <path d="M3 9h18"/>
+                                <path d="M9 21V9"/>
+                            </svg>
+                        </div>
+                        <div>No jobs in queue</div>
+                        <div style="font-size: 0.8125rem; margin-top: 4px; color: var(--text-tertiary)">Select files and start transcoding</div>
+                    </div>
+                `;
             }
 
             updateActivePanel();
@@ -4323,6 +4395,8 @@
                 } else if (data.type === 'probed' && data.job) {
                     // Job probed: pending_probe → pending, update with probe data
                     handleJobStatusChange(data.job);
+                } else if (data.type === 'removed' && data.job) {
+                    handleJobRemoved(data.job);
                 } else if ((data.type === 'started' || data.type === 'complete' || data.type === 'failed' || data.type === 'cancelled') && data.job) {
                     // Performance: Update single job instead of full refresh
                     handleJobStatusChange(data.job);

@@ -800,10 +800,15 @@ func (q *Queue) Clear(includeCompleted bool) int {
 	return count
 }
 
-// Remove removes a single job from the queue (for retry functionality)
-func (q *Queue) Remove(id string) {
+// Remove removes a single job from the queue.
+func (q *Queue) Remove(id string) (*Job, error) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		q.mu.Unlock()
+		return nil, fmt.Errorf("job not found: %s", id)
+	}
 
 	delete(q.jobs, id)
 
@@ -819,6 +824,12 @@ func (q *Queue) Remove(id string) {
 	if err := q.save(); err != nil {
 		fmt.Printf("Warning: failed to persist queue: %v\n", err)
 	}
+
+	q.mu.Unlock()
+
+	q.broadcast(JobEvent{Type: "removed", Job: job})
+
+	return job, nil
 }
 
 // ReorderPending moves a pending job up or down within the pending queue order.

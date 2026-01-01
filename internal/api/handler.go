@@ -324,6 +324,20 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if job.Status == jobs.StatusFailed || job.Status == jobs.StatusCancelled {
+		if _, err := h.queue.Remove(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+		return
+	}
+
+	if job.Status == jobs.StatusComplete {
+		writeError(w, http.StatusConflict, "completed jobs cannot be removed")
+		return
+	}
+
 	// If job is running, cancel it via worker pool
 	if job.Status == jobs.StatusRunning {
 		h.workerPool.CancelJob(id)
@@ -656,7 +670,9 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the failed job
-	h.queue.Remove(id)
+	if _, err := h.queue.Remove(id); err != nil {
+		log.Printf("Failed to remove job %s after retry: %v", id, err)
+	}
 
 	writeJSON(w, http.StatusOK, newJob)
 }

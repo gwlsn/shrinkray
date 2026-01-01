@@ -67,7 +67,7 @@ func (j *Job) NeedsProbe() bool {
 
 // JobEvent represents an event for SSE streaming
 type JobEvent struct {
-	Type string `json:"type"` // "added", "batch_added", "probed", "started", "progress", "complete", "failed", "cancelled"
+	Type string `json:"type"` // "added", "batch_added", "probed", "started", "progress", "complete", "failed", "cancelled", "removed"
 	Job  *Job   `json:"job,omitempty"`
 
 	// Batch of jobs - used for "batch_added" event to reduce SSE event flood
