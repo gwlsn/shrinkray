@@ -1085,6 +1085,37 @@
             color: var(--text-secondary);
         }
 
+        .error-helper-raw-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .error-helper-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: color var(--transition-fast), border-color var(--transition-fast);
+        }
+
+        .error-helper-copy:hover {
+            color: var(--text-secondary);
+            border-color: var(--text-secondary);
+        }
+
+        .error-helper-copy.copied {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
         .error-helper-raw-toggle svg {
             width: 10px;
             height: 10px;
@@ -2668,12 +2699,15 @@
                     </div>
 
                     <div class="error-helper-section">
-                        <button class="error-helper-raw-toggle ${isRawExpanded ? 'expanded' : ''}" onclick="toggleRawOutput('${safeId}')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"></polyline>
-                            </svg>
-                            Show raw ffmpeg output
-                        </button>
+                        <div class="error-helper-raw-actions">
+                            <button class="error-helper-raw-toggle ${isRawExpanded ? 'expanded' : ''}" onclick="toggleRawOutput('${safeId}')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                                Show raw ffmpeg output
+                            </button>
+                            <button class="error-helper-copy" type="button" onclick="copyRawOutput('${safeId}')">Copy raw output</button>
+                        </div>
                         <div class="error-helper-raw ${isRawExpanded ? 'expanded' : ''}" id="error-raw-${safeId}">${safeStderr || 'No stderr output captured.'}</div>
                     </div>
                 </div>
@@ -2713,6 +2747,56 @@
                 } else {
                     errorRawExpanded.delete(jobId);
                 }
+            }
+        }
+
+        async function copyRawOutput(jobId) {
+            const job = cachedJobs.find(j => j.id === jobId);
+            const rawOutput = job && job.stderr ? job.stderr : '';
+
+            if (!rawOutput) {
+                alert('No stderr output captured for this job.');
+                return;
+            }
+
+            let copied = false;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(rawOutput);
+                    copied = true;
+                } catch (err) {
+                    copied = false;
+                }
+            }
+
+            if (!copied) {
+                const textarea = document.createElement('textarea');
+                textarea.value = rawOutput;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    copied = document.execCommand('copy');
+                } catch (err) {
+                    copied = false;
+                }
+                document.body.removeChild(textarea);
+            }
+
+            const copySelector = `#error-helper-${escapeCssSelector(jobId)} .error-helper-copy`;
+            const copyButton = document.querySelector(copySelector);
+            if (copyButton) {
+                const originalLabel = copyButton.dataset.label || copyButton.textContent;
+                copyButton.dataset.label = originalLabel;
+                copyButton.textContent = copied ? 'Copied!' : 'Copy failed';
+                copyButton.classList.toggle('copied', copied);
+                setTimeout(() => {
+                    copyButton.textContent = originalLabel;
+                    copyButton.classList.remove('copied');
+                }, 1500);
             }
         }
 
