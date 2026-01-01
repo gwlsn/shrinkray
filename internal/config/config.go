@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -87,6 +88,51 @@ type Config struct {
 
 	// Features contains feature flags for phased rollout of new functionality
 	Features FeatureFlags `yaml:"features"`
+
+	// Auth contains authentication configuration.
+	Auth AuthConfig `yaml:"auth"`
+}
+
+// AuthConfig configures authentication providers.
+type AuthConfig struct {
+	// Enabled controls whether authentication is required.
+	Enabled bool `yaml:"enabled"`
+	// Provider selects the auth provider name.
+	Provider string `yaml:"provider"`
+	// Secret signs session cookies.
+	Secret string `yaml:"secret"`
+	// BypassPaths lists endpoints that bypass auth enforcement.
+	BypassPaths []string `yaml:"bypass_paths"`
+	// Password configures password-based auth.
+	Password PasswordAuthConfig `yaml:"password"`
+	// OIDC configures OpenID Connect auth.
+	OIDC OIDCAuthConfig `yaml:"oidc"`
+}
+
+// PasswordAuthConfig configures password auth.
+type PasswordAuthConfig struct {
+	// Users maps usernames to password hashes.
+	Users map[string]string `yaml:"users"`
+	// HashAlgo specifies the expected password hash algorithm.
+	HashAlgo string `yaml:"hash_algo"`
+}
+
+// OIDCAuthConfig configures OpenID Connect auth.
+type OIDCAuthConfig struct {
+	// Issuer is the OIDC issuer URL.
+	Issuer string `yaml:"issuer"`
+	// ClientID is the OIDC client ID.
+	ClientID string `yaml:"client_id"`
+	// ClientSecret is the OIDC client secret.
+	ClientSecret string `yaml:"client_secret"`
+	// RedirectURL is the callback URL registered with the IdP.
+	RedirectURL string `yaml:"redirect_url"`
+	// Scopes are extra OAuth scopes (openid is always enforced).
+	Scopes []string `yaml:"scopes"`
+	// GroupClaim is the claim name that holds group membership.
+	GroupClaim string `yaml:"group_claim"`
+	// AllowedGroups restricts access to matching group values.
+	AllowedGroups []string `yaml:"allowed_groups"`
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -101,6 +147,14 @@ func DefaultConfig() *Config {
 		QueueFile:        "",
 		NtfyServer:       "https://ntfy.sh",
 		Features:         DefaultFeatureFlags(),
+		Auth: AuthConfig{
+			Enabled:  false,
+			Provider: "noop",
+			Password: PasswordAuthConfig{HashAlgo: "auto"},
+			OIDC: OIDCAuthConfig{
+				Scopes: []string{"openid", "profile", "email"},
+			},
+		},
 	}
 }
 
@@ -113,6 +167,7 @@ func Load(path string) (*Config, error) {
 		if os.IsNotExist(err) {
 			// No config file - use defaults
 			applyFeatureFlagEnvOverrides(cfg)
+			applyAuthEnvOverrides(cfg)
 			return cfg, nil
 		}
 		return nil, err
@@ -136,8 +191,80 @@ func Load(path string) (*Config, error) {
 	// Apply environment variable overrides for feature flags
 	// This allows toggling features without modifying config files
 	applyFeatureFlagEnvOverrides(cfg)
+	applyAuthEnvOverrides(cfg)
 
 	return cfg, nil
+}
+
+func applyAuthEnvOverrides(cfg *Config) {
+	if v := os.Getenv("SHRINKRAY_AUTH_ENABLED"); v != "" {
+		cfg.Auth.Enabled = envBool(v)
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_PROVIDER"); v != "" {
+		cfg.Auth.Provider = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_SECRET"); v != "" {
+		cfg.Auth.Secret = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_BYPASS_PATHS"); v != "" {
+		cfg.Auth.BypassPaths = splitCommaList(v)
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_HASH_ALGO"); v != "" {
+		cfg.Auth.Password.HashAlgo = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_USERS"); v != "" {
+		cfg.Auth.Password.Users = parseUsersEnv(v)
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_ISSUER"); v != "" {
+		cfg.Auth.OIDC.Issuer = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_CLIENT_ID"); v != "" {
+		cfg.Auth.OIDC.ClientID = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_CLIENT_SECRET"); v != "" {
+		cfg.Auth.OIDC.ClientSecret = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_REDIRECT_URL"); v != "" {
+		cfg.Auth.OIDC.RedirectURL = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_SCOPES"); v != "" {
+		cfg.Auth.OIDC.Scopes = splitCommaList(v)
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_GROUP_CLAIM"); v != "" {
+		cfg.Auth.OIDC.GroupClaim = v
+	}
+	if v := os.Getenv("SHRINKRAY_AUTH_OIDC_ALLOWED_GROUPS"); v != "" {
+		cfg.Auth.OIDC.AllowedGroups = splitCommaList(v)
+	}
+}
+
+func splitCommaList(value string) []string {
+	parts := []string{}
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts = append(parts, item)
+	}
+	return parts
+}
+
+func parseUsersEnv(value string) map[string]string {
+	users := make(map[string]string)
+	for _, entry := range splitCommaList(value) {
+		parts := strings.SplitN(entry, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		username := strings.TrimSpace(parts[0])
+		hash := strings.TrimSpace(parts[1])
+		if username == "" || hash == "" {
+			continue
+		}
+		users[username] = hash
+	}
+	return users
 }
 
 // applyFeatureFlagEnvOverrides checks environment variables for feature flag overrides

@@ -107,6 +107,19 @@ Config is stored in `/config/shrinkray.yaml`. Most settings are available in the
 | `ntfy_server` | `https://ntfy.sh` | ntfy server URL for notifications |
 | `ntfy_topic` | *(empty)* | ntfy topic for notifications |
 | `ntfy_token` | *(empty)* | ntfy access token (optional) |
+| `auth.enabled` | `false` | Require authentication |
+| `auth.provider` | `noop` | Auth provider name (`noop`, `password`) |
+| `auth.secret` | *(empty)* | HMAC secret used to sign session cookies |
+| `auth.bypass_paths` | *(empty)* | Extra unauthenticated paths (comma-separated in env) |
+| `auth.password.hash_algo` | `auto` | Password hash algorithm (`auto`, `bcrypt`, `argon2id`) |
+| `auth.password.users` | *(empty)* | Map of usernames to password hashes |
+| `auth.oidc.issuer` | *(empty)* | OIDC issuer URL |
+| `auth.oidc.client_id` | *(empty)* | OIDC client ID |
+| `auth.oidc.client_secret` | *(empty)* | OIDC client secret |
+| `auth.oidc.redirect_url` | *(empty)* | Callback URL registered with the IdP |
+| `auth.oidc.scopes` | `["openid","profile","email"]` | OIDC scopes (openid is always enforced) |
+| `auth.oidc.group_claim` | *(empty)* | Claim containing group membership |
+| `auth.oidc.allowed_groups` | *(empty)* | Allowed groups (any match grants access) |
 
 Example:
 
@@ -116,6 +129,69 @@ temp_path: /tmp/shrinkray
 original_handling: replace
 workers: 2
 ```
+
+Auth example:
+
+```yaml
+auth:
+  enabled: true
+  provider: password
+  secret: "change-me"
+  password:
+    hash_algo: auto
+    users:
+      admin: "$2b$12$abcdefghijklmnopqrstuv1234567890abcdefghijklmnopqrstuv"
+```
+
+OIDC example:
+
+```yaml
+auth:
+  enabled: true
+  provider: oidc
+  secret: "change-me"
+  oidc:
+    issuer: "https://accounts.example.com"
+    client_id: "shrinkray"
+    client_secret: "super-secret"
+    redirect_url: "https://shrinkray.example.com/auth/callback"
+    scopes: ["openid", "profile", "email", "groups"]
+    group_claim: "groups"
+    allowed_groups: ["media-admins", "ops"]
+```
+
+Environment overrides:
+
+```bash
+SHRINKRAY_AUTH_ENABLED=1
+SHRINKRAY_AUTH_PROVIDER=password
+SHRINKRAY_AUTH_SECRET=change-me
+SHRINKRAY_AUTH_USERS='admin:$2b$12$abcdefghijklmnopqrstuv1234567890abcdefghijklmnopqrstuv'
+```
+
+OIDC overrides:
+
+```bash
+SHRINKRAY_AUTH_ENABLED=1
+SHRINKRAY_AUTH_PROVIDER=oidc
+SHRINKRAY_AUTH_SECRET=change-me
+SHRINKRAY_AUTH_OIDC_ISSUER=https://accounts.example.com
+SHRINKRAY_AUTH_OIDC_CLIENT_ID=shrinkray
+SHRINKRAY_AUTH_OIDC_CLIENT_SECRET=super-secret
+SHRINKRAY_AUTH_OIDC_REDIRECT_URL=https://shrinkray.example.com/auth/callback
+SHRINKRAY_AUTH_OIDC_SCOPES="openid,profile,email,groups"
+SHRINKRAY_AUTH_OIDC_GROUP_CLAIM=groups
+SHRINKRAY_AUTH_OIDC_ALLOWED_GROUPS="media-admins,ops"
+```
+
+### OIDC IdP Settings
+
+Configure your identity provider with:
+
+- **Redirect/Callback URL:** `https://<your-host>/auth/callback`
+- **Grant type:** Authorization Code (OIDC)
+- **Scopes:** `openid` plus any additional scopes (e.g., `profile`, `email`, `groups`)
+- **Group claim:** Ensure your IdP includes the configured `group_claim` (string or array)
 
 ## Building from Source
 
