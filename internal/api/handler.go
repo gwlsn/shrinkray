@@ -79,7 +79,7 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	if len(processedPaths) > 0 {
 		for _, entry := range result.Entries {
 			if entry.IsDir {
-				entry.ProcessedCount = countProcessedInDir(entry.Path, processedPaths)
+				entry.ProcessedCount = countProcessedInDir(entry.Path, processedPaths, h.cfg.HideProcessingTmp)
 				continue
 			}
 			if _, ok := processedPaths[entry.Path]; ok {
@@ -91,7 +91,7 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func countProcessedInDir(dirPath string, processedPaths map[string]struct{}) int {
+func countProcessedInDir(dirPath string, processedPaths map[string]struct{}, hideProcessingTmp bool) int {
 	if len(processedPaths) == 0 {
 		return 0
 	}
@@ -99,6 +99,9 @@ func countProcessedInDir(dirPath string, processedPaths map[string]struct{}) int
 	count := 0
 	for path := range processedPaths {
 		if strings.HasPrefix(path, prefix) {
+			if hideProcessingTmp && strings.HasSuffix(strings.ToLower(path), ".trickplay.tmp") {
+				continue
+			}
 			count++
 		}
 	}
