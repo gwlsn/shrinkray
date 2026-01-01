@@ -2961,7 +2961,8 @@
             updateButtons();
         }
 
-        async function browse(path = '', preserveSelections = false) {
+        async function browse(path = '', preserveSelections = false, options = {}) {
+            const { updateHistory = true, replaceHistory = false } = options;
             try {
                 const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
                 const resp = await fetch(url);
@@ -2972,6 +2973,21 @@
                     selectedPaths.clear();
                 }
                 updateButtons();
+
+                if (updateHistory) {
+                    const nextUrl = new URL(window.location.href);
+                    if (currentPath) {
+                        nextUrl.searchParams.set('path', currentPath);
+                    } else {
+                        nextUrl.searchParams.delete('path');
+                    }
+                    const state = { path: currentPath };
+                    if (replaceHistory) {
+                        history.replaceState(state, '', nextUrl);
+                    } else {
+                        history.pushState(state, '', nextUrl);
+                    }
+                }
 
                 // Update breadcrumb
                 const breadcrumb = document.getElementById('breadcrumb');
@@ -3223,7 +3239,7 @@
                 if (!resp.ok) {
                     throw new Error(data.error || 'Failed to mark processed items');
                 }
-                await browse(currentPath, true);
+                await browse(currentPath, true, { updateHistory: false });
             } catch (err) {
                 console.error('Mark processed error:', err);
                 alert(err.message || 'Failed to mark processed items');
@@ -4127,7 +4143,7 @@
                     handleJobStatusChange(data.job);
                     if (data.type === 'complete' || data.type === 'failed') {
                         // Refresh file list to update metadata, but preserve selections
-                        browse(currentPath, true);
+                        browse(currentPath, true, { updateHistory: false });
                     }
                 } else {
                     // Fallback: debounced full refresh for unknown event types
@@ -4255,7 +4271,7 @@
                 statusEl.className = 'settings-status';
                 setTimeout(() => { statusEl.textContent = ''; }, 2000);
 
-                browse(currentPath, true);
+                browse(currentPath, true, { updateHistory: false });
             } catch (err) {
                 statusEl.textContent = `Error: ${err.message}`;
                 statusEl.className = 'settings-status error';
@@ -4379,6 +4395,11 @@
             });
         }
 
+        function getPathFromLocation() {
+            const url = new URL(window.location.href);
+            return url.searchParams.get('path') || '';
+        }
+
         // Keyboard shortcut for settings
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -4389,11 +4410,18 @@
         // Initialize
         loadLocalPreferences();
         bindPreferenceHandlers();
-        browse();
+        const initialPath = getPathFromLocation();
+        history.replaceState({ path: initialPath }, '', window.location.href);
+        browse(initialPath, false, { updateHistory: false });
         attachQueueDragHandlers();
         connectSSE();
         loadSettings();
         loadPresets();
+
+        window.addEventListener('popstate', (event) => {
+            const statePath = event.state?.path ?? getPathFromLocation();
+            browse(statePath, false, { updateHistory: false });
+        });
     </script>
 </body>
 </html>
