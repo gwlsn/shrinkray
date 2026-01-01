@@ -97,6 +97,55 @@ func parseFFmpegOutTime(value string) (time.Duration, error) {
 		time.Duration(nanos), nil
 }
 
+func parseFFmpegStatsLine(line string) (time.Duration, float64, bool) {
+	timeIdx := strings.Index(line, "time=")
+	if timeIdx == -1 {
+		return 0, 0, false
+	}
+
+	rest := line[timeIdx+len("time="):]
+	timeField := rest
+	if end := strings.IndexByte(rest, ' '); end != -1 {
+		timeField = rest[:end]
+	}
+	if timeField == "" || timeField == "N/A" {
+		return 0, 0, false
+	}
+
+	parsedTime, err := parseFFmpegOutTime(timeField)
+	if err != nil {
+		return 0, 0, false
+	}
+
+	speed := 0.0
+	if speedIdx := strings.Index(line, "speed="); speedIdx != -1 {
+		speedPart := line[speedIdx+len("speed="):]
+		if end := strings.IndexByte(speedPart, ' '); end != -1 {
+			speedPart = speedPart[:end]
+		}
+		speedPart = strings.TrimSuffix(speedPart, "x")
+		if speedPart != "N/A" && speedPart != "" {
+			if parsedSpeed, err := strconv.ParseFloat(speedPart, 64); err == nil {
+				speed = parsedSpeed
+			}
+		}
+	}
+
+	return parsedTime, speed, true
+}
+
+func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
 // IsHardwareEncoderFailure checks if the error indicates a hardware encoder failure
 // that might succeed with a software encoder retry. Only returns true for errors
 // that are specifically related to hardware encoding initialization or execution,
@@ -274,7 +323,6 @@ func (t *Transcoder) Transcode(
 		"-i", inputPath,
 		"-y",                  // Overwrite output without asking
 		"-progress", "pipe:1", // Output progress to stdout
-		"-nostats", // Disable default stats output
 	)
 	args = append(args, outputArgs...)
 	args = append(args, outputPath)
@@ -292,7 +340,10 @@ func (t *Transcoder) Transcode(
 
 	// Capture stderr for error diagnostics (bounded to prevent memory issues)
 	stderrBuf := newBoundedBuffer(maxStderrSize)
-	cmd.Stderr = stderrBuf
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
@@ -386,6 +437,52 @@ func (t *Transcoder) Transcode(
 		}
 		if err := scanner.Err(); err != nil {
 			log.Printf("[transcode] Scanner error: %v", err)
+		}
+	}()
+
+	// Parse stderr stats output as a fallback (some ffmpeg builds don't emit -progress)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Split(scanCRLF)
+		var lastStatsTime time.Duration
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				_, _ = stderrBuf.Write(append([]byte(line), '\n'))
+			}
+
+			statsTime, statsSpeed, ok := parseFFmpegStatsLine(line)
+			if !ok || statsTime == lastStatsTime {
+				continue
+			}
+
+			progress := Progress{
+				Time:  statsTime,
+				Speed: statsSpeed,
+			}
+
+			if duration > 0 {
+				progress.Percent = float64(progress.Time) / float64(duration) * 100
+				if progress.Percent > 100 {
+					progress.Percent = 100
+				}
+				if progress.Speed > 0 {
+					remaining := duration - progress.Time
+					progress.ETA = time.Duration(float64(remaining) / progress.Speed)
+				}
+			}
+
+			lastStatsTime = statsTime
+
+			select {
+			case progressCh <- progress:
+			default:
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.Printf("[transcode] Stderr scanner error: %v", err)
 		}
 	}()
 
