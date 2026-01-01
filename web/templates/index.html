@@ -2722,14 +2722,36 @@
             return `${s}s`;
         }
 
+        function getStartedAtMs(job) {
+            if (!job || !job.started_at) return null;
+            const started = new Date(job.started_at);
+            const startedMs = started.getTime();
+            if (Number.isNaN(startedMs)) return null;
+            return startedMs;
+        }
+
+        function ensureLocalStartedAt(job, startedMs) {
+            if (!job || job.status !== 'running') return;
+            if (job.local_started_at) return;
+            const now = Date.now();
+            if (startedMs === null || startedMs > now + 1000) {
+                job.local_started_at = now;
+            }
+        }
+
         function getElapsedSeconds(job) {
             if (!job) return null;
             if (job.status === 'complete' && job.transcode_secs) {
                 return job.transcode_secs;
             }
-            if (!job.started_at) return null;
-            const started = new Date(job.started_at);
-            if (Number.isNaN(started.getTime())) return null;
+            const startedMs = getStartedAtMs(job);
+            ensureLocalStartedAt(job, startedMs);
+            if (startedMs === null) {
+                if (job.local_started_at) {
+                    return Math.max(0, Math.floor((Date.now() - job.local_started_at) / 1000));
+                }
+                return null;
+            }
             let endTime = Date.now();
             if (job.completed_at) {
                 const completed = new Date(job.completed_at);
@@ -2737,7 +2759,10 @@
                     endTime = completed.getTime();
                 }
             }
-            const elapsedSeconds = Math.max(0, Math.floor((endTime - started.getTime()) / 1000));
+            if (job.local_started_at && startedMs > endTime) {
+                return Math.max(0, Math.floor((endTime - job.local_started_at) / 1000));
+            }
+            const elapsedSeconds = Math.max(0, Math.floor((endTime - startedMs) / 1000));
             return elapsedSeconds;
         }
 
@@ -3499,7 +3524,12 @@
             const idx = cachedJobs.findIndex(j => j.id === job.id);
             if (idx >= 0) {
                 const oldStatus = cachedJobs[idx].status;
+                const localStartedAt = cachedJobs[idx].local_started_at;
                 cachedJobs[idx] = job;
+                if (localStartedAt && !cachedJobs[idx].local_started_at) {
+                    cachedJobs[idx].local_started_at = localStartedAt;
+                }
+                ensureLocalStartedAt(cachedJobs[idx], getStartedAtMs(cachedJobs[idx]));
 
                 // Update virtual scroll state
                 if (virtualScrollEnabled) {
@@ -3562,6 +3592,9 @@
             const container = document.getElementById('queue-list');
             cachedJobs = jobs || [];
             pruneErrorHelperState(cachedJobs);
+            for (const job of cachedJobs) {
+                ensureLocalStartedAt(job, getStartedAtMs(job));
+            }
 
             // Separate completed jobs from active queue
             const completedJobs = cachedJobs.filter(j => j.status === 'complete');
@@ -3916,6 +3949,7 @@
                 cachedJob.progress = jobData.progress;
                 cachedJob.speed = jobData.speed;
                 cachedJob.eta = jobData.eta;
+                ensureLocalStartedAt(cachedJob, getStartedAtMs(cachedJob));
             }
             const elapsed = formatElapsed(cachedJob || jobData);
 
@@ -4046,6 +4080,7 @@
                 cachedJob.progress = progress;
                 cachedJob.speed = speed;
                 cachedJob.eta = eta;
+                ensureLocalStartedAt(cachedJob, getStartedAtMs(cachedJob));
             }
             const elapsed = formatElapsed(cachedJob);
 
