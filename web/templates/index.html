@@ -1594,10 +1594,20 @@
             min-width: 100px;
         }
 
+        #video-info-modal .modal {
+            max-width: 720px;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
         .video-info-body {
             display: flex;
             flex-direction: column;
             gap: 16px;
+            overflow: auto;
+            flex: 1;
         }
 
         .video-info-grid {
@@ -3162,7 +3172,13 @@
                         ? '<span class="processed-tag">Processed</span>'
                         : '';
                 const videoInfoButton = isVideo
-                    ? `<button class="btn btn-secondary btn-sm file-action-btn" data-path="${escapeHtml(entry.path)}" onclick="handleVideoInfoClick(event, this)">Info</button>`
+                    ? `<button class="btn btn-secondary btn-sm file-action-btn" data-path="${escapeHtml(entry.path)}" onclick="handleVideoInfoClick(event, this)" title="Video info" aria-label="Video info">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="16" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                    </button>`
                     : '';
                 const canMarkProcessed = isSelectable && !isFullyProcessed;
                 const markProcessedButton = canMarkProcessed
