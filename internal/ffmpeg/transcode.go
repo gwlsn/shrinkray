@@ -48,6 +48,55 @@ func (e *TranscodeError) Error() string {
 	return e.Message
 }
 
+func parseFFmpegOutTime(value string) (time.Duration, error) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("invalid out_time format: %s", value)
+	}
+
+	hours, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	minutes, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	secondsPart := parts[2]
+	seconds, nanos := int64(0), int64(0)
+	if strings.Contains(secondsPart, ".") {
+		secParts := strings.SplitN(secondsPart, ".", 2)
+		seconds, err = strconv.ParseInt(secParts[0], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		fraction := secParts[1]
+		if len(fraction) > 9 {
+			fraction = fraction[:9]
+		}
+		for len(fraction) < 9 {
+			fraction += "0"
+		}
+		nanos, err = strconv.ParseInt(fraction, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		seconds, err = strconv.ParseInt(secondsPart, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return time.Duration(hours)*time.Hour +
+		time.Duration(minutes)*time.Minute +
+		time.Duration(seconds)*time.Second +
+		time.Duration(nanos), nil
+}
+
 // IsHardwareEncoderFailure checks if the error indicates a hardware encoder failure
 // that might succeed with a software encoder retry. Only returns true for errors
 // that are specifically related to hardware encoding initialization or execution,
@@ -256,6 +305,7 @@ func (t *Transcoder) Transcode(
 		scanner := bufio.NewScanner(stdout)
 		var currentProgress Progress
 		progressUpdateCount := 0
+		sawOutTimeUS := false
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -272,12 +322,22 @@ func (t *Transcoder) Transcode(
 				case "total_size":
 					currentProgress.Size, _ = strconv.ParseInt(value, 10, 64)
 				case "out_time_us":
-					// Use out_time_us exclusively - it's the most precise
-					// Don't parse out_time_ms or out_time because they come AFTER out_time_us
-					// and out_time can be "N/A" for complex files, which would overwrite
-					// the valid microseconds value with 0
+					// Use out_time_us when available - it's the most precise.
+					// Some ffmpeg builds only emit out_time_ms/out_time, so handle those too.
 					us, _ := strconv.ParseInt(value, 10, 64)
 					currentProgress.Time = time.Duration(us) * time.Microsecond
+					sawOutTimeUS = true
+				case "out_time_ms":
+					if !sawOutTimeUS {
+						ms, _ := strconv.ParseInt(value, 10, 64)
+						currentProgress.Time = time.Duration(ms) * time.Millisecond
+					}
+				case "out_time":
+					if !sawOutTimeUS && value != "N/A" {
+						if parsed, err := parseFFmpegOutTime(value); err == nil {
+							currentProgress.Time = parsed
+						}
+					}
 				case "bitrate":
 					// Format: "1234.5kbits/s" or "N/A"
 					if value != "N/A" {
@@ -319,6 +379,7 @@ func (t *Transcoder) Transcode(
 						default:
 							// Channel full, skip this update
 						}
+						sawOutTimeUS = false
 					}
 				}
 			}
