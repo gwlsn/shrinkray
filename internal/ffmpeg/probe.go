@@ -52,12 +52,14 @@ type ffprobeFormat struct {
 }
 
 type ffprobeStream struct {
-	CodecType    string `json:"codec_type"`
-	CodecName    string `json:"codec_name"`
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
-	RFrameRate   string `json:"r_frame_rate"`
-	AvgFrameRate string `json:"avg_frame_rate"`
+	CodecType    string            `json:"codec_type"`
+	CodecName    string            `json:"codec_name"`
+	Width        int               `json:"width"`
+	Height       int               `json:"height"`
+	RFrameRate   string            `json:"r_frame_rate"`
+	AvgFrameRate string            `json:"avg_frame_rate"`
+	Duration     string            `json:"duration"`
+	Tags         map[string]string `json:"tags"`
 }
 
 // Prober wraps ffprobe functionality
@@ -111,7 +113,16 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 	}
 
 	// Parse stream-level metadata
+	var maxVideoDuration time.Duration
+	var maxStreamDuration time.Duration
 	for _, stream := range probeOutput.Streams {
+		if streamDuration, ok := parseDurationValue(stream.Duration); ok && streamDuration > maxStreamDuration {
+			maxStreamDuration = streamDuration
+		}
+		if tagDuration, ok := parseDurationValue(stream.Tags["DURATION"]); ok && tagDuration > maxStreamDuration {
+			maxStreamDuration = tagDuration
+		}
+
 		probeStream := ProbeStream{
 			Type:  stream.CodecType,
 			Codec: stream.CodecName,
@@ -141,6 +152,12 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 				result.IsAV1 = isAV1Codec(stream.CodecName)
 				result.FrameRate = probeStream.FrameRate
 			}
+			if streamDuration, ok := parseDurationValue(stream.Duration); ok && streamDuration > maxVideoDuration {
+				maxVideoDuration = streamDuration
+			}
+			if tagDuration, ok := parseDurationValue(stream.Tags["DURATION"]); ok && tagDuration > maxVideoDuration {
+				maxVideoDuration = tagDuration
+			}
 		case "audio":
 			if result.AudioCodec == "" { // Take first audio stream
 				result.AudioCodec = stream.CodecName
@@ -149,6 +166,14 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 			if stream.CodecName != "" {
 				result.SubtitleCodecs = append(result.SubtitleCodecs, strings.ToLower(stream.CodecName))
 			}
+		}
+	}
+
+	if result.Duration == 0 {
+		if maxVideoDuration > 0 {
+			result.Duration = maxVideoDuration
+		} else if maxStreamDuration > 0 {
+			result.Duration = maxStreamDuration
 		}
 	}
 
@@ -183,6 +208,56 @@ func parseFrameRate(s string) float64 {
 		return 0
 	}
 	return num / den
+}
+
+func parseDurationValue(value string) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "N/A" {
+		return 0, false
+	}
+
+	if strings.Contains(value, ":") {
+		parts := strings.Split(value, ":")
+		if len(parts) != 3 {
+			return 0, false
+		}
+		hours, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, false
+		}
+		minutes, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, false
+		}
+		secondsPart := parts[2]
+		secondsFragments := strings.SplitN(secondsPart, ".", 2)
+		seconds, err := strconv.Atoi(secondsFragments[0])
+		if err != nil {
+			return 0, false
+		}
+		nanos := 0
+		if len(secondsFragments) == 2 {
+			frac := secondsFragments[1]
+			if len(frac) > 9 {
+				frac = frac[:9]
+			}
+			for len(frac) < 9 {
+				frac += "0"
+			}
+			nanos, _ = strconv.Atoi(frac)
+		}
+		duration := time.Duration(hours)*time.Hour +
+			time.Duration(minutes)*time.Minute +
+			time.Duration(seconds)*time.Second +
+			time.Duration(nanos)
+		return duration, true
+	}
+
+	seconds, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	return time.Duration(seconds * float64(time.Second)), true
 }
 
 // IsVideoFile returns true if the file extension suggests a video file
