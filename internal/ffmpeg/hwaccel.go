@@ -256,17 +256,9 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 		}
 	}
 
-	// Build base args
-	args := []string{
-		"-f", "lavfi",
-		"-i", "color=c=black:s=256x256:d=0.1",
-		"-frames:v", "1",
-		"-c:v", encoder,
-		"-f", "null",
-		"-",
-	}
+	var args []string
 
-	// For VAAPI encoders, we need to specify the device
+	// For VAAPI encoders, we need to specify the device and upload frames to VAAPI memory
 	if strings.Contains(encoder, "vaapi") {
 		device := detectVAAPIDevice()
 		if device == "" {
@@ -274,8 +266,28 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 		}
 		// Store the detected device for later use
 		availableEncoders.vaapiDevice = device
-		// Prepend VAAPI device args
-		args = append([]string{"-vaapi_device", device}, args...)
+		// Build VAAPI-specific test command with hardware frame upload
+		// The filter chain converts to nv12 and uploads to VAAPI memory
+		args = []string{
+			"-vaapi_device", device,
+			"-f", "lavfi",
+			"-i", "color=c=black:s=256x256:d=0.1",
+			"-frames:v", "1",
+			"-vf", "format=nv12,hwupload",
+			"-c:v", encoder,
+			"-f", "null",
+			"-",
+		}
+	} else {
+		// Build base args for non-VAAPI encoders
+		args = []string{
+			"-f", "lavfi",
+			"-i", "color=c=black:s=256x256:d=0.1",
+			"-frames:v", "1",
+			"-c:v", encoder,
+			"-f", "null",
+			"-",
+		}
 	}
 
 	// Try to encode a single frame from a test pattern
@@ -372,8 +384,12 @@ func IsEncoderAvailableForCodec(accel HWAccel, codec Codec) bool {
 
 // getBestEncoderForCodecInternal returns the best encoder from a given map (for internal use)
 func getBestEncoderForCodecInternal(encoders map[EncoderKey]*HWEncoder, codec Codec) *HWEncoder {
-	// Priority: VideoToolbox > NVENC > QSV > VAAPI > Software
-	priority := []HWAccel{HWAccelVideoToolbox, HWAccelNVENC, HWAccelQSV, HWAccelVAAPI, HWAccelNone}
+	// Priority: VideoToolbox > NVENC > VAAPI > QSV > Software
+	// VAAPI is prioritized over QSV on Linux because:
+	// - VAAPI is the native Linux hardware acceleration API
+	// - QSV on Linux uses VAAPI as its decode backend anyway
+	// - VAAPI provides a full GPU pipeline (decode -> encode) without CPU frame transfers
+	priority := []HWAccel{HWAccelVideoToolbox, HWAccelNVENC, HWAccelVAAPI, HWAccelQSV, HWAccelNone}
 
 	for _, accel := range priority {
 		key := EncoderKey{accel, codec}
@@ -428,7 +444,8 @@ func ListAvailableEncoders() []*HWEncoder {
 
 	var result []*HWEncoder
 	// Return in priority order (HEVC first, then AV1)
-	priority := []HWAccel{HWAccelVideoToolbox, HWAccelNVENC, HWAccelQSV, HWAccelVAAPI, HWAccelNone}
+	// VAAPI prioritized over QSV for full GPU pipeline on Linux
+	priority := []HWAccel{HWAccelVideoToolbox, HWAccelNVENC, HWAccelVAAPI, HWAccelQSV, HWAccelNone}
 	codecs := []Codec{CodecHEVC, CodecAV1}
 
 	for _, codec := range codecs {
