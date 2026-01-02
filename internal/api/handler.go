@@ -221,6 +221,17 @@ func (h *Handler) ClearQueue(w http.ResponseWriter, r *http.Request) {
 
 // GetConfig handles GET /api/config
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	// Get encoder-specific defaults
+	bestEncoder := ffmpeg.GetBestEncoder()
+	defaultHEVC, defaultAV1 := ffmpeg.GetEncoderDefaults(bestEncoder.Accel)
+	// Fall back to software defaults for bitrate-based encoders (VideoToolbox)
+	if defaultHEVC == 0 {
+		defaultHEVC = 26
+	}
+	if defaultAV1 == 0 {
+		defaultAV1 = 35
+	}
+
 	// Return a sanitized config (no sensitive paths exposed)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"version":               shrinkray.Version,
@@ -234,6 +245,8 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"notify_on_complete":    h.cfg.NotifyOnComplete,
 		"quality_hevc":          h.cfg.QualityHEVC,
 		"quality_av1":           h.cfg.QualityAV1,
+		"default_quality_hevc":  defaultHEVC,
+		"default_quality_av1":   defaultAV1,
 		"schedule_enabled":      h.cfg.ScheduleEnabled,
 		"schedule_start_hour":   h.cfg.ScheduleStartHour,
 		"schedule_end_hour":     h.cfg.ScheduleEndHour,

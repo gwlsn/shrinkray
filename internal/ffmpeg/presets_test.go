@@ -196,3 +196,30 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		}
 	}
 }
+
+func TestGetEncoderDefaults(t *testing.T) {
+	tests := []struct {
+		encoder      HWAccel
+		name         string
+		expectedHEVC int
+		expectedAV1  int
+	}{
+		{HWAccelNone, "Software", 26, 35},
+		{HWAccelVideoToolbox, "VideoToolbox", 0, 0}, // Bitrate-based, returns 0
+		{HWAccelNVENC, "NVENC", 28, 32},
+		{HWAccelQSV, "QSV", 27, 32},
+		{HWAccelVAAPI, "VAAPI", 27, 32},
+	}
+
+	for _, tt := range tests {
+		hevc, av1 := GetEncoderDefaults(tt.encoder)
+		t.Logf("%s: HEVC=%d, AV1=%d", tt.name, hevc, av1)
+
+		if hevc != tt.expectedHEVC {
+			t.Errorf("%s HEVC: got %d, want %d", tt.name, hevc, tt.expectedHEVC)
+		}
+		if av1 != tt.expectedAV1 {
+			t.Errorf("%s AV1: got %d, want %d", tt.name, av1, tt.expectedAV1)
+		}
+	}
+}

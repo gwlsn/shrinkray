@@ -66,8 +66,8 @@ func DefaultConfig() *Config {
 		FFmpegPath:        "ffmpeg",
 		FFprobePath:       "ffprobe",
 		QueueFile:         "",
-		QualityHEVC:       26,
-		QualityAV1:        35,
+		QualityHEVC:       0, // 0 = use encoder-specific default
+		QualityAV1:        0, // 0 = use encoder-specific default
 		ScheduleEnabled:   false,
 		ScheduleStartHour: 22, // 10 PM
 		ScheduleEndHour:   6,  // 6 AM
@@ -101,12 +101,8 @@ func Load(path string) (*Config, error) {
 	if cfg.Workers < 1 {
 		cfg.Workers = 1
 	}
-	if cfg.QualityHEVC == 0 {
-		cfg.QualityHEVC = 26
-	}
-	if cfg.QualityAV1 == 0 {
-		cfg.QualityAV1 = 35
-	}
+	// Note: QualityHEVC/QualityAV1 of 0 means "use encoder-specific default"
+	// The API handler will determine the actual default based on detected encoder
 
 	return cfg, nil
 }

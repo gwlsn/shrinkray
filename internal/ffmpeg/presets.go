@@ -133,6 +133,22 @@ var BasePresets = []struct {
 	{"720p", "Downscale to 720p", "Downscale to 720p (big savings)", CodecHEVC, 720},
 }
 
+// GetEncoderDefaults returns the default quality values for a given encoder.
+// For bitrate-based encoders (VideoToolbox), returns 0 to indicate "use software defaults".
+func GetEncoderDefaults(encoder HWAccel) (hevcDefault, av1Default int) {
+	hevcConfig := encoderConfigs[EncoderKey{encoder, CodecHEVC}]
+	av1Config := encoderConfigs[EncoderKey{encoder, CodecAV1}]
+
+	// Parse defaults (skip bitrate-based encoders - they return 0)
+	if !hevcConfig.usesBitrate {
+		fmt.Sscanf(hevcConfig.quality, "%d", &hevcDefault)
+	}
+	if !av1Config.usesBitrate {
+		fmt.Sscanf(av1Config.quality, "%d", &av1Default)
+	}
+	return
+}
+
 // crfToBitrateModifier converts a CRF value to a VideoToolbox bitrate modifier.
 // This allows users to set CRF (like Handbrake) even when using VideoToolbox.
 // Formula: modifier = 0.8 - (crf * 0.02)
