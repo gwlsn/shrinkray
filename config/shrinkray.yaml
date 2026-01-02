@@ -1,10 +1,12 @@
-media_path: /Users/graysonwilson/Desktop
+media_path: ./testdata
 temp_path: ""
 original_handling: keep
 workers: 3
 ffmpeg_path: ffmpeg
 ffprobe_path: ffprobe
 queue_file: config/queue.json
-pushover_user_key:
-pushover_app_token:
+pushover_user_key: ""
+pushover_app_token: ""
 notify_on_complete: false
+quality_hevc: 40
+quality_av1: 50
