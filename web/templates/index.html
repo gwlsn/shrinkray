@@ -892,11 +892,40 @@
         .setting-warning {
             font-size: 0.8125rem;
             color: var(--text-secondary);
-            background: var(--bg-secondary);
-            padding: 12px 16px;
-            border-radius: var(--radius-sm);
-            margin-bottom: 16px;
-            border-left: 3px solid var(--warning, #f59e0b);
+            padding: 0 0 8px 0;
+        }
+
+        .setting-group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 4px 0;
+        }
+
+        .setting-group-header:hover .setting-group-title {
+            color: var(--text-primary);
+        }
+
+        .setting-group-toggle {
+            width: 20px;
+            height: 20px;
+            color: var(--text-tertiary);
+            transition: transform 0.2s ease;
+        }
+
+        .setting-group.collapsed .setting-group-toggle {
+            transform: rotate(-90deg);
+        }
+
+        .setting-group-content {
+            overflow: hidden;
+            transition: max-height 0.2s ease;
+            max-height: 500px;
+        }
+
+        .setting-group.collapsed .setting-group-content {
+            max-height: 0;
         }
 
         .setting-item-stacked {
@@ -1362,48 +1391,55 @@
                         </div>
                     </div>
                 </div>
-                <div class="setting-group">
-                    <div class="setting-group-title">Advanced</div>
-                    <div class="setting-warning">
-                        These settings are for advanced users. Don't change them unless you know what you're doing.
+                <div class="setting-group collapsed" id="advanced-settings">
+                    <div class="setting-group-header" onclick="toggleAdvancedSettings()">
+                        <div class="setting-group-title">Advanced</div>
+                        <svg class="setting-group-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
                     </div>
-                    <div class="setting-item setting-item-stacked">
-                        <div class="setting-info">
-                            <div class="setting-name">HEVC Quality (CRF)</div>
-                            <div class="setting-desc">Lower = higher quality, larger file</div>
+                    <div class="setting-group-content">
+                        <div class="setting-warning">
+                            These settings are for advanced users. Don't change them unless you know what you're doing.
                         </div>
-                        <div class="setting-control">
-                            <div class="quality-slider-container">
-                                <span class="quality-label">Smaller</span>
-                                <input type="range" class="quality-slider" id="setting-quality-hevc"
-                                       min="15" max="40" value="26"
-                                       oninput="syncQualityInput('hevc', this.value)"
-                                       onchange="updateSetting('quality_hevc', parseInt(this.value))">
-                                <span class="quality-label">Higher quality</span>
-                                <input type="number" class="quality-input" id="setting-quality-hevc-input"
-                                       min="15" max="40" value="26"
-                                       oninput="syncQualitySlider('hevc', this.value)"
-                                       onchange="updateSetting('quality_hevc', parseInt(this.value))">
+                        <div class="setting-item setting-item-stacked">
+                            <div class="setting-info">
+                                <div class="setting-name">HEVC Quality (CRF)</div>
+                                <div class="setting-desc">Lower = higher quality, larger file</div>
+                            </div>
+                            <div class="setting-control">
+                                <div class="quality-slider-container">
+                                    <span class="quality-label">Smaller</span>
+                                    <input type="range" class="quality-slider" id="setting-quality-hevc"
+                                           min="15" max="40" value="26"
+                                           oninput="syncQualityInput('hevc', this.value)"
+                                           onchange="updateSetting('quality_hevc', parseInt(this.value))">
+                                    <span class="quality-label">Higher quality</span>
+                                    <input type="number" class="quality-input" id="setting-quality-hevc-input"
+                                           min="15" max="40" value="26"
+                                           oninput="syncQualitySlider('hevc', this.value)"
+                                           onchange="updateSetting('quality_hevc', parseInt(this.value))">
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="setting-item setting-item-stacked">
-                        <div class="setting-info">
-                            <div class="setting-name">AV1 Quality (CRF)</div>
-                            <div class="setting-desc">Lower = higher quality, larger file</div>
-                        </div>
-                        <div class="setting-control">
-                            <div class="quality-slider-container">
-                                <span class="quality-label">Smaller</span>
-                                <input type="range" class="quality-slider" id="setting-quality-av1"
-                                       min="20" max="50" value="35"
-                                       oninput="syncQualityInput('av1', this.value)"
-                                       onchange="updateSetting('quality_av1', parseInt(this.value))">
-                                <span class="quality-label">Higher quality</span>
-                                <input type="number" class="quality-input" id="setting-quality-av1-input"
-                                       min="20" max="50" value="35"
-                                       oninput="syncQualitySlider('av1', this.value)"
-                                       onchange="updateSetting('quality_av1', parseInt(this.value))">
+                        <div class="setting-item setting-item-stacked">
+                            <div class="setting-info">
+                                <div class="setting-name">AV1 Quality (CRF)</div>
+                                <div class="setting-desc">Lower = higher quality, larger file</div>
+                            </div>
+                            <div class="setting-control">
+                                <div class="quality-slider-container">
+                                    <span class="quality-label">Smaller</span>
+                                    <input type="range" class="quality-slider" id="setting-quality-av1"
+                                           min="20" max="50" value="35"
+                                           oninput="syncQualityInput('av1', this.value)"
+                                           onchange="updateSetting('quality_av1', parseInt(this.value))">
+                                    <span class="quality-label">Higher quality</span>
+                                    <input type="number" class="quality-input" id="setting-quality-av1-input"
+                                           min="20" max="50" value="35"
+                                           oninput="syncQualitySlider('av1', this.value)"
+                                           onchange="updateSetting('quality_av1', parseInt(this.value))">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2059,6 +2095,10 @@
             if (val > max) val = max;
             slider.value = val;
             input.value = val;
+        }
+
+        function toggleAdvancedSettings() {
+            document.getElementById('advanced-settings').classList.toggle('collapsed');
         }
 
         async function updateSetting(key, value) {
