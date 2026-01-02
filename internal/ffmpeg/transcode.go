@@ -16,36 +16,134 @@ import (
 
 // Progress represents the current transcoding progress
 type Progress struct {
-	Frame       int64         `json:"frame"`
-	FPS         float64       `json:"fps"`
-	Size        int64         `json:"size"`        // Current output size in bytes
-	Time        time.Duration `json:"time"`        // Current position in video
-	Bitrate     float64       `json:"bitrate"`     // Current bitrate in kbits/s
-	Speed       float64       `json:"speed"`       // Encoding speed (1.0 = realtime)
-	Percent     float64       `json:"percent"`     // Progress percentage (0-100)
-	ETA         time.Duration `json:"eta"`         // Estimated time remaining
+	Frame   int64         `json:"frame"`
+	FPS     float64       `json:"fps"`
+	Size    int64         `json:"size"`    // Current output size in bytes
+	Time    time.Duration `json:"time"`    // Current position in video
+	Bitrate float64       `json:"bitrate"` // Current bitrate in kbits/s
+	Speed   float64       `json:"speed"`   // Encoding speed (1.0 = realtime)
+	Percent float64       `json:"percent"` // Progress percentage (0-100)
+	ETA     time.Duration `json:"eta"`     // Estimated time remaining
 }
 
 // TranscodeResult contains the result of a transcode operation
 type TranscodeResult struct {
-	InputPath   string `json:"input_path"`
-	OutputPath  string `json:"output_path"`
-	InputSize   int64  `json:"input_size"`
-	OutputSize  int64  `json:"output_size"`
-	SpaceSaved  int64  `json:"space_saved"`
-	Duration    time.Duration `json:"duration"` // How long the transcode took
+	InputPath  string        `json:"input_path"`
+	OutputPath string        `json:"output_path"`
+	InputSize  int64         `json:"input_size"`
+	OutputSize int64         `json:"output_size"`
+	SpaceSaved int64         `json:"space_saved"`
+	Duration   time.Duration `json:"duration"` // How long the transcode took
 }
 
 // TranscodeError contains detailed error information from a failed transcode
 type TranscodeError struct {
-	Message   string   // The error message
-	Stderr    string   // Bounded stderr output (last ~64KB)
-	ExitCode  int      // FFmpeg exit code
-	Args      []string // FFmpeg command arguments
+	Message  string   // The error message
+	Stderr   string   // Bounded stderr output (last ~64KB)
+	ExitCode int      // FFmpeg exit code
+	Args     []string // FFmpeg command arguments
 }
 
 func (e *TranscodeError) Error() string {
 	return e.Message
+}
+
+func parseFFmpegOutTime(value string) (time.Duration, error) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("invalid out_time format: %s", value)
+	}
+
+	hours, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	minutes, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	secondsPart := parts[2]
+	seconds, nanos := int64(0), int64(0)
+	if strings.Contains(secondsPart, ".") {
+		secParts := strings.SplitN(secondsPart, ".", 2)
+		seconds, err = strconv.ParseInt(secParts[0], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		fraction := secParts[1]
+		if len(fraction) > 9 {
+			fraction = fraction[:9]
+		}
+		for len(fraction) < 9 {
+			fraction += "0"
+		}
+		nanos, err = strconv.ParseInt(fraction, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		seconds, err = strconv.ParseInt(secondsPart, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return time.Duration(hours)*time.Hour +
+		time.Duration(minutes)*time.Minute +
+		time.Duration(seconds)*time.Second +
+		time.Duration(nanos), nil
+}
+
+func parseFFmpegStatsLine(line string) (time.Duration, float64, bool) {
+	timeIdx := strings.Index(line, "time=")
+	if timeIdx == -1 {
+		return 0, 0, false
+	}
+
+	rest := line[timeIdx+len("time="):]
+	timeField := rest
+	if end := strings.IndexByte(rest, ' '); end != -1 {
+		timeField = rest[:end]
+	}
+	if timeField == "" || timeField == "N/A" {
+		return 0, 0, false
+	}
+
+	parsedTime, err := parseFFmpegOutTime(timeField)
+	if err != nil {
+		return 0, 0, false
+	}
+
+	speed := 0.0
+	if speedIdx := strings.Index(line, "speed="); speedIdx != -1 {
+		speedPart := line[speedIdx+len("speed="):]
+		if end := strings.IndexByte(speedPart, ' '); end != -1 {
+			speedPart = speedPart[:end]
+		}
+		speedPart = strings.TrimSuffix(speedPart, "x")
+		if speedPart != "N/A" && speedPart != "" {
+			if parsedSpeed, err := strconv.ParseFloat(speedPart, 64); err == nil {
+				speed = parsedSpeed
+			}
+		}
+	}
+
+	return parsedTime, speed, true
+}
+
+func scanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 // IsHardwareEncoderFailure checks if the error indicates a hardware encoder failure
@@ -200,6 +298,8 @@ func (t *Transcoder) Transcode(
 	preset *Preset,
 	duration time.Duration,
 	sourceBitrate int64,
+	subtitleCodecs []string,
+	subtitleHandling string,
 	progressCh chan<- Progress,
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
@@ -213,7 +313,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, subtitleCodecs, subtitleHandling)
 
 	// Build ffmpeg command
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output
@@ -221,9 +321,8 @@ func (t *Transcoder) Transcode(
 	args = append(args, inputArgs...)
 	args = append(args,
 		"-i", inputPath,
-		"-y",                   // Overwrite output without asking
+		"-y",                  // Overwrite output without asking
 		"-progress", "pipe:1", // Output progress to stdout
-		"-nostats",            // Disable default stats output
 	)
 	args = append(args, outputArgs...)
 	args = append(args, outputPath)
@@ -241,7 +340,10 @@ func (t *Transcoder) Transcode(
 
 	// Capture stderr for error diagnostics (bounded to prevent memory issues)
 	stderrBuf := newBoundedBuffer(maxStderrSize)
-	cmd.Stderr = stderrBuf
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
@@ -254,6 +356,7 @@ func (t *Transcoder) Transcode(
 		scanner := bufio.NewScanner(stdout)
 		var currentProgress Progress
 		progressUpdateCount := 0
+		sawOutTimeUS := false
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -270,12 +373,22 @@ func (t *Transcoder) Transcode(
 				case "total_size":
 					currentProgress.Size, _ = strconv.ParseInt(value, 10, 64)
 				case "out_time_us":
-					// Use out_time_us exclusively - it's the most precise
-					// Don't parse out_time_ms or out_time because they come AFTER out_time_us
-					// and out_time can be "N/A" for complex files, which would overwrite
-					// the valid microseconds value with 0
+					// Use out_time_us when available - it's the most precise.
+					// Some ffmpeg builds only emit out_time_ms/out_time, so handle those too.
 					us, _ := strconv.ParseInt(value, 10, 64)
 					currentProgress.Time = time.Duration(us) * time.Microsecond
+					sawOutTimeUS = true
+				case "out_time_ms":
+					if !sawOutTimeUS {
+						ms, _ := strconv.ParseInt(value, 10, 64)
+						currentProgress.Time = time.Duration(ms) * time.Millisecond
+					}
+				case "out_time":
+					if !sawOutTimeUS && value != "N/A" {
+						if parsed, err := parseFFmpegOutTime(value); err == nil {
+							currentProgress.Time = parsed
+						}
+					}
 				case "bitrate":
 					// Format: "1234.5kbits/s" or "N/A"
 					if value != "N/A" {
@@ -317,12 +430,59 @@ func (t *Transcoder) Transcode(
 						default:
 							// Channel full, skip this update
 						}
+						sawOutTimeUS = false
 					}
 				}
 			}
 		}
 		if err := scanner.Err(); err != nil {
 			log.Printf("[transcode] Scanner error: %v", err)
+		}
+	}()
+
+	// Parse stderr stats output as a fallback (some ffmpeg builds don't emit -progress)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		scanner.Split(scanCRLF)
+		var lastStatsTime time.Duration
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				_, _ = stderrBuf.Write(append([]byte(line), '\n'))
+			}
+
+			statsTime, statsSpeed, ok := parseFFmpegStatsLine(line)
+			if !ok || statsTime == lastStatsTime {
+				continue
+			}
+
+			progress := Progress{
+				Time:  statsTime,
+				Speed: statsSpeed,
+			}
+
+			if duration > 0 {
+				progress.Percent = float64(progress.Time) / float64(duration) * 100
+				if progress.Percent > 100 {
+					progress.Percent = 100
+				}
+				if progress.Speed > 0 {
+					remaining := duration - progress.Time
+					progress.ETA = time.Duration(float64(remaining) / progress.Speed)
+				}
+			}
+
+			lastStatsTime = statsTime
+
+			select {
+			case progressCh <- progress:
+			default:
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.Printf("[transcode] Stderr scanner error: %v", err)
 		}
 	}()
 

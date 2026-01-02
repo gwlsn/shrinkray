@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +13,9 @@ import (
 
 	shrinkray "github.com/gwlsn/shrinkray"
 	"github.com/gwlsn/shrinkray/internal/api"
+	"github.com/gwlsn/shrinkray/internal/auth"
+	"github.com/gwlsn/shrinkray/internal/auth/oidc"
+	"github.com/gwlsn/shrinkray/internal/auth/password"
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
@@ -87,6 +91,7 @@ func main() {
 	}
 	fmt.Printf("  Workers:      %d\n", cfg.Workers)
 	fmt.Printf("  Original:     %s\n", cfg.OriginalHandling)
+	fmt.Printf("  Subtitles:    %s\n", cfg.SubtitleHandling)
 	fmt.Println()
 
 	// Check ffmpeg/ffprobe availability
@@ -115,6 +120,7 @@ func main() {
 	// Initialize components
 	prober := ffmpeg.NewProber(cfg.FFprobePath)
 	browser := browse.NewBrowser(prober, cfg.MediaPath)
+	browser.SetHideProcessingTmp(cfg.HideProcessingTmp)
 
 	queue, err := jobs.NewQueue(cfg.QueueFile)
 	if err != nil {
@@ -125,7 +131,52 @@ func main() {
 
 	// Create API handler
 	handler := api.NewHandler(browser, queue, workerPool, cfg, cfgPath)
-	router := api.NewRouter(handler, shrinkray.WebFS, *debugUI)
+
+	authRegistry := auth.NewRegistry()
+	authRegistry.Register("noop", auth.NewNoopProvider())
+
+	providerName := cfg.Auth.Provider
+	if providerName == "" {
+		providerName = "noop"
+	}
+
+	var authMiddleware *auth.Middleware
+	if cfg.Auth.Enabled {
+		if providerName == "password" {
+			passwordProvider, err := password.NewProvider(cfg.Auth.Password.Users, cfg.Auth.Password.HashAlgo, cfg.Auth.Secret)
+			if err != nil {
+				log.Fatalf("Failed to initialize password auth: %v", err)
+			}
+			authRegistry.Register("password", passwordProvider)
+		}
+		if providerName == "oidc" {
+			oidcProvider, err := oidc.NewProvider(
+				context.Background(),
+				cfg.Auth.OIDC.Issuer,
+				cfg.Auth.OIDC.ClientID,
+				cfg.Auth.OIDC.ClientSecret,
+				cfg.Auth.OIDC.RedirectURL,
+				cfg.Auth.OIDC.Scopes,
+				cfg.Auth.OIDC.GroupClaim,
+				cfg.Auth.OIDC.AllowedGroups,
+				cfg.Auth.Secret,
+			)
+			if err != nil {
+				log.Fatalf("Failed to initialize oidc auth: %v", err)
+			}
+			authRegistry.Register("oidc", oidcProvider)
+		}
+
+		authProvider, ok := authRegistry.Provider(providerName)
+		if !ok {
+			log.Fatalf("Unknown auth provider: %s", providerName)
+		}
+
+		bypassPaths := append(auth.DefaultBypassPaths(), cfg.Auth.BypassPaths...)
+		authMiddleware = auth.NewMiddleware(authProvider, bypassPaths)
+	}
+
+	router := api.NewRouter(handler, shrinkray.WebFS, *debugUI, authMiddleware)
 
 	// Start worker pool
 	workerPool.Start()

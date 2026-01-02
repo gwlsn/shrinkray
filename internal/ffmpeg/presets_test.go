@@ -18,7 +18,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(preset, sourceBitrate)
+	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, nil, "convert")
 
 	// Should contain -b:v with calculated bitrate
 	// Expected: 3481 * 0.35 = ~1218k
@@ -53,7 +53,7 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 		Codec:   CodecAV1,
 	}
 
-	_, outputArgs := BuildPresetArgs(preset, sourceBitrate)
+	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, nil, "convert")
 
 	// Expected: 3481 * 0.25 = ~870k
 	for i, arg := range outputArgs {
@@ -80,7 +80,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate)
+	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, nil, "convert")
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -101,7 +101,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate)
+	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, nil, "convert")
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -124,7 +124,7 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate)
+	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, nil, "convert")
 
 	// Software encoder should have probesize/analyzeduration but no hwaccel input args
 	// Expected: [-probesize 50M -analyzeduration 10M]
@@ -169,7 +169,7 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(presetVT, 0)
+	_, outputArgs := BuildPresetArgs(presetVT, 0, nil, "convert")
 
 	// Should still have -b:v but with raw modifier value
 	for i, arg := range outputArgs {
@@ -182,6 +182,47 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestBuildPresetArgsSubtitleHandling(t *testing.T) {
+	preset := &Preset{
+		ID:      "test-hevc",
+		Encoder: HWAccelNone,
+		Codec:   CodecHEVC,
+	}
+
+	_, outputArgs := BuildPresetArgs(preset, 0, []string{"mov_text"}, "convert")
+	if !containsArgPair(outputArgs, "-c:s", "srt") {
+		t.Errorf("expected -c:s srt when mov_text present and convert enabled, got %v", outputArgs)
+	}
+
+	_, outputArgs = BuildPresetArgs(preset, 0, []string{"mov_text"}, "drop")
+	if !containsArg(outputArgs, "-sn") {
+		t.Errorf("expected -sn when mov_text present and drop enabled, got %v", outputArgs)
+	}
+
+	_, outputArgs = BuildPresetArgs(preset, 0, []string{"srt"}, "convert")
+	if !containsArgPair(outputArgs, "-c:s", "copy") {
+		t.Errorf("expected -c:s copy when mov_text absent, got %v", outputArgs)
+	}
+}
+
+func containsArg(args []string, target string) bool {
+	for _, arg := range args {
+		if arg == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArgPair(args []string, key, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == key && args[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 // TestBuildPresetArgsMuxingQueueSize removed - the -max_muxing_queue_size flag

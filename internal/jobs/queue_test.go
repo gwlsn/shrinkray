@@ -163,6 +163,29 @@ func TestQueuePersistence(t *testing.T) {
 	t.Log("Queue persisted and loaded successfully")
 }
 
+func TestQueueCompleteMarksOutputProcessed(t *testing.T) {
+	queue, _ := NewQueue("")
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mp4",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	job, _ := queue.Add(probe.Path, "compress", probe)
+	if err := queue.CompleteJob(job.ID, "/media/video.mkv", 500000); err != nil {
+		t.Fatalf("failed to complete job: %v", err)
+	}
+
+	processed := queue.ProcessedPaths()
+	if _, ok := processed[probe.Path]; !ok {
+		t.Errorf("expected processed history to include %s", probe.Path)
+	}
+	if _, ok := processed["/media/video.mkv"]; !ok {
+		t.Error("expected processed history to include /media/video.mkv")
+	}
+}
+
 func TestQueueRunningJobsResetOnLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	queueFile := filepath.Join(tmpDir, "queue.json")

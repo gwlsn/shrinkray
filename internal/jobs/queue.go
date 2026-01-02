@@ -179,17 +179,18 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	}
 
 	job := &Job{
-		ID:         generateID(),
-		InputPath:  inputPath,
-		PresetID:   presetID,
-		Encoder:    encoder,
-		IsHardware: isHardware,
-		Status:     status,
-		Error:      skipReason,
-		InputSize:  probe.Size,
-		Duration:   probe.Duration.Milliseconds(),
-		Bitrate:    probe.Bitrate,
-		CreatedAt:  time.Now(),
+		ID:             generateID(),
+		InputPath:      inputPath,
+		PresetID:       presetID,
+		Encoder:        encoder,
+		IsHardware:     isHardware,
+		Status:         status,
+		Error:          skipReason,
+		InputSize:      probe.Size,
+		Duration:       probe.Duration.Milliseconds(),
+		Bitrate:        probe.Bitrate,
+		CreatedAt:      time.Now(),
+		SubtitleCodecs: probe.SubtitleCodecs,
 	}
 
 	q.jobs[job.ID] = job
@@ -242,17 +243,18 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		}
 
 		job := &Job{
-			ID:         generateID(),
-			InputPath:  probe.Path,
-			PresetID:   presetID,
-			Encoder:    encoder,
-			IsHardware: isHardware,
-			Status:     status,
-			Error:      skipReason,
-			InputSize:  probe.Size,
-			Duration:   probe.Duration.Milliseconds(),
-			Bitrate:    probe.Bitrate,
-			CreatedAt:  time.Now(),
+			ID:             generateID(),
+			InputPath:      probe.Path,
+			PresetID:       presetID,
+			Encoder:        encoder,
+			IsHardware:     isHardware,
+			Status:         status,
+			Error:          skipReason,
+			InputSize:      probe.Size,
+			Duration:       probe.Duration.Milliseconds(),
+			Bitrate:        probe.Bitrate,
+			CreatedAt:      time.Now(),
+			SubtitleCodecs: probe.SubtitleCodecs,
 		}
 
 		q.jobs[job.ID] = job
@@ -401,6 +403,7 @@ func (q *Queue) UpdateJobAfterProbe(id string, probe *ffmpeg.ProbeResult) error 
 	job.Duration = probe.Duration.Milliseconds()
 	job.Bitrate = probe.Bitrate
 	job.InputSize = probe.Size
+	job.SubtitleCodecs = probe.SubtitleCodecs
 
 	// Check if file should be skipped
 	preset := ffmpeg.GetPreset(job.PresetID)
@@ -618,6 +621,9 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
 	q.recordProcessedPathLocked(job.InputPath, job.CompletedAt)
+	if outputPath != "" {
+		q.recordProcessedPathLocked(outputPath, job.CompletedAt)
+	}
 
 	if wasComplete {
 		q.totalSaved += job.SpaceSaved - previousSaved
@@ -797,10 +803,15 @@ func (q *Queue) Clear(includeCompleted bool) int {
 	return count
 }
 
-// Remove removes a single job from the queue (for retry functionality)
-func (q *Queue) Remove(id string) {
+// Remove removes a single job from the queue.
+func (q *Queue) Remove(id string) (*Job, error) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		q.mu.Unlock()
+		return nil, fmt.Errorf("job not found: %s", id)
+	}
 
 	delete(q.jobs, id)
 
@@ -816,6 +827,12 @@ func (q *Queue) Remove(id string) {
 	if err := q.save(); err != nil {
 		fmt.Printf("Warning: failed to persist queue: %v\n", err)
 	}
+
+	q.mu.Unlock()
+
+	q.broadcast(JobEvent{Type: "removed", Job: job})
+
+	return job, nil
 }
 
 // ReorderPending moves a pending job up or down within the pending queue order.

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
@@ -38,8 +39,9 @@ type BrowseResult struct {
 
 // Browser handles file system browsing with video metadata
 type Browser struct {
-	prober    *ffmpeg.Prober
-	mediaRoot string
+	prober            *ffmpeg.Prober
+	mediaRoot         string
+	hideProcessingTmp atomic.Bool
 
 	// Cache for probe results (path -> result)
 	cacheMu sync.RWMutex
@@ -58,6 +60,11 @@ func NewBrowser(prober *ffmpeg.Prober, mediaRoot string) *Browser {
 		mediaRoot: absRoot,
 		cache:     make(map[string]*ffmpeg.ProbeResult),
 	}
+}
+
+// SetHideProcessingTmp controls whether shrinkray.tmp files are hidden from browse results.
+func (b *Browser) SetHideProcessingTmp(enabled bool) {
+	b.hideProcessingTmp.Store(enabled)
 }
 
 // Browse returns the contents of a directory
@@ -95,6 +102,9 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 	for _, e := range entries {
 		// Skip hidden files
 		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if b.hideProcessingTmp.Load() && isTrickplayTmp(e.Name()) {
 			continue
 		}
 
@@ -175,6 +185,12 @@ func (b *Browser) countVideos(dirPath string) (count int, totalSize int64) {
 		}
 		// Skip hidden files and directories
 		if strings.HasPrefix(info.Name(), ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if b.hideProcessingTmp.Load() && isTrickplayTmp(info.Name()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -284,6 +300,9 @@ func (b *Browser) GetVideoFilesWithOptions(ctx context.Context, paths []string, 
 				}(fp)
 			}
 		} else if ffmpeg.IsVideoFile(cleanPath) {
+			if b.hideProcessingTmp.Load() && isTrickplayTmp(filepath.Base(cleanPath)) {
+				continue
+			}
 			wg.Add(1)
 			go func(fp string) {
 				defer wg.Done()
@@ -362,6 +381,9 @@ func (b *Browser) DiscoverVideoFiles(ctx context.Context, paths []string, opts G
 				}
 			}
 		} else if ffmpeg.IsVideoFile(cleanPath) {
+			if b.hideProcessingTmp.Load() && isTrickplayTmp(filepath.Base(cleanPath)) {
+				continue
+			}
 			results = append(results, DiscoveredFile{
 				Path: cleanPath,
 				Size: info.Size(),
@@ -403,6 +425,9 @@ func (b *Browser) discoverMediaFiles(root string, recursive bool, maxDepth *int)
 			if strings.HasPrefix(e.Name(), ".") {
 				continue
 			}
+			if b.hideProcessingTmp.Load() && isTrickplayTmp(e.Name()) {
+				continue
+			}
 			filePath := filepath.Join(root, e.Name())
 			if ffmpeg.IsVideoFile(filePath) {
 				paths = append(paths, filePath)
@@ -420,6 +445,12 @@ func (b *Browser) discoverMediaFiles(root string, recursive bool, maxDepth *int)
 
 		// Skip hidden files and directories
 		if strings.HasPrefix(info.Name(), ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if b.hideProcessingTmp.Load() && isTrickplayTmp(info.Name()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -454,6 +485,11 @@ func (b *Browser) discoverMediaFiles(root string, recursive bool, maxDepth *int)
 
 	sort.Strings(paths)
 	return paths, nil
+}
+
+func isTrickplayTmp(name string) bool {
+	lowerName := strings.ToLower(name)
+	return strings.HasSuffix(lowerName, "shrinkray.tmp") || strings.Contains(lowerName, ".shrinkray.tmp.")
 }
 
 // DiscoverMediaFiles is a public wrapper for discovering media files with recursion control.

@@ -416,6 +416,18 @@
             </div>
             <div class="setting-row">
                 <div class="setting-label">
+                    <span class="setting-name">Subtitles</span>
+                    <span class="setting-description">Handle unsupported subtitle codecs for MKV output</span>
+                </div>
+                <div class="setting-control">
+                    <select id="setting-subtitle-handling" onchange="updateSetting('subtitle_handling', this.value)">
+                        <option value="convert">Convert mov_text to SRT</option>
+                        <option value="drop">Drop unsupported subtitles</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">
                     <span class="setting-name">Concurrent jobs</span>
                     <span class="setting-description">Number of files to transcode simultaneously</span>
                 </div>
@@ -428,6 +440,15 @@
                         <option value="5">5</option>
                         <option value="6">6</option>
                     </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <div class="setting-label">
+                    <span class="setting-name">Hide processing files</span>
+                    <span class="setting-description">Hide shrinkray.tmp files from the browser</span>
+                </div>
+                <div class="setting-control">
+                    <input type="checkbox" id="setting-hide-processing-tmp" onchange="toggleHideProcessingTmp(this.checked)">
                 </div>
             </div>
         </div>
@@ -969,10 +990,14 @@
                 // Set original handling dropdown
                 const handlingSelect = document.getElementById('setting-original-handling');
                 handlingSelect.value = config.original_handling || 'replace';
+                const subtitleSelect = document.getElementById('setting-subtitle-handling');
+                subtitleSelect.value = config.subtitle_handling || 'convert';
 
                 // Set workers dropdown
                 const workersSelect = document.getElementById('setting-workers');
                 workersSelect.value = config.workers || 1;
+
+                document.getElementById('setting-hide-processing-tmp').checked = config.hide_processing_tmp || false;
 
                 log(`Settings loaded: version=${config.version}, original_handling=${config.original_handling}, workers=${config.workers}`);
             } catch (err) {
@@ -1005,10 +1030,19 @@
                 setTimeout(() => {
                     statusEl.textContent = '';
                 }, 2000);
+                return true;
             } catch (err) {
                 statusEl.textContent = `Error: ${err.message}`;
                 statusEl.className = 'settings-status error';
                 log(`Error updating setting: ${err.message}`);
+                return false;
+            }
+        }
+
+        async function toggleHideProcessingTmp(enabled) {
+            const updated = await updateSetting('hide_processing_tmp', enabled);
+            if (updated) {
+                browse(currentPath);
             }
         }
 

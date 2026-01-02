@@ -553,6 +553,24 @@
             color: #6ee7b7;
         }
 
+        .unprocessed-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.6875rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            background: rgba(148, 163, 184, 0.25);
+            color: #475569;
+        }
+
+        [data-theme="dark"] .unprocessed-tag {
+            background: rgba(148, 163, 184, 0.2);
+            color: #cbd5e1;
+        }
+
         .file-list-empty {
             padding: 60px 20px;
             text-align: center;
@@ -1085,6 +1103,37 @@
             color: var(--text-secondary);
         }
 
+        .error-helper-raw-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .error-helper-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-tertiary);
+            font-size: 0.75rem;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: color var(--transition-fast), border-color var(--transition-fast);
+        }
+
+        .error-helper-copy:hover {
+            color: var(--text-secondary);
+            border-color: var(--text-secondary);
+        }
+
+        .error-helper-copy.copied {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
         .error-helper-raw-toggle svg {
             width: 10px;
             height: 10px;
@@ -1545,6 +1594,62 @@
             min-width: 100px;
         }
 
+        #video-info-modal .modal {
+            max-width: 720px;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-info-body {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow: auto;
+            flex: 1;
+        }
+
+        .video-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px 20px;
+            font-size: 0.875rem;
+        }
+
+        .video-info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .video-info-label {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .video-info-streams {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 0.875rem;
+        }
+
+        .video-info-stream {
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .video-info-stream-meta {
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            margin-top: 4px;
+        }
+
         /* Completed Jobs Section - compact collapsible view */
         .completed-section {
             border-top: 1px solid var(--border);
@@ -1896,6 +2001,18 @@
                     </div>
                     <div class="setting-item">
                         <div class="setting-info">
+                            <div class="setting-name">Subtitles</div>
+                            <div class="setting-desc">Handle unsupported subtitle codecs for MKV output</div>
+                        </div>
+                        <div class="setting-control">
+                            <select class="setting-select" id="setting-subtitle-handling" onchange="updateSetting('subtitle_handling', this.value)">
+                                <option value="convert">Convert mov_text to SRT</option>
+                                <option value="drop">Drop unsupported subtitles</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
                             <div class="setting-name">Concurrent jobs</div>
                             <div class="setting-desc">Simultaneous transcode tasks</div>
                         </div>
@@ -1908,6 +2025,18 @@
                                 <option value="5">5</option>
                                 <option value="6">6</option>
                             </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-group">
+                    <div class="setting-group-title">Browser</div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <div class="setting-name">Hide processing files</div>
+                            <div class="setting-desc">Hide shrinkray.tmp files from the browser</div>
+                        </div>
+                        <div class="setting-control">
+                            <input type="checkbox" id="setting-hide-processing-tmp" onchange="toggleHideProcessingTmp(this.checked)" style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
                         </div>
                     </div>
                 </div>
@@ -2024,8 +2153,19 @@
                 </label>
             </div>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn btn-secondary" id="confirm-modal-cancel">Cancel</button>
                 <button class="btn btn-primary" id="confirm-modal-action">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Info Modal -->
+    <div id="video-info-modal" class="modal-overlay" onclick="closeVideoInfoModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-title" id="video-info-title">Video info</div>
+            <div class="video-info-body" id="video-info-body"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="video-info-close">Close</button>
             </div>
         </div>
     </div>
@@ -2161,14 +2301,14 @@
             scrollContainer.classList.add('virtual-scroll-enabled', 'virtual-scroll-container');
 
             // Throttled scroll handler
-            let scrollTimeout = null;
+            let scrollRafId = null;
             scrollContainer.addEventListener('scroll', () => {
-                if (scrollTimeout) return;
-                scrollTimeout = setTimeout(() => {
-                    scrollTimeout = null;
+                if (scrollRafId !== null) return;
+                scrollRafId = requestAnimationFrame(() => {
+                    scrollRafId = null;
                     updateVisibleRange();
-                }, 16); // ~60fps
-            });
+                });
+            }, { passive: true });
         }
 
         function updateVisibleRange() {
@@ -2656,12 +2796,15 @@
                     </div>
 
                     <div class="error-helper-section">
-                        <button class="error-helper-raw-toggle ${isRawExpanded ? 'expanded' : ''}" onclick="toggleRawOutput('${safeId}')">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"></polyline>
-                            </svg>
-                            Show raw ffmpeg output
-                        </button>
+                        <div class="error-helper-raw-actions">
+                            <button class="error-helper-raw-toggle ${isRawExpanded ? 'expanded' : ''}" onclick="toggleRawOutput('${safeId}')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                                Show raw ffmpeg output
+                            </button>
+                            <button class="error-helper-copy" type="button" onclick="copyRawOutput('${safeId}')">Copy raw output</button>
+                        </div>
                         <div class="error-helper-raw ${isRawExpanded ? 'expanded' : ''}" id="error-raw-${safeId}">${safeStderr || 'No stderr output captured.'}</div>
                     </div>
                 </div>
@@ -2704,6 +2847,56 @@
             }
         }
 
+        async function copyRawOutput(jobId) {
+            const job = cachedJobs.find(j => j.id === jobId);
+            const rawOutput = job && job.stderr ? job.stderr : '';
+
+            if (!rawOutput) {
+                alert('No stderr output captured for this job.');
+                return;
+            }
+
+            let copied = false;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(rawOutput);
+                    copied = true;
+                } catch (err) {
+                    copied = false;
+                }
+            }
+
+            if (!copied) {
+                const textarea = document.createElement('textarea');
+                textarea.value = rawOutput;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    copied = document.execCommand('copy');
+                } catch (err) {
+                    copied = false;
+                }
+                document.body.removeChild(textarea);
+            }
+
+            const copySelector = `#error-helper-${escapeCssSelector(jobId)} .error-helper-copy`;
+            const copyButton = document.querySelector(copySelector);
+            if (copyButton) {
+                const originalLabel = copyButton.dataset.label || copyButton.textContent;
+                copyButton.dataset.label = originalLabel;
+                copyButton.textContent = copied ? 'Copied!' : 'Copy failed';
+                copyButton.classList.toggle('copied', copied);
+                setTimeout(() => {
+                    copyButton.textContent = originalLabel;
+                    copyButton.classList.remove('copied');
+                }, 1500);
+            }
+        }
+
         function formatBytes(bytes) {
             if (bytes === 0) return '0 B';
             if (bytes < 0) return '0 B';
@@ -2722,14 +2915,48 @@
             return `${s}s`;
         }
 
+        function formatBitrate(bps) {
+            if (!bps || bps <= 0) return '—';
+            const units = ['bps', 'Kbps', 'Mbps', 'Gbps'];
+            let value = bps;
+            let unitIndex = 0;
+            while (value >= 1000 && unitIndex < units.length - 1) {
+                value /= 1000;
+                unitIndex += 1;
+            }
+            return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+        }
+
+        function getStartedAtMs(job) {
+            if (!job || !job.started_at) return null;
+            const started = new Date(job.started_at);
+            const startedMs = started.getTime();
+            if (Number.isNaN(startedMs)) return null;
+            return startedMs;
+        }
+
+        function ensureLocalStartedAt(job, startedMs) {
+            if (!job || job.status !== 'running') return;
+            if (job.local_started_at) return;
+            const now = Date.now();
+            if (startedMs === null || startedMs > now + 1000) {
+                job.local_started_at = now;
+            }
+        }
+
         function getElapsedSeconds(job) {
             if (!job) return null;
             if (job.status === 'complete' && job.transcode_secs) {
                 return job.transcode_secs;
             }
-            if (!job.started_at) return null;
-            const started = new Date(job.started_at);
-            if (Number.isNaN(started.getTime())) return null;
+            const startedMs = getStartedAtMs(job);
+            ensureLocalStartedAt(job, startedMs);
+            if (startedMs === null) {
+                if (job.local_started_at) {
+                    return Math.max(0, Math.floor((Date.now() - job.local_started_at) / 1000));
+                }
+                return null;
+            }
             let endTime = Date.now();
             if (job.completed_at) {
                 const completed = new Date(job.completed_at);
@@ -2737,7 +2964,10 @@
                     endTime = completed.getTime();
                 }
             }
-            const elapsedSeconds = Math.max(0, Math.floor((endTime - started.getTime()) / 1000));
+            if (job.local_started_at && startedMs > endTime) {
+                return Math.max(0, Math.floor((endTime - job.local_started_at) / 1000));
+            }
+            const elapsedSeconds = Math.max(0, Math.floor((endTime - startedMs) / 1000));
             return elapsedSeconds;
         }
 
@@ -2936,7 +3166,20 @@
                 const count = entry.file_count || 0;
                 const processed = entry.processed_count || 0;
                 const isFullyProcessed = entry.is_dir ? count > 0 && processed === count : entry.processed;
-                const processedTag = isFullyProcessed ? '<span class="processed-tag">Processed</span>' : '';
+                const statusTag = isVideo
+                    ? `<span class="${isFullyProcessed ? 'processed-tag' : 'unprocessed-tag'}">${isFullyProcessed ? 'Processed' : 'Unprocessed'}</span>`
+                    : isFullyProcessed
+                        ? '<span class="processed-tag">Processed</span>'
+                        : '';
+                const videoInfoButton = isVideo
+                    ? `<button class="btn btn-secondary btn-sm file-action-btn" data-path="${escapeHtml(entry.path)}" onclick="handleVideoInfoClick(event, this)" title="Video info" aria-label="Video info">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="16" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                    </button>`
+                    : '';
                 const canMarkProcessed = isSelectable && !isFullyProcessed;
                 const markProcessedButton = canMarkProcessed
                     ? `<button class="btn btn-secondary btn-sm file-action-btn" data-path="${escapeHtml(entry.path)}" onclick="handleMarkProcessedClick(event, this)">Mark Processed</button>`
@@ -2951,7 +3194,8 @@
                         <div class="file-meta">${metaHtml}</div>
                     </div>
                     <div class="file-trailing">
-                        ${processedTag}
+                        ${statusTag}
+                        ${videoInfoButton}
                         ${markProcessedButton}
                         <div class="file-size">${formatBytes(getEntrySize(entry))}</div>
                     </div>
@@ -2961,7 +3205,8 @@
             updateButtons();
         }
 
-        async function browse(path = '', preserveSelections = false) {
+        async function browse(path = '', preserveSelections = false, options = {}) {
+            const { updateHistory = true, replaceHistory = false } = options;
             try {
                 const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
                 const resp = await fetch(url);
@@ -2972,6 +3217,21 @@
                     selectedPaths.clear();
                 }
                 updateButtons();
+
+                if (updateHistory) {
+                    const nextUrl = new URL(window.location.href);
+                    if (currentPath) {
+                        nextUrl.searchParams.set('path', currentPath);
+                    } else {
+                        nextUrl.searchParams.delete('path');
+                    }
+                    const state = { path: currentPath };
+                    if (replaceHistory) {
+                        history.replaceState(state, '', nextUrl);
+                    } else {
+                        history.pushState(state, '', nextUrl);
+                    }
+                }
 
                 // Update breadcrumb
                 const breadcrumb = document.getElementById('breadcrumb');
@@ -3147,14 +3407,26 @@
                 const selectedPathList = Array.from(selectedPaths);
                 const selectedEntries = selectedPathList.map(path => entryMap.get(path)).filter(Boolean);
                 const processedPaths = new Set(selectedEntries.filter(isEntryFullyProcessed).map(entry => entry.path));
-                const hasProcessed = processedPaths.size > 0;
-                const hasUnprocessed = selectedPathList.some(path => !processedPaths.has(path));
+                const partiallyProcessedDirs = selectedEntries.filter(entry => {
+                    if (!entry || !entry.is_dir) return false;
+                    const count = entry.file_count || 0;
+                    const processed = entry.processed_count || 0;
+                    return count > 0 && processed > 0 && processed < count;
+                });
+                const hasProcessed = processedPaths.size > 0 || partiallyProcessedDirs.length > 0;
+                const hasUnprocessed = selectedPathList.some(path => !processedPaths.has(path)) || partiallyProcessedDirs.length > 0;
                 let selectedJobPaths = selectedPathList;
+                let excludeProcessed = false;
 
                 if (hasProcessed && hasUnprocessed) {
-                    const includeProcessed = window.confirm('Some selected items are already processed. Include them in this transcode?');
+                    const includeProcessed = await confirmModalChoice(
+                        'Include processed items?',
+                        'Some selected items include files that are already processed. Do you want to include them in this transcode?',
+                        { actionText: 'Include', cancelText: 'Exclude' }
+                    );
                     if (!includeProcessed) {
                         selectedJobPaths = selectedPathList.filter(path => !processedPaths.has(path));
+                        excludeProcessed = true;
                     }
                 }
 
@@ -3164,7 +3436,8 @@
                     body: JSON.stringify({
                         paths: selectedJobPaths,
                         preset_id: preset,
-                        include_subfolders: includeSubfolders
+                        include_subfolders: includeSubfolders,
+                        exclude_processed: excludeProcessed
                     })
                 });
                 const data = await resp.json();
@@ -3181,6 +3454,94 @@
             } catch (err) {
                 console.error('Start jobs error:', err);
             }
+        }
+
+        function handleVideoInfoClick(event, button) {
+            event.stopPropagation();
+            const path = button.dataset.path;
+            if (!path) return;
+            const entry = (fileListEntries || []).find(item => item.path === path);
+            if (!entry || !entry.video_info) return;
+            openVideoInfoModal(entry);
+        }
+
+        function openVideoInfoModal(entry) {
+            const vi = entry.video_info || {};
+            const durationSeconds = vi.duration ? vi.duration / 1e9 : null;
+            const streams = Array.isArray(vi.streams) ? vi.streams : [];
+            const subtitleText = (vi.subtitle_codecs || []).length > 0 ? vi.subtitle_codecs.join(', ') : '—';
+            const infoHtml = `
+                <div class="video-info-grid">
+                    <div class="video-info-item">
+                        <div class="video-info-label">Path</div>
+                        <div>${escapeHtml(entry.path)}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Format</div>
+                        <div>${escapeHtml(vi.format || '—')}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Duration</div>
+                        <div>${durationSeconds ? formatDuration(durationSeconds) : '—'}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Size</div>
+                        <div>${vi.size ? formatBytes(vi.size) : '—'}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Bitrate</div>
+                        <div>${formatBitrate(vi.bitrate)}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Video Codec</div>
+                        <div>${escapeHtml(vi.video_codec || '—')}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Audio Codec</div>
+                        <div>${escapeHtml(vi.audio_codec || '—')}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Subtitles</div>
+                        <div>${escapeHtml(subtitleText)}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Resolution</div>
+                        <div>${vi.width && vi.height ? `${vi.width}x${vi.height}` : '—'}</div>
+                    </div>
+                    <div class="video-info-item">
+                        <div class="video-info-label">Frame Rate</div>
+                        <div>${vi.frame_rate ? `${vi.frame_rate.toFixed(2)} fps` : '—'}</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="video-info-label">Streams</div>
+                    <div class="video-info-streams">
+                        ${streams.length > 0 ? streams.map((stream, index) => {
+                            const typeLabel = stream.type ? stream.type.toUpperCase() : 'STREAM';
+                            const resolution = stream.width && stream.height ? `${stream.width}x${stream.height}` : '';
+                            const frameRate = stream.frame_rate ? `${stream.frame_rate.toFixed(2)} fps` : '';
+                            const metaParts = [resolution, frameRate].filter(Boolean);
+                            return `
+                                <div class="video-info-stream">
+                                    <strong>${escapeHtml(`${typeLabel} ${index + 1}`)}</strong>
+                                    <div>${escapeHtml(stream.codec || 'Unknown codec')}</div>
+                                    ${metaParts.length > 0 ? `<div class="video-info-stream-meta">${escapeHtml(metaParts.join(' • '))}</div>` : ''}
+                                </div>
+                            `;
+                        }).join('') : '<div class="video-info-stream">No stream details available.</div>'}
+                    </div>
+                </div>
+            `;
+            document.getElementById('video-info-title').textContent = entry.name || 'Video info';
+            document.getElementById('video-info-body').innerHTML = infoHtml;
+            document.getElementById('video-info-modal').classList.add('active');
+        }
+
+        function closeVideoInfoModal(event) {
+            if (event && event.currentTarget && event.currentTarget.id === 'video-info-modal' && event.target !== event.currentTarget) {
+                return;
+            }
+            document.getElementById('video-info-modal').classList.remove('active');
         }
 
         function handleMarkProcessedClick(event, button) {
@@ -3223,7 +3584,7 @@
                 if (!resp.ok) {
                     throw new Error(data.error || 'Failed to mark processed items');
                 }
-                await browse(currentPath, true);
+                await browse(currentPath, true, { updateHistory: false });
             } catch (err) {
                 console.error('Mark processed error:', err);
                 alert(err.message || 'Failed to mark processed items');
@@ -3286,6 +3647,18 @@
             }
         }
 
+        async function removeJob(id) {
+            try {
+                const resp = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+                if (!resp.ok) {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to remove job');
+                }
+            } catch (err) {
+                console.error('Remove error:', err);
+            }
+        }
+
         function clearQueue() {
             showConfirmModal(
                 'Clear Queue',
@@ -3309,13 +3682,20 @@
 
         // Confirm Modal
         let confirmCallback = null;
+        let confirmCancelCallback = null;
 
         function showConfirmModal(title, message, onConfirm, options = {}) {
             document.getElementById('confirm-modal-title').textContent = title;
             document.getElementById('confirm-modal-message').textContent = message;
             confirmCallback = onConfirm;
+            confirmCancelCallback = options.onCancel || null;
             const optionsEl = document.getElementById('confirm-modal-options');
             const removeCompletedEl = document.getElementById('confirm-modal-remove-completed');
+            const cancelButton = document.getElementById('confirm-modal-cancel');
+            const actionButton = document.getElementById('confirm-modal-action');
+            actionButton.textContent = options.actionText || 'Confirm';
+            cancelButton.textContent = options.cancelText || 'Cancel';
+            cancelButton.style.display = options.showCancel === false ? 'none' : '';
             if (options.showRemoveCompletedToggle) {
                 optionsEl.style.display = 'block';
                 const stored = localStorage.getItem(storageKeys.clearRecentlyCompleted);
@@ -3331,11 +3711,29 @@
             document.getElementById('confirm-modal').classList.add('active');
         }
 
+        function confirmModalChoice(title, message, options = {}) {
+            return new Promise(resolve => {
+                showConfirmModal(
+                    title,
+                    message,
+                    () => resolve(true),
+                    {
+                        ...options,
+                        onCancel: () => resolve(false),
+                    }
+                );
+            });
+        }
+
         function closeConfirmModal(event) {
             // If called from overlay click, only close if clicking the overlay itself
             if (event && event.target !== event.currentTarget) return;
+            if (event && event.target === event.currentTarget && confirmCancelCallback) {
+                confirmCancelCallback();
+            }
             document.getElementById('confirm-modal').classList.remove('active');
             confirmCallback = null;
+            confirmCancelCallback = null;
         }
 
         document.getElementById('confirm-modal-action').addEventListener('click', () => {
@@ -3344,6 +3742,15 @@
             }
             closeConfirmModal();
         });
+
+        document.getElementById('confirm-modal-cancel').addEventListener('click', () => {
+            if (confirmCancelCallback) {
+                confirmCancelCallback();
+            }
+            closeConfirmModal();
+        });
+
+        document.getElementById('video-info-close').addEventListener('click', closeVideoInfoModal);
 
         // Performance: Debounced refresh - batches multiple rapid updates
         function debouncedRefreshJobs() {
@@ -3435,6 +3842,12 @@
                     ${job.status === 'failed' ? `
                         <div class="job-actions">
                             <button class="btn btn-secondary btn-sm" onclick="retryJob('${safeId}')">Retry</button>
+                            <button class="btn btn-secondary btn-sm" onclick="removeJob('${safeId}')">Remove</button>
+                        </div>
+                    ` : ''}
+                    ${job.status === 'cancelled' ? `
+                        <div class="job-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="removeJob('${safeId}')">Remove</button>
                         </div>
                     ` : ''}
                 </div>
@@ -3483,7 +3896,12 @@
             const idx = cachedJobs.findIndex(j => j.id === job.id);
             if (idx >= 0) {
                 const oldStatus = cachedJobs[idx].status;
+                const localStartedAt = cachedJobs[idx].local_started_at;
                 cachedJobs[idx] = job;
+                if (localStartedAt && !cachedJobs[idx].local_started_at) {
+                    cachedJobs[idx].local_started_at = localStartedAt;
+                }
+                ensureLocalStartedAt(cachedJobs[idx], getStartedAtMs(cachedJobs[idx]));
 
                 // Update virtual scroll state
                 if (virtualScrollEnabled) {
@@ -3542,10 +3960,67 @@
             updateActivePanel();
         }
 
+        function handleJobRemoved(job) {
+            const idx = cachedJobs.findIndex(j => j.id === job.id);
+            if (idx >= 0) {
+                const removed = cachedJobs.splice(idx, 1)[0];
+                if (removed.status === 'pending') cachedStats.pending--;
+                if (removed.status === 'pending_probe') cachedStats.pending_probe--;
+                if (removed.status === 'running') cachedStats.running--;
+                if (removed.status === 'complete') {
+                    cachedStats.complete--;
+                    cachedStats.total_saved -= removed.space_saved || 0;
+                }
+                if (removed.status === 'failed') cachedStats.failed--;
+                if (removed.status === 'cancelled') cachedStats.cancelled--;
+                updateStats(cachedStats);
+            }
+
+            errorHelperExpanded.delete(job.id);
+            errorRawExpanded.delete(job.id);
+
+            if (virtualScrollEnabled) {
+                removeJobFromVirtualState(job.id);
+                updateVisibleRange();
+                renderVirtualJobs();
+            } else {
+                const safeId = escapeCssSelector(job.id);
+                const el = document.querySelector(`.job-item[data-job-id="${safeId}"]`);
+                if (el) {
+                    el.remove();
+                }
+            }
+
+            updateCompletedSection(cachedJobs.filter(j => j.status === 'complete'));
+
+            const activeJobs = cachedJobs.filter(j => j.status !== 'complete');
+            const container = document.getElementById('queue-list');
+            if (activeJobs.length === 0 && container) {
+                container.innerHTML = `
+                    <div class="queue-empty">
+                        <div class="queue-empty-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <path d="M3 9h18"/>
+                                <path d="M9 21V9"/>
+                            </svg>
+                        </div>
+                        <div>No jobs in queue</div>
+                        <div style="font-size: 0.8125rem; margin-top: 4px; color: var(--text-tertiary)">Select files and start transcoding</div>
+                    </div>
+                `;
+            }
+
+            updateActivePanel();
+        }
+
         function updateJobs(jobs) {
             const container = document.getElementById('queue-list');
             cachedJobs = jobs || [];
             pruneErrorHelperState(cachedJobs);
+            for (const job of cachedJobs) {
+                ensureLocalStartedAt(job, getStartedAtMs(job));
+            }
 
             // Separate completed jobs from active queue
             const completedJobs = cachedJobs.filter(j => j.status === 'complete');
@@ -3900,6 +4375,7 @@
                 cachedJob.progress = jobData.progress;
                 cachedJob.speed = jobData.speed;
                 cachedJob.eta = jobData.eta;
+                ensureLocalStartedAt(cachedJob, getStartedAtMs(cachedJob));
             }
             const elapsed = formatElapsed(cachedJob || jobData);
 
@@ -4030,6 +4506,7 @@
                 cachedJob.progress = progress;
                 cachedJob.speed = speed;
                 cachedJob.eta = eta;
+                ensureLocalStartedAt(cachedJob, getStartedAtMs(cachedJob));
             }
             const elapsed = formatElapsed(cachedJob);
 
@@ -4122,12 +4599,14 @@
                 } else if (data.type === 'probed' && data.job) {
                     // Job probed: pending_probe → pending, update with probe data
                     handleJobStatusChange(data.job);
+                } else if (data.type === 'removed' && data.job) {
+                    handleJobRemoved(data.job);
                 } else if ((data.type === 'started' || data.type === 'complete' || data.type === 'failed' || data.type === 'cancelled') && data.job) {
                     // Performance: Update single job instead of full refresh
                     handleJobStatusChange(data.job);
                     if (data.type === 'complete' || data.type === 'failed') {
                         // Refresh file list to update metadata, but preserve selections
-                        browse(currentPath, true);
+                        browse(currentPath, true, { updateHistory: false });
                     }
                 } else {
                     // Fallback: debounced full refresh for unknown event types
@@ -4161,6 +4640,7 @@
                 }
 
                 document.getElementById('setting-original-handling').value = config.original_handling || 'replace';
+                document.getElementById('setting-subtitle-handling').value = config.subtitle_handling || 'convert';
                 document.getElementById('setting-workers').value = config.workers || 1;
 
                 // Pushover settings
@@ -4171,6 +4651,8 @@
                 document.getElementById('setting-ntfy-server').value = config.ntfy_server || '';
                 document.getElementById('setting-ntfy-topic').value = config.ntfy_topic || '';
                 document.getElementById('setting-ntfy-token').value = config.ntfy_token || '';
+
+                document.getElementById('setting-hide-processing-tmp').checked = config.hide_processing_tmp || false;
 
                 // Show/hide notify checkbox based on whether any provider is configured
                 const notifyContainer = document.getElementById('notify-container');
@@ -4230,9 +4712,18 @@
                 if (key === 'pushover_user_key' || key === 'pushover_app_token' || key === 'ntfy_server' || key === 'ntfy_topic' || key === 'ntfy_token') {
                     loadSettings();
                 }
+                return true;
             } catch (err) {
                 statusEl.textContent = `Error: ${err.message}`;
                 statusEl.className = 'settings-status error';
+                return false;
+            }
+        }
+
+        async function toggleHideProcessingTmp(enabled) {
+            const updated = await updateSetting('hide_processing_tmp', enabled);
+            if (updated) {
+                browse(currentPath, false, { updateHistory: false });
             }
         }
 
@@ -4255,7 +4746,7 @@
                 statusEl.className = 'settings-status';
                 setTimeout(() => { statusEl.textContent = ''; }, 2000);
 
-                browse(currentPath, true);
+                browse(currentPath, true, { updateHistory: false });
             } catch (err) {
                 statusEl.textContent = `Error: ${err.message}`;
                 statusEl.className = 'settings-status error';
@@ -4379,6 +4870,11 @@
             });
         }
 
+        function getPathFromLocation() {
+            const url = new URL(window.location.href);
+            return url.searchParams.get('path') || '';
+        }
+
         // Keyboard shortcut for settings
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -4389,11 +4885,18 @@
         // Initialize
         loadLocalPreferences();
         bindPreferenceHandlers();
-        browse();
+        const initialPath = getPathFromLocation();
+        history.replaceState({ path: initialPath }, '', window.location.href);
+        browse(initialPath, false, { updateHistory: false });
         attachQueueDragHandlers();
         connectSSE();
         loadSettings();
         loadPresets();
+
+        window.addEventListener('popstate', (event) => {
+            const statePath = event.state?.path ?? getPathFromLocation();
+            browse(statePath, false, { updateHistory: false });
+        });
     </script>
 </body>
 </html>

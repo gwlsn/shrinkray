@@ -35,6 +35,7 @@ type Handler struct {
 
 // NewHandler creates a new API handler
 func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.WorkerPool, cfg *config.Config, cfgPath string) *Handler {
+	browser.SetHideProcessingTmp(cfg.HideProcessingTmp)
 	return &Handler{
 		browser:    browser,
 		queue:      queue,
@@ -78,7 +79,7 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	if len(processedPaths) > 0 {
 		for _, entry := range result.Entries {
 			if entry.IsDir {
-				entry.ProcessedCount = countProcessedInDir(entry.Path, processedPaths)
+				entry.ProcessedCount = countProcessedInDir(entry.Path, processedPaths, h.cfg.HideProcessingTmp)
 				continue
 			}
 			if _, ok := processedPaths[entry.Path]; ok {
@@ -90,7 +91,7 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func countProcessedInDir(dirPath string, processedPaths map[string]struct{}) int {
+func countProcessedInDir(dirPath string, processedPaths map[string]struct{}, hideProcessingTmp bool) int {
 	if len(processedPaths) == 0 {
 		return 0
 	}
@@ -98,6 +99,12 @@ func countProcessedInDir(dirPath string, processedPaths map[string]struct{}) int
 	count := 0
 	for path := range processedPaths {
 		if strings.HasPrefix(path, prefix) {
+			if hideProcessingTmp {
+				lowerPath := strings.ToLower(path)
+				if strings.HasSuffix(lowerPath, "shrinkray.tmp") || strings.Contains(lowerPath, ".shrinkray.tmp.") {
+					continue
+				}
+			}
 			count++
 		}
 	}
@@ -127,6 +134,7 @@ type CreateJobsRequest struct {
 	PresetID          string   `json:"preset_id"`
 	IncludeSubfolders *bool    `json:"include_subfolders,omitempty"` // Default: true (for backwards compatibility)
 	MaxDepth          *int     `json:"max_depth,omitempty"`          // nil = unlimited, 0 = current dir only, 1 = one level, etc.
+	ExcludeProcessed  *bool    `json:"exclude_processed,omitempty"`
 }
 
 // MarkProcessedRequest is the request body for marking processed paths.
@@ -184,6 +192,12 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[api] CreateJobs background: deferred_probing=%v, recursive=%v, paths=%v",
 			h.cfg.Features.DeferredProbing, opts.Recursive, req.Paths)
 
+		excludeProcessed := req.ExcludeProcessed != nil && *req.ExcludeProcessed
+		var processedPaths map[string]struct{}
+		if excludeProcessed {
+			processedPaths = h.queue.ProcessedPaths()
+		}
+
 		// Check if deferred probing is enabled
 		if h.cfg.Features.DeferredProbing {
 			// Streaming discovery: add jobs immediately without probing
@@ -192,6 +206,17 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Printf("[api] Error discovering video files: %v", err)
 				return
+			}
+
+			if excludeProcessed && len(processedPaths) > 0 {
+				filtered := make([]browse.DiscoveredFile, 0, len(files))
+				for _, file := range files {
+					if _, ok := processedPaths[file.Path]; ok {
+						continue
+					}
+					filtered = append(filtered, file)
+				}
+				files = filtered
 			}
 
 			if len(files) == 0 {
@@ -218,6 +243,17 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				fmt.Printf("Error getting video files: %v\n", err)
 				return
+			}
+
+			if excludeProcessed && len(processedPaths) > 0 {
+				filtered := make([]*ffmpeg.ProbeResult, 0, len(probes))
+				for _, probe := range probes {
+					if _, ok := processedPaths[probe.Path]; ok {
+						continue
+					}
+					filtered = append(filtered, probe)
+				}
+				probes = filtered
 			}
 
 			if len(probes) == 0 {
@@ -317,6 +353,20 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	job := h.queue.Get(id)
 	if job == nil {
 		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+
+	if job.Status == jobs.StatusFailed || job.Status == jobs.StatusCancelled {
+		if _, err := h.queue.Remove(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+		return
+	}
+
+	if job.Status == jobs.StatusComplete {
+		writeError(w, http.StatusConflict, "completed jobs cannot be removed")
 		return
 	}
 
@@ -458,6 +508,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"version":             shrinkray.Version,
 		"media_path":          h.cfg.MediaPath,
 		"original_handling":   h.cfg.OriginalHandling,
+		"subtitle_handling":   h.cfg.SubtitleHandling,
 		"workers":             h.cfg.Workers,
 		"has_temp_path":       h.cfg.TempPath != "",
 		"pushover_user_key":   h.cfg.PushoverUserKey,
@@ -468,6 +519,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"ntfy_token":          h.cfg.NtfyToken,
 		"ntfy_configured":     h.ntfy.IsConfigured(),
 		"notify_on_complete":  h.cfg.NotifyOnComplete,
+		"hide_processing_tmp": h.cfg.HideProcessingTmp,
 		// Feature flags for frontend
 		"features": map[string]bool{
 			"virtual_scroll":   h.cfg.Features.VirtualScroll,
@@ -481,14 +533,16 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 // UpdateConfigRequest is the request body for updating config
 type UpdateConfigRequest struct {
-	OriginalHandling *string `json:"original_handling,omitempty"`
-	Workers          *int    `json:"workers,omitempty"`
-	PushoverUserKey  *string `json:"pushover_user_key,omitempty"`
-	PushoverAppToken *string `json:"pushover_app_token,omitempty"`
-	NtfyServer       *string `json:"ntfy_server,omitempty"`
-	NtfyTopic        *string `json:"ntfy_topic,omitempty"`
-	NtfyToken        *string `json:"ntfy_token,omitempty"`
-	NotifyOnComplete *bool   `json:"notify_on_complete,omitempty"`
+	OriginalHandling  *string `json:"original_handling,omitempty"`
+	SubtitleHandling  *string `json:"subtitle_handling,omitempty"`
+	Workers           *int    `json:"workers,omitempty"`
+	PushoverUserKey   *string `json:"pushover_user_key,omitempty"`
+	PushoverAppToken  *string `json:"pushover_app_token,omitempty"`
+	NtfyServer        *string `json:"ntfy_server,omitempty"`
+	NtfyTopic         *string `json:"ntfy_topic,omitempty"`
+	NtfyToken         *string `json:"ntfy_token,omitempty"`
+	NotifyOnComplete  *bool   `json:"notify_on_complete,omitempty"`
+	HideProcessingTmp *bool   `json:"hide_processing_tmp,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -506,6 +560,13 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.OriginalHandling = *req.OriginalHandling
+	}
+	if req.SubtitleHandling != nil {
+		if *req.SubtitleHandling != "convert" && *req.SubtitleHandling != "drop" {
+			writeError(w, http.StatusBadRequest, "subtitle_handling must be 'convert' or 'drop'")
+			return
+		}
+		h.cfg.SubtitleHandling = *req.SubtitleHandling
 	}
 
 	if req.Workers != nil && *req.Workers > 0 {
@@ -540,6 +601,10 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.NotifyOnComplete != nil {
 		h.cfg.NotifyOnComplete = *req.NotifyOnComplete
+	}
+	if req.HideProcessingTmp != nil {
+		h.cfg.HideProcessingTmp = *req.HideProcessingTmp
+		h.browser.SetHideProcessingTmp(*req.HideProcessingTmp)
 	}
 
 	// Persist config to disk
@@ -637,7 +702,9 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the failed job
-	h.queue.Remove(id)
+	if _, err := h.queue.Remove(id); err != nil {
+		log.Printf("Failed to remove job %s after retry: %v", id, err)
+	}
 
 	writeJSON(w, http.StatusOK, newJob)
 }

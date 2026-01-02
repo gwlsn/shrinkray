@@ -345,7 +345,7 @@ func (w *Worker) processJob(job *Job) {
 
 	// Run the transcode
 	duration := time.Duration(job.Duration) * time.Millisecond
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, progressCh)
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.SubtitleCodecs, w.cfg.SubtitleHandling, progressCh)
 
 	if err != nil {
 		// Check if it was cancelled

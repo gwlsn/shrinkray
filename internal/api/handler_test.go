@@ -38,6 +38,7 @@ func setupTestHandler(t *testing.T) (*Handler, string) {
 	cfg := &config.Config{
 		MediaPath:        tmpDir,
 		OriginalHandling: "replace",
+		SubtitleHandling: "convert",
 		Workers:          1,
 		FFmpegPath:       "ffmpeg",
 		FFprobePath:      "ffprobe",
@@ -196,6 +197,9 @@ func TestConfigEndpoint(t *testing.T) {
 	if cfg["original_handling"] != "replace" {
 		t.Errorf("expected original_handling 'replace', got %v", cfg["original_handling"])
 	}
+	if cfg["subtitle_handling"] != "convert" {
+		t.Errorf("expected subtitle_handling 'convert', got %v", cfg["subtitle_handling"])
+	}
 
 	t.Logf("Config: %v", cfg)
 }
@@ -205,8 +209,10 @@ func TestUpdateConfigEndpoint(t *testing.T) {
 
 	// Update config
 	keepVal := "keep"
+	convertVal := "convert"
 	reqBody := UpdateConfigRequest{
 		OriginalHandling: &keepVal,
+		SubtitleHandling: &convertVal,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -231,6 +237,9 @@ func TestUpdateConfigEndpoint(t *testing.T) {
 
 	if cfg["original_handling"] != "keep" {
 		t.Errorf("expected original_handling 'keep', got %v", cfg["original_handling"])
+	}
+	if cfg["subtitle_handling"] != "convert" {
+		t.Errorf("expected subtitle_handling 'convert', got %v", cfg["subtitle_handling"])
 	}
 }
 
