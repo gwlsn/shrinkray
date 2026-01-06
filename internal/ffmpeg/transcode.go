@@ -185,7 +185,7 @@ func (t *Transcoder) Transcode(
 				lastLines = lines[len(lines)-5:]
 			}
 			logger.Error("FFmpeg failed", "error", err, "stderr", strings.Join(lastLines, " | "))
-			return nil, fmt.Errorf("ffmpeg failed: %w - %s", err, strings.Join(lastLines, " | "))
+			return nil, fmt.Errorf("ffmpeg failed: %w", err)
 		}
 		return nil, fmt.Errorf("ffmpeg failed: %w", err)
 	}
