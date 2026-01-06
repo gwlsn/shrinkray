@@ -20,6 +20,10 @@ type Config struct {
 	// Options: "replace" (rename original to .old), "keep" (keep original, new file replaces)
 	OriginalHandling string `yaml:"original_handling"`
 
+	//Determines if transcoded files, that are larger than the original, should be kept or discarded
+	// Options: "Discard transcoded file", "Keep larger result"
+	KeepLargerResult string `yaml:"keep_larger_result"`
+
 	// Workers is the number of concurrent transcode jobs (default 1)
 	Workers int `yaml:"workers"`
 
@@ -63,6 +67,7 @@ func DefaultConfig() *Config {
 		MediaPath:         "/media",
 		TempPath:          "", // same directory as source
 		OriginalHandling:  "replace",
+		KeepLargerResult:  "discard",
 		Workers:           1,
 		FFmpegPath:        "ffmpeg",
 		FFprobePath:       "ffprobe",

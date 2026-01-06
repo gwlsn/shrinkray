@@ -18,6 +18,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.OriginalHandling != "replace" {
 		t.Errorf("expected OriginalHandling replace, got %s", cfg.OriginalHandling)
 	}
+	if cfg.KeepLargerResult != "discard" {
+		t.Errorf("expected KeepLargerResult discard, got %s", cfg.KeepLargerResult)
+	}
 	if cfg.FFmpegPath != "ffmpeg" {
 		t.Errorf("expected FFmpegPath ffmpeg, got %s", cfg.FFmpegPath)
 	}

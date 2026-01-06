@@ -1,6 +1,7 @@
-media_path: ./testdata
+media_path: ./testdata/
 temp_path: ""
 original_handling: keep
+keep_larger_result: keep
 workers: 3
 ffmpeg_path: ffmpeg
 ffprobe_path: ffprobe

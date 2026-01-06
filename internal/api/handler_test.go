@@ -38,6 +38,7 @@ func setupTestHandler(t *testing.T) (*Handler, string) {
 	cfg := &config.Config{
 		MediaPath:        tmpDir,
 		OriginalHandling: "replace",
+		KeepLargerResult: "discard",
 		Workers:          1,
 		FFmpegPath:       "ffmpeg",
 		FFprobePath:      "ffprobe",
@@ -295,4 +296,3 @@ func TestJobStreamEndpoint(t *testing.T) {
 
 	t.Logf("SSE response: %s", w.Body.String()[:min(200, len(w.Body.String()))])
 }
-

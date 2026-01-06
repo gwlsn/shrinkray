@@ -234,28 +234,30 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Return a sanitized config (no sensitive paths exposed)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"version":               shrinkray.Version,
-		"media_path":            h.cfg.MediaPath,
-		"original_handling":     h.cfg.OriginalHandling,
-		"workers":               h.cfg.Workers,
-		"has_temp_path":         h.cfg.TempPath != "",
-		"pushover_user_key":     h.cfg.PushoverUserKey,
-		"pushover_app_token":    h.cfg.PushoverAppToken,
-		"pushover_configured":   h.pushover.IsConfigured(),
-		"notify_on_complete":    h.cfg.NotifyOnComplete,
-		"quality_hevc":          h.cfg.QualityHEVC,
-		"quality_av1":           h.cfg.QualityAV1,
-		"default_quality_hevc":  defaultHEVC,
-		"default_quality_av1":   defaultAV1,
-		"schedule_enabled":      h.cfg.ScheduleEnabled,
-		"schedule_start_hour":   h.cfg.ScheduleStartHour,
-		"schedule_end_hour":     h.cfg.ScheduleEndHour,
+		"version":              shrinkray.Version,
+		"media_path":           h.cfg.MediaPath,
+		"original_handling":    h.cfg.OriginalHandling,
+		"keep_larger_result":   h.cfg.KeepLargerResult,
+		"workers":              h.cfg.Workers,
+		"has_temp_path":        h.cfg.TempPath != "",
+		"pushover_user_key":    h.cfg.PushoverUserKey,
+		"pushover_app_token":   h.cfg.PushoverAppToken,
+		"pushover_configured":  h.pushover.IsConfigured(),
+		"notify_on_complete":   h.cfg.NotifyOnComplete,
+		"quality_hevc":         h.cfg.QualityHEVC,
+		"quality_av1":          h.cfg.QualityAV1,
+		"default_quality_hevc": defaultHEVC,
+		"default_quality_av1":  defaultAV1,
+		"schedule_enabled":     h.cfg.ScheduleEnabled,
+		"schedule_start_hour":  h.cfg.ScheduleStartHour,
+		"schedule_end_hour":    h.cfg.ScheduleEndHour,
 	})
 }
 
 // UpdateConfigRequest is the request body for updating config
 type UpdateConfigRequest struct {
 	OriginalHandling  *string `json:"original_handling,omitempty"`
+	KeepLargerResult  *string `json:"keep_larger_result,omitempty"`
 	Workers           *int    `json:"workers,omitempty"`
 	PushoverUserKey   *string `json:"pushover_user_key,omitempty"`
 	PushoverAppToken  *string `json:"pushover_app_token,omitempty"`
@@ -275,13 +277,22 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allow updating certain fields
+	// Only allow updating certain fields for OriginalHandling
 	if req.OriginalHandling != nil {
 		if *req.OriginalHandling != "replace" && *req.OriginalHandling != "keep" {
 			writeError(w, http.StatusBadRequest, "original_handling must be 'replace' or 'keep'")
 			return
 		}
 		h.cfg.OriginalHandling = *req.OriginalHandling
+	}
+
+	// Only allow updating certain fields for KeepLargerResults
+	if req.KeepLargerResult != nil {
+		if *req.KeepLargerResult != "discard" && *req.KeepLargerResult != "keep" {
+			writeError(w, http.StatusBadRequest, "keep_larger_result must be 'discard' or 'keep'")
+			return
+		}
+		h.cfg.KeepLargerResult = *req.KeepLargerResult
 	}
 
 	if req.Workers != nil && *req.Workers > 0 {

@@ -97,8 +97,9 @@ func main() {
 	} else {
 		fmt.Printf("  Temp path:    (same as source)\n")
 	}
-	fmt.Printf("  Workers:      %d\n", cfg.Workers)
-	fmt.Printf("  Original:     %s\n", cfg.OriginalHandling)
+	fmt.Printf("  Workers:      	%d\n", cfg.Workers)
+	fmt.Printf("  Original:     	%s\n", cfg.OriginalHandling)
+	fmt.Printf("  Larger Results: 	%s\n", cfg.KeepLargerResult)
 	fmt.Println()
 
 	// Check ffmpeg/ffprobe availability

@@ -1362,6 +1362,18 @@
                     </div>
                     <div class="setting-item">
                         <div class="setting-info">
+                            <div class="setting-name">Larger Result</div>
+                            <div class="setting-desc">How to handle a larger result size</div>
+                        </div>
+                        <div class="setting-control">
+                            <select class="setting-select" id="setting-original-handling" onchange="updateSetting('keep_larger_result', this.value)">
+                                <option value="discard">Discard transcoded file</option>
+                                <option value="keep">Keep larger result</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
                             <div class="setting-name">Concurrent jobs</div>
                             <div class="setting-desc">Simultaneous transcode tasks</div>
                         </div>
