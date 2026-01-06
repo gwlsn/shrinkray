@@ -1,6 +1,9 @@
 package ffmpeg
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Preset defines a transcoding preset with its FFmpeg parameters
 type Preset struct {
@@ -21,6 +24,7 @@ type encoderSettings struct {
 	usesBitrate bool     // If true, quality value is a bitrate modifier (0.0-1.0)
 	hwaccelArgs []string // Args to prepend before -i for hardware decoding
 	scaleFilter string   // Hardware-specific scale filter (e.g., "scale_qsv", "scale_cuda")
+	baseFilter  string   // Filter to prepend before scale (e.g., "format=nv12,hwupload" for VAAPI)
 }
 
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox)
@@ -72,6 +76,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		extraArgs:   []string{},
 		hwaccelArgs: []string{"-vaapi_device", "", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"}, // Device path filled dynamically
 		scaleFilter: "scale_vaapi",
+		baseFilter:  "format=nv12,hwupload", // Required for AMD GPUs when hw decode falls back to software
 	},
 
 	// AV1 encoders
@@ -116,6 +121,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		extraArgs:   []string{},
 		hwaccelArgs: []string{"-vaapi_device", "", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"}, // Device path filled dynamically
 		scaleFilter: "scale_vaapi",
+		baseFilter:  "format=nv12,hwupload", // Required for AMD GPUs when hw decode falls back to software
 	},
 }
 
@@ -190,15 +196,25 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, qualityHEVC, qualityAV
 	// Output args
 	outputArgs = []string{}
 
+	// Build video filter chain
+	// baseFilter is used for VAAPI to handle software-decoded frames (hwupload)
+	var filterParts []string
+	if config.baseFilter != "" {
+		filterParts = append(filterParts, config.baseFilter)
+	}
+
 	// Add scaling filter if needed
 	if preset.MaxHeight > 0 {
 		scaleFilter := config.scaleFilter
 		if scaleFilter == "" {
 			scaleFilter = "scale"
 		}
-		outputArgs = append(outputArgs,
-			"-vf", fmt.Sprintf("%s=-2:'min(ih,%d)'", scaleFilter, preset.MaxHeight),
-		)
+		filterParts = append(filterParts, fmt.Sprintf("%s=-2:'min(ih,%d)'", scaleFilter, preset.MaxHeight))
+	}
+
+	// Apply filter chain if we have any filters
+	if len(filterParts) > 0 {
+		outputArgs = append(outputArgs, "-vf", strings.Join(filterParts, ","))
 	}
 
 	// Add encoder

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.6] - 2026-01-05
+
+### Fixed
+- VAAPI encoding on AMD GPUs now works when hardware decoding falls back to software (#21)
+- Added `hwupload` filter to VAAPI transcode pipeline for proper frame format handling
+
 ## [1.3.5] - 2026-01-05
 
 ### Fixed
