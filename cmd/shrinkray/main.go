@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +16,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
 	"github.com/gwlsn/shrinkray/internal/jobs"
+	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
 func main() {
@@ -41,9 +41,14 @@ func main() {
 	// Load config
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		log.Printf("Warning: Could not load config from %s: %v", cfgPath, err)
+		// Initialize logger with default level for this warning
+		logger.Init("info")
+		logger.Warn("Could not load config", "path", cfgPath, "error", err)
 		cfg = config.DefaultConfig()
 	}
+
+	// Initialize logger with configured level
+	logger.Init(cfg.LogLevel)
 
 	// Override with environment variables
 	if envMedia := os.Getenv("MEDIA_PATH"); envMedia != "" {
@@ -67,7 +72,8 @@ func main() {
 
 	// Validate media path exists
 	if _, err := os.Stat(cfg.MediaPath); os.IsNotExist(err) {
-		log.Fatalf("Media path does not exist: %s", cfg.MediaPath)
+		logger.Error("Media path does not exist", "path", cfg.MediaPath)
+		os.Exit(1)
 	}
 
 	// Set up queue file path
@@ -81,7 +87,7 @@ func main() {
 
 	// Ensure config directory exists
 	if err := os.MkdirAll(filepath.Dir(cfg.QueueFile), 0755); err != nil {
-		log.Printf("Warning: Could not create config directory: %v", err)
+		logger.Warn("Could not create config directory", "error", err)
 	}
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
@@ -89,6 +95,9 @@ func main() {
 	fmt.Println("║          Simple, efficient video transcoding              ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
+
+	logger.Info("Starting Shrinkray", "log_level", cfg.LogLevel)
+
 	fmt.Printf("  Media path:   %s\n", cfg.MediaPath)
 	fmt.Printf("  Config:       %s\n", cfgPath)
 	fmt.Printf("  Queue file:   %s\n", cfg.QueueFile)
@@ -103,7 +112,8 @@ func main() {
 
 	// Check ffmpeg/ffprobe availability
 	if err := checkFFmpeg(cfg); err != nil {
-		log.Fatalf("FFmpeg check failed: %v", err)
+		logger.Error("FFmpeg check failed", "error", err)
+		os.Exit(1)
 	}
 
 	// Detect available hardware encoders
@@ -120,8 +130,10 @@ func main() {
 				marker = "* "
 			}
 			fmt.Printf("    %s%s (%s)\n", marker, enc.Name, enc.Encoder)
+			logger.Debug("Encoder available", "name", enc.Name, "encoder", enc.Encoder)
 		}
 	}
+	logger.Info("Selected encoder", "encoder", best.Name, "type", best.Accel)
 	fmt.Println()
 
 	// Initialize components
@@ -130,7 +142,8 @@ func main() {
 
 	queue, err := jobs.NewQueue(cfg.QueueFile)
 	if err != nil {
-		log.Fatalf("Failed to initialize job queue: %v", err)
+		logger.Error("Failed to initialize job queue", "error", err)
+		os.Exit(1)
 	}
 
 	workerPool := jobs.NewWorkerPool(queue, cfg, browser.InvalidateCache)
@@ -141,11 +154,14 @@ func main() {
 
 	// Start worker pool
 	workerPool.Start()
+	logger.Info("Worker pool started", "workers", cfg.Workers)
 
 	fmt.Printf("  Starting server on port %d\n", *port)
 	fmt.Println()
 	fmt.Println("  Press Ctrl+C to stop")
 	fmt.Println()
+
+	logger.Info("Server starting", "port", *port)
 
 	// Set up graceful shutdown
 	server := &http.Server{
@@ -161,17 +177,19 @@ func main() {
 	go func() {
 		<-sigChan
 		fmt.Println("\n  Shutting down...")
+		logger.Info("Shutdown signal received")
 		workerPool.Stop()
 		server.Close()
 	}()
 
 	// Start server
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		fmt.Printf("Server error: %v\n", err)
+		logger.Error("Server error", "error", err)
 		workerPool.Stop()
 		os.Exit(1)
 	}
 
+	logger.Info("Server stopped")
 	fmt.Println("  Goodbye!")
 }
 

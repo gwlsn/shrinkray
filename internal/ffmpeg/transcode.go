@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
 // Progress represents the current transcoding progress
@@ -87,11 +90,18 @@ func (t *Transcoder) Transcode(
 
 	cmd := exec.CommandContext(ctx, t.ffmpegPath, args...)
 
+	// Log the command at debug level
+	logger.Debug("FFmpeg command", "args", strings.Join(args, " "))
+
 	// Capture stdout for progress
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
+
+	// Capture stderr for error messages
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
@@ -165,6 +175,18 @@ func (t *Transcoder) Transcode(
 	if err := cmd.Wait(); err != nil {
 		// Clean up partial output file
 		os.Remove(outputPath)
+		// Log stderr for debugging
+		stderrOutput := stderr.String()
+		if stderrOutput != "" {
+			// Get last few lines of stderr for the error message
+			lines := strings.Split(strings.TrimSpace(stderrOutput), "\n")
+			lastLines := lines
+			if len(lines) > 5 {
+				lastLines = lines[len(lines)-5:]
+			}
+			logger.Error("FFmpeg failed", "error", err, "stderr", strings.Join(lastLines, " | "))
+			return nil, fmt.Errorf("ffmpeg failed: %w - %s", err, strings.Join(lastLines, " | "))
+		}
 		return nil, fmt.Errorf("ffmpeg failed: %w", err)
 	}
 

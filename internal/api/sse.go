@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
 // JobStream handles GET /api/jobs/stream (SSE endpoint)
@@ -85,7 +87,7 @@ func (h *Handler) checkAndSendNotification(w http.ResponseWriter, flusher http.F
 
 	if err := h.pushover.Send("Shrinkray Complete", message); err != nil {
 		// Log error but don't crash - leave checkbox checked for retry
-		fmt.Printf("Failed to send Pushover notification: %v\n", err)
+		logger.Warn("Failed to send Pushover notification", "error", err)
 		return
 	}
 

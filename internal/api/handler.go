@@ -13,6 +13,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
 	"github.com/gwlsn/shrinkray/internal/jobs"
+	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/pushover"
 )
 
@@ -139,7 +140,7 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		// Get all video files with progress reporting
 		probes, err := h.browser.GetVideoFilesWithProgress(ctx, req.Paths, onProgress)
 		if err != nil {
-			fmt.Printf("Error getting video files: %v\n", err)
+			logger.Error("Error getting video files", "error", err)
 			return
 		}
 

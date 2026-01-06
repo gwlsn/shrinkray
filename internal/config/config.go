@@ -55,6 +55,9 @@ type Config struct {
 
 	// ScheduleEndHour is when transcoding must stop (0-23, default 6 = 6 AM)
 	ScheduleEndHour int `yaml:"schedule_end_hour"`
+
+	// LogLevel controls logging verbosity: debug, info, warn, error (default: info)
+	LogLevel string `yaml:"log_level"`
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -72,6 +75,7 @@ func DefaultConfig() *Config {
 		ScheduleEnabled:   false,
 		ScheduleStartHour: 22, // 10 PM
 		ScheduleEndHour:   6,  // 6 AM
+		LogLevel:          "info",
 	}
 }
 
@@ -107,6 +111,10 @@ func Load(path string) (*Config, error) {
 	}
 	// Note: QualityHEVC/QualityAV1 of 0 means "use encoder-specific default"
 	// The API handler will determine the actual default based on detected encoder
+
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
 
 	return cfg, nil
 }

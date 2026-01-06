@@ -10,6 +10,7 @@ import (
 
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
 // CacheInvalidator is called when a file is transcoded to invalidate cached probe data
@@ -284,6 +285,9 @@ func (w *Worker) isScheduleAllowed() bool {
 
 // processJob handles a single transcoding job
 func (w *Worker) processJob(job *Job) {
+	startTime := time.Now()
+	logger.Info("Job started", "job_id", job.ID, "file", job.InputPath, "preset", job.PresetID)
+
 	// Create a cancellable context for this job
 	jobCtx, jobCancel := context.WithCancel(w.ctx)
 	defer jobCancel()
@@ -303,6 +307,7 @@ func (w *Worker) processJob(job *Job) {
 	// Get the preset
 	preset := ffmpeg.GetPreset(job.PresetID)
 	if preset == nil {
+		logger.Error("Job failed", "job_id", job.ID, "error", "unknown preset", "preset", job.PresetID)
 		_ = w.queue.FailJob(job.ID, fmt.Sprintf("unknown preset: %s", job.PresetID))
 		return
 	}
@@ -337,12 +342,14 @@ func (w *Worker) processJob(job *Job) {
 		if jobCtx.Err() == context.Canceled {
 			// Clean up temp file
 			os.Remove(tempPath)
+			logger.Info("Job cancelled", "job_id", job.ID)
 			_ = w.queue.CancelJob(job.ID)
 			return
 		}
 
 		// Clean up temp file on failure
 		os.Remove(tempPath)
+		logger.Error("Job failed", "job_id", job.ID, "error", err.Error())
 		_ = w.queue.FailJob(job.ID, err.Error())
 		return
 	}
@@ -351,6 +358,7 @@ func (w *Worker) processJob(job *Job) {
 	if result.OutputSize >= job.InputSize {
 		// Delete the temp file and fail the job
 		os.Remove(tempPath)
+		logger.Warn("Job skipped - output larger than input", "job_id", job.ID, "input_size", formatBytes(job.InputSize), "output_size", formatBytes(result.OutputSize))
 		_ = w.queue.FailJob(job.ID, fmt.Sprintf("Transcoded file (%s) is larger than original (%s). File skipped.",
 			formatBytes(result.OutputSize), formatBytes(job.InputSize)))
 		return
@@ -362,6 +370,7 @@ func (w *Worker) processJob(job *Job) {
 	if err != nil {
 		// Try to clean up
 		os.Remove(tempPath)
+		logger.Error("Job failed - finalization error", "job_id", job.ID, "error", err.Error())
 		_ = w.queue.FailJob(job.ID, fmt.Sprintf("failed to finalize: %v", err))
 		return
 	}
@@ -372,6 +381,12 @@ func (w *Worker) processJob(job *Job) {
 		// Also invalidate the original path in case it was cached
 		w.invalidateCache(job.InputPath)
 	}
+
+	// Calculate stats
+	elapsed := time.Since(startTime)
+	saved := job.InputSize - result.OutputSize
+
+	logger.Info("Job complete", "job_id", job.ID, "duration", formatDuration(elapsed), "saved", formatBytes(saved))
 
 	// Mark job complete
 	_ = w.queue.CompleteJob(job.ID, finalPath, result.OutputSize)
