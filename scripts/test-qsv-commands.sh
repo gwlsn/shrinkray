@@ -4,7 +4,7 @@
 #        Then paste these commands one at a time
 
 # Set your test file path
-TEST_FILE="/media/Gangs of London (2020) - S03E01 - Episode 1 [WEBDL-2160p][HLG][EAC3 Atmos 5.1][h265]-HONE.mkv"
+TEST_FILE="/media/gangs.mkv"
 
 echo "=== QSV Encoding Tests ==="
 echo "Testing file: $TEST_FILE"
