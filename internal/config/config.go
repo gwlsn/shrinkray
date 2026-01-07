@@ -20,7 +20,7 @@ type Config struct {
 	// Options: "replace" (rename original to .old), "keep" (keep original, new file replaces)
 	OriginalHandling string `yaml:"original_handling"`
 
-	//Determines if transcoded files, that are larger than the original, should be kept or discarded
+	// Determines if transcoded files, that are larger than the original, should be kept or discarded
 	// Options: "Discard transcoded file", "Keep larger result"
 	KeepLargerResult string `yaml:"keep_larger_result"`
 
