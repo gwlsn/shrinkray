@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] - 2026-01-07
+
+### Fixed
+- QSV scaling now works on Intel UHD 630 and similar iGPUs (#21)
+- Replaced `scale_qsv` with `vpp_qsv` using explicit dimensions for downscale presets
+
 ## [1.4.1] - 2026-01-06
 
 ### Fixed
