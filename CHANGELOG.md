@@ -5,11 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.8] - 2026-01-08
+
+### Fixed
+- QSV encoding now properly handles software decode fallback (#32, #38)
+  - Previous fix using `vpp_qsv` was incorrect - it can't accept CPU frames
+  - Now uses `hwupload=extra_hw_frames=64` like Jellyfin does
+  - Added `-init_hw_device qsv=qsv -filter_hw_device qsv` for proper device initialization
+  - VC1 and other codecs that QSV can't hardware decode now transcode correctly
+
 ## [1.4.7] - 2026-01-08
 
 ### Fixed
 - QSV encoding now works for compress presets when hardware decode falls back to software (#38)
-  - Added `vpp_qsv` base filter to handle CPU-to-QSV frame upload
+  - Added `vpp_qsv` base filter to handle CPU-to-QSV frame upload (note: this fix was incomplete, see 1.4.8)
   - Previously only worked for downscale presets (1080p/720p)
 
 ## [1.4.6] - 2026-01-07
