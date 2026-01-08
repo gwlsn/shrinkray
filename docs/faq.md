@@ -10,6 +10,10 @@ This is normal. Your GPU handles video encoding and decoding (when it supports t
 
 If you see higher CPU usage, your GPU may not support the source codec and Shrinkray has automatically fallen back to software decoding. The GPU still handles encoding—only decoding moves to CPU. This happens automatically and transparently.
 
+### Why does my AMD GPU show 0% usage during hardware encoding?
+
+Standard GPU monitoring tools may show 0% usage even when hardware encoding is working correctly. AMD GPUs use a dedicated video engine (UVD/VCN) that isn't always reported by generic monitoring tools. To verify AMD hardware encoding is active, use `radeontop` which shows UVD/VCN utilization separately. If you see UVD at 100% while encoding, hardware acceleration is working as expected.
+
 ### Why did Shrinkray skip some files?
 
 Files are automatically skipped if:
