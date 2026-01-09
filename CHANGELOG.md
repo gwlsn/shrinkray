@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.11] - 2026-01-08
+
+### Fixed
+- Fix QSV encoding failure on MKVs with embedded cover art (#40)
+  - MKV files with attached pictures (cover art) have multiple video streams
+  - Previous `-map 0` copied all streams, causing QSV to fail encoding JPEG images
+  - Now uses explicit stream mapping: `-map 0:v:0 -map 0:a? -map 0:s?`
+  - Only maps primary video, all audio, and all subtitles (skips cover art)
+
+### Changed
+- Code cleanup: consolidated duplicate utilities, removed dead code, documented magic numbers
+
 ## [1.4.10] - 2026-01-08
 
 ### Fixed
