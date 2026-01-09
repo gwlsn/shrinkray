@@ -275,22 +275,23 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Return a sanitized config (no sensitive paths exposed)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"version":               shrinkray.Version,
-		"media_path":            h.cfg.MediaPath,
-		"original_handling":     h.cfg.OriginalHandling,
-		"workers":               h.cfg.Workers,
-		"has_temp_path":         h.cfg.TempPath != "",
-		"pushover_user_key":     h.cfg.PushoverUserKey,
-		"pushover_app_token":    h.cfg.PushoverAppToken,
-		"pushover_configured":   h.pushover.IsConfigured(),
-		"notify_on_complete":    h.cfg.NotifyOnComplete,
-		"quality_hevc":          h.cfg.QualityHEVC,
-		"quality_av1":           h.cfg.QualityAV1,
-		"default_quality_hevc":  defaultHEVC,
-		"default_quality_av1":   defaultAV1,
-		"schedule_enabled":      h.cfg.ScheduleEnabled,
-		"schedule_start_hour":   h.cfg.ScheduleStartHour,
-		"schedule_end_hour":     h.cfg.ScheduleEndHour,
+		"version":              shrinkray.Version,
+		"media_path":           h.cfg.MediaPath,
+		"original_handling":    h.cfg.OriginalHandling,
+		"workers":              h.cfg.Workers,
+		"has_temp_path":        h.cfg.TempPath != "",
+		"pushover_user_key":    h.cfg.PushoverUserKey,
+		"pushover_app_token":   h.cfg.PushoverAppToken,
+		"pushover_configured":  h.pushover.IsConfigured(),
+		"notify_on_complete":   h.cfg.NotifyOnComplete,
+		"quality_hevc":         h.cfg.QualityHEVC,
+		"quality_av1":          h.cfg.QualityAV1,
+		"default_quality_hevc": defaultHEVC,
+		"default_quality_av1":  defaultAV1,
+		"rename_h264_to_h265":  h.cfg.RenameH264ToH265,
+		"schedule_enabled":     h.cfg.ScheduleEnabled,
+		"schedule_start_hour":  h.cfg.ScheduleStartHour,
+		"schedule_end_hour":    h.cfg.ScheduleEndHour,
 	})
 }
 
@@ -303,6 +304,7 @@ type UpdateConfigRequest struct {
 	NotifyOnComplete  *bool   `json:"notify_on_complete,omitempty"`
 	QualityHEVC       *int    `json:"quality_hevc,omitempty"`
 	QualityAV1        *int    `json:"quality_av1,omitempty"`
+	RenameH264ToH265  *bool   `json:"rename_h264_to_h265,omitempty"`
 	ScheduleEnabled   *bool   `json:"schedule_enabled,omitempty"`
 	ScheduleStartHour *int    `json:"schedule_start_hour,omitempty"`
 	ScheduleEndHour   *int    `json:"schedule_end_hour,omitempty"`
@@ -361,6 +363,9 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.QualityAV1 = *req.QualityAV1
+	}
+	if req.RenameH264ToH265 != nil {
+		h.cfg.RenameH264ToH265 = *req.RenameH264ToH265
 	}
 
 	// Handle schedule settings

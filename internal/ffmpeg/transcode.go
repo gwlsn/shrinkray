@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,24 +19,24 @@ import (
 
 // Progress represents the current transcoding progress
 type Progress struct {
-	Frame       int64         `json:"frame"`
-	FPS         float64       `json:"fps"`
-	Size        int64         `json:"size"`        // Current output size in bytes
-	Time        time.Duration `json:"time"`        // Current position in video
-	Bitrate     float64       `json:"bitrate"`     // Current bitrate in kbits/s
-	Speed       float64       `json:"speed"`       // Encoding speed (1.0 = realtime)
-	Percent     float64       `json:"percent"`     // Progress percentage (0-100)
-	ETA         time.Duration `json:"eta"`         // Estimated time remaining
+	Frame   int64         `json:"frame"`
+	FPS     float64       `json:"fps"`
+	Size    int64         `json:"size"`    // Current output size in bytes
+	Time    time.Duration `json:"time"`    // Current position in video
+	Bitrate float64       `json:"bitrate"` // Current bitrate in kbits/s
+	Speed   float64       `json:"speed"`   // Encoding speed (1.0 = realtime)
+	Percent float64       `json:"percent"` // Progress percentage (0-100)
+	ETA     time.Duration `json:"eta"`     // Estimated time remaining
 }
 
 // TranscodeResult contains the result of a transcode operation
 type TranscodeResult struct {
-	InputPath   string `json:"input_path"`
-	OutputPath  string `json:"output_path"`
-	InputSize   int64  `json:"input_size"`
-	OutputSize  int64  `json:"output_size"`
-	SpaceSaved  int64  `json:"space_saved"`
-	Duration    time.Duration `json:"duration"` // How long the transcode took
+	InputPath  string        `json:"input_path"`
+	OutputPath string        `json:"output_path"`
+	InputSize  int64         `json:"input_size"`
+	OutputSize int64         `json:"output_size"`
+	SpaceSaved int64         `json:"space_saved"`
+	Duration   time.Duration `json:"duration"` // How long the transcode took
 }
 
 // TranscodeError represents a transcode failure with additional context for retry decisions
@@ -102,9 +103,9 @@ func (t *Transcoder) Transcode(
 	args = append(args, inputArgs...)
 	args = append(args,
 		"-i", inputPath,
-		"-y",                   // Overwrite output without asking
+		"-y",                  // Overwrite output without asking
 		"-progress", "pipe:1", // Output progress to stdout
-		"-nostats",            // Disable default stats output
+		"-nostats", // Disable default stats output
 	)
 	args = append(args, outputArgs...)
 	args = append(args, outputPath)
@@ -271,6 +272,35 @@ func BuildTempPath(inputPath, tempDir string) string {
 	return filepath.Join(tempDir, tempName)
 }
 
+var codecTokenPattern = regexp.MustCompile(`(?i)\b(h264|x264|avc|h265|x265|hevc|av1)\b`)
+
+func outputCodecTag(codec Codec) string {
+	switch codec {
+	case CodecAV1:
+		return "av1"
+	case CodecHEVC:
+		return "h265"
+	default:
+		return ""
+	}
+}
+
+// BuildOutputPath generates the final output path for a transcode.
+// When renameCodecTag is enabled, replaces codec tokens in the filename with the target codec.
+func BuildOutputPath(inputPath string, renameCodecTag bool, targetCodec Codec) string {
+	dir := filepath.Dir(inputPath)
+	base := filepath.Base(inputPath)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	if renameCodecTag {
+		tag := outputCodecTag(targetCodec)
+		if tag != "" {
+			name = codecTokenPattern.ReplaceAllString(name, tag)
+		}
+	}
+	return filepath.Join(dir, name+".mkv")
+}
+
 // copyFile copies a file from src to dst.
 // Works across filesystems unlike os.Rename.
 func copyFile(src, dst string) error {
@@ -293,16 +323,12 @@ func copyFile(src, dst string) error {
 	return dstFile.Close()
 }
 
-// FinalizeTranscode handles the original file based on the configured behavior
-// If replace=true, deletes original and copies temp to final location
-// If replace=false (keep), renames original to .old and copies temp to final location
+// FinalizeTranscode handles the original file based on the configured behavior.
+// If replace=true, deletes original and copies temp to final location.
+// If replace=false (keep), renames original to .old and copies temp to final location.
 // Uses copy-then-delete instead of rename to support cross-filesystem moves.
-func FinalizeTranscode(inputPath, tempPath string, replace bool) (finalPath string, err error) {
-	dir := filepath.Dir(inputPath)
-	base := filepath.Base(inputPath)
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-	finalPath = filepath.Join(dir, name+".mkv")
+func FinalizeTranscode(inputPath, tempPath string, replace bool, renameCodecTag bool, targetCodec Codec) (finalPath string, err error) {
+	finalPath = BuildOutputPath(inputPath, renameCodecTag, targetCodec)
 
 	// Capture original modification time to preserve it on the output file
 	inputInfo, err := os.Stat(inputPath)

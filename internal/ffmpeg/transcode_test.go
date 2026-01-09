@@ -40,6 +40,24 @@ func TestBuildTempPath(t *testing.T) {
 	}
 }
 
+func TestBuildOutputPathRenameCodecTag(t *testing.T) {
+	input := "/media/Arcadia S01E02 [HDTV-1080p][AAC 2.0][h264]-S4LVE.mkv"
+	expected := "/media/Arcadia S01E02 [HDTV-1080p][AAC 2.0][h265]-S4LVE.mkv"
+	result := BuildOutputPath(input, true, CodecHEVC)
+	if result != expected {
+		t.Errorf("BuildOutputPath rename = %s, expected %s", result, expected)
+	}
+}
+
+func TestBuildOutputPathRenameCodecTagAV1(t *testing.T) {
+	input := "/media/Movie [x265].mkv"
+	expected := "/media/Movie [av1].mkv"
+	result := BuildOutputPath(input, true, CodecAV1)
+	if result != expected {
+		t.Errorf("BuildOutputPath rename av1 = %s, expected %s", result, expected)
+	}
+}
+
 func TestTranscode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping transcode test in short mode")
@@ -142,7 +160,7 @@ func TestFinalizeTranscodeReplace(t *testing.T) {
 	}
 
 	// Finalize with replace=true
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, true)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, true, false, CodecHEVC)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}
@@ -192,7 +210,7 @@ func TestFinalizeTranscodeReplaceDifferentExt(t *testing.T) {
 	}
 
 	// Finalize with replace=true
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, true)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, true, false, CodecHEVC)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}
@@ -235,7 +253,7 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 	}
 
 	// Finalize with replace=false (keep original as .old)
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, false)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, false, false, CodecHEVC)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}

@@ -155,6 +155,7 @@ Configuration is stored in `/config/shrinkray.yaml`. Most settings are available
 | `media_path` | `/media` | Root directory to browse |
 | `temp_path` | *(empty)* | Fast storage for temp files (SSD recommended) |
 | `original_handling` | `replace` | `replace` = delete original, `keep` = rename to `.old` |
+| `rename_h264_to_h265` | `false` | Update codec tag in output filenames to match output codec |
 | `workers` | `1` | Concurrent transcode jobs (1–6) |
 | `quality_hevc` | `0` | CRF override for HEVC (0 = default, range: 15–40) |
 | `quality_av1` | `0` | CRF override for AV1 (0 = default, range: 20–50) |
@@ -172,6 +173,7 @@ Configuration is stored in `/config/shrinkray.yaml`. Most settings are available
 media_path: /media
 temp_path: /tmp/shrinkray
 original_handling: replace
+rename_h264_to_h265: false
 workers: 2
 quality_hevc: 24
 schedule_enabled: true
