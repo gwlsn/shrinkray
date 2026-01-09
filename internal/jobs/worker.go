@@ -346,8 +346,15 @@ func (w *Worker) processJob(job *Job) {
 		// Check if it was cancelled
 		if jobCtx.Err() == context.Canceled {
 			os.Remove(tempPath)
-			logger.Info("Job cancelled", "job_id", job.ID)
-			_ = w.queue.CancelJob(job.ID)
+			// Only mark as cancelled if user-initiated (jobCtx cancelled but w.ctx still active)
+			// If w.ctx is also cancelled, this is a shutdown - leave job as "running"
+			// so it will be reset to pending on restart
+			if w.ctx.Err() != context.Canceled {
+				logger.Info("Job cancelled", "job_id", job.ID)
+				_ = w.queue.CancelJob(job.ID)
+			} else {
+				logger.Info("Job interrupted by shutdown", "job_id", job.ID)
+			}
 			return
 		}
 
@@ -371,8 +378,13 @@ func (w *Worker) processJob(job *Job) {
 				// Check if cancelled during retry
 				if jobCtx.Err() == context.Canceled {
 					os.Remove(tempPath)
-					logger.Info("Job cancelled during software decode retry", "job_id", job.ID)
-					_ = w.queue.CancelJob(job.ID)
+					// Only mark as cancelled if user-initiated, not shutdown
+					if w.ctx.Err() != context.Canceled {
+						logger.Info("Job cancelled during software decode retry", "job_id", job.ID)
+						_ = w.queue.CancelJob(job.ID)
+					} else {
+						logger.Info("Job interrupted by shutdown during retry", "job_id", job.ID)
+					}
 					return
 				}
 
