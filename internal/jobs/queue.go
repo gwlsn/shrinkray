@@ -72,12 +72,23 @@ func (q *Queue) load() error {
 	q.order = pd.Order
 
 	// Reset any running jobs to pending (they were interrupted)
+	resetCount := 0
 	for _, job := range q.jobs {
 		if job.Status == StatusRunning {
 			job.Status = StatusPending
 			job.Progress = 0
 			job.Speed = 0
 			job.ETA = ""
+			resetCount++
+		}
+	}
+
+	// Persist the reset state immediately so it survives another restart
+	if resetCount > 0 {
+		if err := q.save(); err != nil {
+			logger.Warn("Failed to persist reset jobs", "error", err)
+		} else {
+			logger.Info("Reset interrupted jobs to pending", "count", resetCount)
 		}
 	}
 

@@ -30,20 +30,28 @@ func Init(level string) {
 
 // Debug logs a debug message
 func Debug(msg string, args ...any) {
-	Log.Debug(msg, args...)
+	if Log != nil {
+		Log.Debug(msg, args...)
+	}
 }
 
 // Info logs an info message
 func Info(msg string, args ...any) {
-	Log.Info(msg, args...)
+	if Log != nil {
+		Log.Info(msg, args...)
+	}
 }
 
 // Warn logs a warning message
 func Warn(msg string, args ...any) {
-	Log.Warn(msg, args...)
+	if Log != nil {
+		Log.Warn(msg, args...)
+	}
 }
 
 // Error logs an error message
 func Error(msg string, args ...any) {
-	Log.Error(msg, args...)
+	if Log != nil {
+		Log.Error(msg, args...)
+	}
 }

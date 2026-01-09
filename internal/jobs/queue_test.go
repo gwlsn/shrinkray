@@ -186,6 +186,73 @@ func TestQueueRunningJobsResetOnLoad(t *testing.T) {
 	t.Log("Running jobs reset to pending on load")
 }
 
+func TestQueueRunningJobsResetAndVisible(t *testing.T) {
+	// This test verifies the fix for issue #35:
+	// Running jobs should be reset to pending AND appear correctly in GetNext()
+	tmpDir := t.TempDir()
+	queueFile := filepath.Join(tmpDir, "queue.json")
+
+	// Create queue with 4 jobs
+	queue1, _ := NewQueue(queueFile)
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	job1, _ := queue1.Add("/media/video1.mkv", "compress", probe)
+	job2, _ := queue1.Add("/media/video2.mkv", "compress", probe)
+	job3, _ := queue1.Add("/media/video3.mkv", "compress", probe)
+	_, _ = queue1.Add("/media/video4.mkv", "compress", probe) // job4
+
+	// Start jobs 1 and 2 (simulate running at 25-50%)
+	queue1.StartJob(job1.ID, "/tmp/temp1.mkv")
+	queue1.StartJob(job2.ID, "/tmp/temp2.mkv")
+
+	// Verify jobs 1&2 are running, 3&4 are pending
+	if queue1.Get(job1.ID).Status != StatusRunning {
+		t.Fatal("job1 should be running")
+	}
+	if queue1.Get(job3.ID).Status != StatusPending {
+		t.Fatal("job3 should be pending")
+	}
+
+	// Simulate container restart
+	queue2, _ := NewQueue(queueFile)
+
+	// Verify ALL jobs appear in GetAll()
+	all := queue2.GetAll()
+	if len(all) != 4 {
+		t.Errorf("expected 4 jobs in GetAll(), got %d", len(all))
+	}
+
+	// Verify jobs 1&2 are now pending (reset from running)
+	if queue2.Get(job1.ID).Status != StatusPending {
+		t.Errorf("job1 should be reset to pending, got %s", queue2.Get(job1.ID).Status)
+	}
+	if queue2.Get(job2.ID).Status != StatusPending {
+		t.Errorf("job2 should be reset to pending, got %s", queue2.Get(job2.ID).Status)
+	}
+
+	// Critical: GetNext() should return job1 (first in order, now pending)
+	// NOT job3 - that was the bug in issue #35
+	next := queue2.GetNext()
+	if next == nil {
+		t.Fatal("GetNext() returned nil, expected job1")
+	}
+	if next.ID != job1.ID {
+		t.Errorf("GetNext() should return job1 (first reset job), got job with path %s", next.InputPath)
+	}
+
+	// Verify the reset was persisted to disk
+	queue3, _ := NewQueue(queueFile)
+	if queue3.Get(job1.ID).Status != StatusPending {
+		t.Error("reset status was not persisted to disk")
+	}
+
+	t.Log("Running jobs correctly reset, visible, and returned by GetNext()")
+}
+
 func TestQueueGetNext(t *testing.T) {
 	queue, _ := NewQueue("")
 
