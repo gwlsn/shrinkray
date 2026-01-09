@@ -12,7 +12,7 @@ If you see higher CPU usage, your GPU may not support the source codec and Shrin
 
 ### How can I tell if I'm using my GPU for transcoding?
 
-Check the Shrinkray logs at startup to see which encoders were detected—the active encoder is marked with an asterisk. Each job in your queue displays an "HW" or "SW" badge indicating hardware or software encoding.
+Check the Shrinkray logs at startup to see which encoders were detected. The active encoder is marked with an asterisk. Each job in your queue displays an "HW" or "SW" badge indicating hardware or software encoding.
 
 ### What hardware supports AV1 encoding?
 
@@ -76,11 +76,11 @@ If you want to keep larger files anyway (e.g., for codec consistency across your
 
 ### Are subtitles preserved?
 
-In MKV mode (default), yes—all subtitle streams are copied unchanged. In MP4 mode, subtitles are stripped because formats like PGS are incompatible with MP4 containers.
+In MKV mode (default), yes. All subtitle streams are copied unchanged. In MP4 mode, subtitles are stripped because formats like PGS are incompatible with MP4 containers.
 
 ### Are multiple audio tracks preserved?
 
-In MKV mode (default), yes—all audio streams are copied unchanged. In MP4 mode, audio is transcoded to AAC stereo for web/direct play compatibility.
+In MKV mode (default), yes. All audio streams are copied unchanged. In MP4 mode, audio is transcoded to AAC stereo for web/direct play compatibility.
 
 ### What about HDR content?
 
@@ -88,7 +88,7 @@ Hardware encoders preserve HDR metadata and 10-bit color depth when your GPU sup
 
 ### How does Shrinkray compare to Tdarr/Unmanic?
 
-Shrinkray prioritizes simplicity over features. Tdarr and Unmanic are powerful but complex—Shrinkray is designed for users who want to point at a folder and compress without learning a new system. If you're already comfortable with Tdarr/Unmanic, there's no need to switch.
+Shrinkray prioritizes simplicity over features. Tdarr and Unmanic are powerful but complex. Shrinkray is designed for users who want to point at a folder and compress without learning a new system. If you're already comfortable with Tdarr/Unmanic, there's no need to switch.
 
 ### Can I use RAM (/dev/shm) for temp files?
 
@@ -100,5 +100,5 @@ Shrinkray is intentionally simple, it's not designed for custom FFmpeg workflows
 
 ### Can Shrinkray transcode audio?
 
-In MKV mode (default), no—audio is copied unchanged. In MP4 mode, audio is transcoded to AAC stereo (192 kbps) for web compatibility.
+In MKV mode (default), no. Audio is copied unchanged. In MP4 mode, audio is transcoded to AAC stereo (192 kbps) for web compatibility.
 

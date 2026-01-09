@@ -18,13 +18,13 @@ Shrinkray is a user-friendly video transcoding tool designed for Unraid to be si
 
 ### Features
 
-- **4 Smart Presets** — HEVC compress, AV1 compress, 1080p downscale, 720p downscale
-- **Full GPU Pipeline** — Hardware decoding AND encoding with software fallback
-- **Batch Selection** — Select entire folders to transcode whole seasons or libraries at once
-- **Scheduling** — Restrict transcoding to specific hours (e.g., overnight only)
-- **Quality Control** — Adjustable CRF for fine-tuned compression
-- **Push Notifications** — Pushover alerts when your queue completes
-- **Smart Skipping** — Automatically skips files already in target codec/resolution
+- **4 Smart Presets:** HEVC compress, AV1 compress, 1080p downscale, 720p downscale
+- **Full GPU Pipeline:** Hardware decoding AND encoding with software fallback
+- **Batch Selection:** Select entire folders to transcode whole seasons or libraries at once
+- **Scheduling:** Restrict transcoding to specific hours (e.g., overnight only)
+- **Quality Control:** Adjustable CRF for fine-tuned compression
+- **Push Notifications:** Pushover alerts when your queue completes
+- **Smart Skipping:** Automatically skips files already in target codec/resolution
 
 ---
 
@@ -32,7 +32,7 @@ Shrinkray is a user-friendly video transcoding tool designed for Unraid to be si
 
 <div align="center">
   <img src="docs/screenshot.png" alt="Shrinkray UI" width="800">
-  <p><em>Clean, focused interface — browse, select, transcode</em></p>
+  <p><em>Clean, focused interface: browse, select, transcode</em></p>
 </div>
 
 ---
@@ -215,11 +215,11 @@ go test ./...
 
 ## More Documentation
 
-- [FAQ](docs/faq.md) — Common questions about CPU usage, skipped files, HDR, and more
-- [FFmpeg Options Reference](docs/ffmpeg-options.md) — Detailed encoder settings and quality flags
+- [FAQ](docs/faq.md) - Common questions about CPU usage, skipped files, HDR, and more
+- [FFmpeg Options Reference](docs/ffmpeg-options.md) - Detailed encoder settings and quality flags
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
