@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-01-09
+
+### Added
+- **MP4 output container option** (#44)
+  - New setting in Advanced Settings to output MP4 instead of MKV
+  - MP4 mode transcodes audio to AAC stereo and strips subtitles for web/direct play compatibility
+  - MKV mode (default) preserves all streams as before
+- Version displayed in startup splash screen
+- Version field added to "Shrinkray started" log line for easier debugging
+
+### Changed
+- Updated CI to golangci-lint v2.8.0
+- Refreshed splash screen text
+
 ## [1.5.0] - 2026-01-09
 
 ### Added
