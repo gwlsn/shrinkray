@@ -396,6 +396,81 @@ func TestQueueCancel(t *testing.T) {
 	}
 }
 
+func TestQueueRequeue(t *testing.T) {
+	queue := jobs.NewQueue()
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Add multiple jobs
+	job1, _ := queue.Add("/media/v1.mkv", "compress", probe)
+	job2, _ := queue.Add("/media/v2.mkv", "compress", probe)
+	job3, _ := queue.Add("/media/v3.mkv", "compress", probe)
+
+	// Start job2 (make it running)
+	err := queue.StartJob(job2.ID, "/tmp/temp.mkv")
+	if err != nil {
+		t.Fatalf("failed to start job: %v", err)
+	}
+
+	// Update progress
+	queue.UpdateProgress(job2.ID, 50, 1.5, "5m")
+
+	// Verify job2 is running with progress
+	got := queue.Get(job2.ID)
+	if got.Status != jobs.StatusRunning {
+		t.Fatalf("expected status running, got %s", got.Status)
+	}
+	if got.Progress != 50 {
+		t.Fatalf("expected progress 50, got %f", got.Progress)
+	}
+
+	// Requeue job2
+	err = queue.Requeue(job2.ID)
+	if err != nil {
+		t.Fatalf("failed to requeue job: %v", err)
+	}
+
+	// Verify job2 is now pending with reset progress
+	got = queue.Get(job2.ID)
+	if got.Status != jobs.StatusPending {
+		t.Errorf("expected status pending after requeue, got %s", got.Status)
+	}
+	if got.Progress != 0 {
+		t.Errorf("expected progress 0 after requeue, got %f", got.Progress)
+	}
+	if got.TempPath != "" {
+		t.Errorf("expected empty temp path after requeue, got %s", got.TempPath)
+	}
+
+	// Verify job2 is now at front of queue (GetNext should return it)
+	next := queue.GetNext()
+	if next == nil {
+		t.Fatal("expected GetNext to return a job")
+	}
+	if next.ID != job2.ID {
+		t.Errorf("expected requeued job to be at front (job2), got %s", next.ID)
+	}
+
+	// Try to requeue a pending job - should fail
+	err = queue.Requeue(job1.ID)
+	if err == nil {
+		t.Error("expected error when requeuing a pending job")
+	}
+
+	// Try to requeue non-existent job - should fail
+	err = queue.Requeue("nonexistent")
+	if err == nil {
+		t.Error("expected error when requeuing non-existent job")
+	}
+
+	t.Logf("Requeue test passed: job moved to front of queue with reset state")
+	_ = job3 // Silence unused variable warning
+}
+
 func TestQueueStats(t *testing.T) {
 	queue := jobs.NewQueue()
 

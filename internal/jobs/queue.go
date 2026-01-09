@@ -21,6 +21,7 @@ type Store interface {
 	GetNextPendingJob() (*Job, error)
 	AppendToOrder(id string) error
 	RemoveFromOrder(id string) error
+	SetOrder(order []string) error
 	ResetRunningJobs() (int, error)
 	AddToLifetimeSaved(bytes int64) error
 	Close() error
@@ -398,6 +399,51 @@ func (q *Queue) CancelJob(id string) error {
 
 	q.persist(job)
 	q.broadcast(JobEvent{Type: "cancelled", Job: job})
+
+	return nil
+}
+
+// Requeue resets a running job back to pending and moves it to the front of the queue.
+// Used when reducing worker count to return jobs to the queue.
+func (q *Queue) Requeue(id string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		return fmt.Errorf("job not found: %s", id)
+	}
+
+	if job.Status != StatusRunning {
+		return fmt.Errorf("can only requeue running jobs, got: %s", job.Status)
+	}
+
+	// Reset job state
+	job.Status = StatusPending
+	job.Progress = 0
+	job.Speed = 0
+	job.ETA = ""
+	job.TempPath = ""
+	job.StartedAt = time.Time{}
+
+	// Move to front of order (in memory)
+	newOrder := []string{id}
+	for _, oid := range q.order {
+		if oid != id {
+			newOrder = append(newOrder, oid)
+		}
+	}
+	q.order = newOrder
+
+	// Persist job and order
+	q.persist(job)
+	if q.store != nil {
+		if err := q.store.SetOrder(q.order); err != nil {
+			logger.Warn("Failed to persist job order", "error", err)
+		}
+	}
+
+	q.broadcast(JobEvent{Type: "requeued", Job: job})
 
 	return nil
 }

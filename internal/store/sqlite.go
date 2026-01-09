@@ -366,6 +366,32 @@ func (s *SQLiteStore) RemoveFromOrder(id string) error {
 	return err
 }
 
+// SetOrder persists the full job order, replacing any existing order.
+func (s *SQLiteStore) SetOrder(order []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Clear existing order
+	if _, err := tx.Exec("DELETE FROM job_order"); err != nil {
+		return err
+	}
+
+	// Insert in new order (autoincrement gives sequential positions)
+	for _, jobID := range order {
+		if _, err := tx.Exec("INSERT INTO job_order (job_id) VALUES (?)", jobID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // ResetRunningJobs resets all running jobs to pending.
 func (s *SQLiteStore) ResetRunningJobs() (int, error) {
 	s.mu.Lock()

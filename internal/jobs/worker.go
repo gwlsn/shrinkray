@@ -184,7 +184,15 @@ func (p *WorkerPool) Resize(n int) {
 			if cancelled >= workersToStop {
 				break
 			}
+
+			// CancelAndStop waits for worker to finish (wg.Wait)
 			rj.worker.CancelAndStop()
+
+			// Worker is done. Job left as "running" by shutdown path.
+			// Safe to requeue now - moves to front of pending queue.
+			if err := p.queue.Requeue(rj.jobID); err != nil {
+				logger.Warn("Failed to requeue job during resize", "job_id", rj.jobID, "error", err)
+			}
 
 			// Remove this worker from the pool
 			for j, w := range p.workers {

@@ -37,6 +37,9 @@ type Store interface {
 	// RemoveFromOrder removes a job ID from the queue order.
 	RemoveFromOrder(id string) error
 
+	// SetOrder persists the full job order, replacing any existing order.
+	SetOrder(order []string) error
+
 	// ResetRunningJobs changes all jobs with status "running" to "pending"
 	// and clears their progress. Used on startup to recover from crashes.
 	// Returns the number of jobs reset.

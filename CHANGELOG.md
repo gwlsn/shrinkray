@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-01-09
+
+### Fixed
+- **Jobs no longer lost when reducing worker count** (#43)
+  - When reducing concurrent workers (e.g., 3→2), running jobs are now requeued to the front of the pending queue instead of being lost
+  - Added `Requeue()` method to safely return interrupted jobs to pending status
+
 ## [1.6.0] - 2026-01-09
 
 ### Added
