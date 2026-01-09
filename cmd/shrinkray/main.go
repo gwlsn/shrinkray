@@ -97,8 +97,11 @@ func main() {
 	defer jobStore.Close()
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
-	fmt.Println("║                      🔬 SHRINKRAY                         ║")
-	fmt.Println("║          Simple, efficient video transcoding              ║")
+	fmt.Println("║                         SHRINKRAY                         ║")
+	fmt.Println("║          Simple, user-friendly video transcoding          ║")
+	versionLine := fmt.Sprintf("v%s", shrinkray.Version)
+	padding := 59 - len(versionLine)
+	fmt.Printf("║%*s%s%*s║\n", padding/2, "", versionLine, (padding+1)/2, "")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Printf("  Media path:   %s\n", cfg.MediaPath)
@@ -163,7 +166,7 @@ func main() {
 	fmt.Println("─────────────────────────────────────────────────────────────")
 	fmt.Printf("  Logging started (level: %s)\n", cfg.LogLevel)
 	fmt.Println("─────────────────────────────────────────────────────────────")
-	logger.Info("Shrinkray started", "encoder", best.Name, "workers", cfg.Workers, "port", *port)
+	logger.Info("Shrinkray started", "version", shrinkray.Version, "encoder", best.Name, "workers", cfg.Workers, "port", *port)
 
 	// Set up graceful shutdown
 	server := &http.Server{

@@ -12,30 +12,34 @@ func TestBuildTempPath(t *testing.T) {
 	tests := []struct {
 		input    string
 		tempDir  string
+		format   string
 		expected string
 	}{
 		{
 			"/media/movie.mkv",
 			"/tmp",
+			"mkv",
 			"/tmp/movie.shrinkray.tmp.mkv",
 		},
 		{
 			"/media/tv/show/episode.mp4",
 			"/media/tv/show",
+			"mkv",
 			"/media/tv/show/episode.shrinkray.tmp.mkv",
 		},
 		{
 			"/data/video.avi",
 			"/data",
-			"/data/video.shrinkray.tmp.mkv",
+			"mp4",
+			"/data/video.shrinkray.tmp.mp4",
 		},
 	}
 
 	for _, tt := range tests {
-		result := BuildTempPath(tt.input, tt.tempDir)
+		result := BuildTempPath(tt.input, tt.tempDir, tt.format)
 		if result != tt.expected {
-			t.Errorf("BuildTempPath(%s, %s) = %s, expected %s",
-				tt.input, tt.tempDir, result, tt.expected)
+			t.Errorf("BuildTempPath(%s, %s, %s) = %s, expected %s",
+				tt.input, tt.tempDir, tt.format, result, tt.expected)
 		}
 	}
 }
@@ -60,7 +64,7 @@ func TestTranscode(t *testing.T) {
 
 	// Create temp output directory
 	tmpDir := t.TempDir()
-	outputPath := BuildTempPath(testFile, tmpDir)
+	outputPath := BuildTempPath(testFile, tmpDir, "mkv")
 
 	// Create transcoder and progress channel
 	transcoder := NewTranscoder("ffmpeg")
@@ -84,7 +88,7 @@ func TestTranscode(t *testing.T) {
 	}()
 
 	totalFrames := int64(probeResult.Duration.Seconds() * probeResult.FrameRate)
-	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, totalFrames, progressCh, false)
+	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, totalFrames, progressCh, false, "mkv")
 	<-done
 
 	if err != nil {
@@ -142,7 +146,7 @@ func TestFinalizeTranscodeReplace(t *testing.T) {
 	}
 
 	// Finalize with replace=true
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, true)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, "mkv", true)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}
@@ -192,7 +196,7 @@ func TestFinalizeTranscodeReplaceDifferentExt(t *testing.T) {
 	}
 
 	// Finalize with replace=true
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, true)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, "mkv", true)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}
@@ -235,7 +239,7 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 	}
 
 	// Finalize with replace=false (keep original as .old)
-	finalPath, err := FinalizeTranscode(originalPath, tempPath, false)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, "mkv", false)
 	if err != nil {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}

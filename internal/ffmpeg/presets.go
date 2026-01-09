@@ -210,8 +210,9 @@ func crfToBitrateModifier(crf int) float64 {
 // sourceWidth/sourceHeight are the source video dimensions (for calculating scaled output)
 // qualityHEVC/qualityAV1 are optional CRF overrides (0 = use default)
 // softwareDecode: if true, skip hardware decode args and use software decode filter
+// outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC and strips subtitles
 // Returns (inputArgs, outputArgs) - inputArgs go before -i, outputArgs go after
-func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, softwareDecode bool) (inputArgs []string, outputArgs []string) {
+func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, softwareDecode bool, outputFormat string) (inputArgs []string, outputArgs []string) {
 	key := EncoderKey{preset.Encoder, preset.Codec}
 	config, ok := encoderConfigs[key]
 	if !ok {
@@ -332,16 +333,30 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	// Add encoder-specific extra args
 	outputArgs = append(outputArgs, config.extraArgs...)
 
-	// Add stream mapping and copy audio/subtitles
+	// Add stream mapping and handle audio/subtitles based on output format
 	// Use explicit stream selection to skip attached pictures (cover art)
 	// that cause hardware encoders to fail (issue #40)
 	outputArgs = append(outputArgs,
 		"-map", "0:v:0", // First video stream only
 		"-map", "0:a?",  // All audio streams (optional)
-		"-map", "0:s?",  // All subtitle streams (optional)
-		"-c:a", "copy",
-		"-c:s", "copy",
 	)
+
+	if outputFormat == "mp4" {
+		// MP4: Transcode audio to AAC for web compatibility, strip subtitles (PGS breaks MP4)
+		outputArgs = append(outputArgs,
+			"-c:a", "aac",
+			"-b:a", "192k",
+			"-ac", "2", // Stereo for wide compatibility
+			"-sn",      // Strip subtitles
+		)
+	} else {
+		// MKV: Copy all streams as-is
+		outputArgs = append(outputArgs,
+			"-map", "0:s?", // All subtitle streams (optional)
+			"-c:a", "copy",
+			"-c:s", "copy",
+		)
+	}
 
 	return inputArgs, outputArgs
 }

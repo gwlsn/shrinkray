@@ -62,6 +62,10 @@ type Config struct {
 	// KeepLargerFiles keeps transcoded files even if they're larger than the original
 	// Useful for users who want codec consistency across their library
 	KeepLargerFiles bool `yaml:"keep_larger_files"`
+
+	// OutputFormat is the container format for transcoded files: "mkv" or "mp4"
+	// MKV preserves all streams; MP4 transcodes audio to AAC and strips subtitles
+	OutputFormat string `yaml:"output_format"`
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -80,6 +84,7 @@ func DefaultConfig() *Config {
 		ScheduleStartHour: 22, // 10 PM
 		ScheduleEndHour:   6,  // 6 AM
 		LogLevel:          "info",
+		OutputFormat:      "mkv",
 	}
 }
 
@@ -118,6 +123,10 @@ func Load(path string) (*Config, error) {
 
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
+	}
+
+	if cfg.OutputFormat == "" {
+		cfg.OutputFormat = "mkv"
 	}
 
 	return cfg, nil

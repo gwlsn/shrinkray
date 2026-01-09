@@ -1603,6 +1603,19 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <div class="setting-name">Output Container</div>
+                                <div class="setting-desc">MP4 converts audio to AAC stereo and strips subtitles</div>
+                            </div>
+                            <div class="setting-control">
+                                <select class="setting-select" id="setting-output-format"
+                                        onchange="updateSetting('output_format', this.value)">
+                                    <option value="mkv">MKV (preserves all streams)</option>
+                                    <option value="mp4">MP4 (web compatible)</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2327,6 +2340,9 @@
                 document.getElementById('setting-schedule-start').value = config.schedule_start_hour ?? 22;
                 document.getElementById('setting-schedule-end').value = config.schedule_end_hour ?? 6;
                 updateScheduleHoursVisibility();
+
+                // Output format
+                document.getElementById('setting-output-format').value = config.output_format || 'mkv';
                 updateScheduleStatusDisplay(config.schedule_enabled, config.schedule_start_hour ?? 22, config.schedule_end_hour ?? 6);
             } catch (err) {
                 console.error('Load settings error:', err);
