@@ -61,6 +61,10 @@ services:
       - /path/to/config:/config
       - /path/to/media:/media
       - /path/to/fast/storage:/temp  # Optional: SSD for temp files
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
     restart: unless-stopped
 ```
 
@@ -70,6 +74,8 @@ services:
 docker run -d \
   --name shrinkray \
   -p 8080:8080 \
+  -e PUID=1000 \
+  -e PGID=1000 \
   -v /path/to/config:/config \
   -v /path/to/media:/media \
   ghcr.io/gwlsn/shrinkray:latest
@@ -82,11 +88,11 @@ docker run -d \
 | Preset | Codec | Description | Theoretical Savings |
 |--------|-------|-------------|-----------------|
 | **Compress (HEVC)** | H.265 | Re-encode to HEVC | 40–60% smaller |
-| **Compress (AV1)** | AV1 | Re-encode to HEVC | 50–70% smaller |
+| **Compress (AV1)** | AV1 | Re-encode to AV1 | 50–70% smaller |
 | **1080p** | HEVC | Downscale 4K → 1080p | 60–80% smaller |
 | **720p** | HEVC | Downscale to 720p | 70–85% smaller |
 
-All presets copy audio and subtitles unchanged (stream copy).
+By default (MKV output), audio and subtitles are copied unchanged. MP4 output mode converts audio to AAC stereo and strips subtitles for web compatibility.
 
 ---
 
@@ -111,6 +117,19 @@ Shrinkray automatically detects and uses the best available hardware encoder. No
 
 **Intel / AMD:**
 1. Add to container Extra Parameters: `--device /dev/dri:/dev/dri`
+
+### Permissions for Hardware Acceleration (Non-Unraid)
+
+Hardware encoders require access to `/dev/dri` devices. For the container to access these on non-Unraid systems:
+
+1. Set `PUID` and `PGID` to a user that has access to your GPU devices
+2. Check your host's video/render group: `ls -la /dev/dri`
+3. Find your user's groups: `id`
+
+**Common configurations:**
+- Most Linux systems: `PUID=1000`, `PGID=1000` (default user)
+- Some systems may need the `render` group GID instead of `video`
+- If QSV/VAAPI still fails, try `PUID=0` (root) to diagnose permissions
 
 ### AV1 Hardware Requirements
 
@@ -165,6 +184,7 @@ Configuration is stored in `/config/shrinkray.yaml`. Most settings are available
 | `pushover_app_token` | *(empty)* | Pushover app token for notifications |
 | `log_level` | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
 | `keep_larger_files` | `false` | Keep transcoded files even if larger than original |
+| `output_format` | `mkv` | Output container: `mkv` (preserves all streams) or `mp4` (web compatible) |
 
 ### Example Configuration
 

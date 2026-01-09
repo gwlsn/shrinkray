@@ -14,6 +14,37 @@ If you see higher CPU usage, your GPU may not support the source codec and Shrin
 
 Open logs for Shrinkray, all the detected encoders are shown and the currently selected encoders have an asterisk. A "HW" or "SW" badge will appear on jobs in your queue to let you know if they are being software or hardware transcoded.
 
+### Intel Quick Sync (QSV) not working on non-Unraid systems?
+
+If you're running Shrinkray on generic Linux (not Unraid), Intel QSV requires proper permissions to access `/dev/dri` devices.
+
+1. **Set PUID/PGID** in your Docker configuration:
+   ```yaml
+   environment:
+     - PUID=1000
+     - PGID=1000
+   ```
+
+2. **Check device permissions** on your host:
+   ```bash
+   ls -la /dev/dri
+   ```
+   Note the group (usually `video` or `render`).
+
+3. **Ensure your user is in the correct group:**
+   ```bash
+   id
+   ```
+   If not, add yourself: `sudo usermod -aG video $USER` (and re-login).
+
+4. **Pass through the device:**
+   ```yaml
+   devices:
+     - /dev/dri:/dev/dri
+   ```
+
+If issues persist, try running with `PUID=0` temporarily to confirm it's a permissions issue.
+
 ### Why does my AMD GPU show 0% usage during hardware encoding?
 
 Standard GPU monitoring tools may show 0% usage even when hardware encoding is working correctly. AMD GPUs use a dedicated video engine (UVD/VCN) that isn't always reported by generic monitoring tools. To verify AMD hardware encoding is active, use `radeontop` which shows UVD/VCN utilization separately. If you see UVD at 100% while encoding, hardware acceleration is working as expected.
@@ -32,11 +63,11 @@ If you want to keep larger files anyway (e.g., for codec consistency across your
 
 ### Are subtitles preserved?
 
-Yes. All subtitle streams are copied to the output file unchanged (`-c:s copy`).
+In MKV mode (default), yes—all subtitle streams are copied unchanged. In MP4 mode, subtitles are stripped because formats like PGS are incompatible with MP4 containers.
 
 ### Are multiple audio tracks preserved?
 
-Yes. All audio streams are copied to the output file unchanged (`-c:a copy`). If your source has multiple audio tracks (different languages, commentary, etc.), they will all be retained.
+In MKV mode (default), yes—all audio streams are copied unchanged. In MP4 mode, audio is transcoded to AAC stereo for web/direct play compatibility.
 
 ### What about HDR content?
 
@@ -56,5 +87,5 @@ Shrinkray is intentionally simple, it's not designed for custom FFmpeg workflows
 
 ### Can Shrinkray transcode audio?
 
-No. Audio streams are copied unchanged (`-c:a copy`) to preserve quality and compatibility.
+In MKV mode (default), no—audio is copied unchanged. In MP4 mode, audio is transcoded to AAC stereo (192 kbps) for web compatibility.
 
