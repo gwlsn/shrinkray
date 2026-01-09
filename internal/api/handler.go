@@ -17,6 +17,11 @@ import (
 	"github.com/gwlsn/shrinkray/internal/pushover"
 )
 
+// StatsStore defines the interface for stats-related store operations.
+type StatsStore interface {
+	ResetSession() error
+}
+
 // Handler provides HTTP API handlers
 type Handler struct {
 	browser    *browse.Browser
@@ -26,6 +31,7 @@ type Handler struct {
 	cfgPath    string
 	pushover   *pushover.Client
 	notifyMu   sync.Mutex // Protects notification sending to prevent duplicates
+	store      StatsStore // For stats operations (may be nil)
 }
 
 // NewHandler creates a new API handler
@@ -38,6 +44,11 @@ func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.Wor
 		cfgPath:    cfgPath,
 		pushover:   pushover.NewClient(cfg.PushoverUserKey, cfg.PushoverAppToken),
 	}
+}
+
+// SetStore sets the stats store for session/lifetime stats operations.
+func (h *Handler) SetStore(store StatsStore) {
+	h.store = store
 }
 
 // response helpers
@@ -386,6 +397,21 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	stats := h.queue.Stats()
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// ResetSession handles POST /api/stats/reset-session
+func (h *Handler) ResetSession(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeError(w, http.StatusInternalServerError, "stats store not configured")
+		return
+	}
+
+	if err := h.store.ResetSession(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "session reset"})
 }
 
 // ClearCache handles POST /api/cache/clear

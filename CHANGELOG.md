@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-01-09
+
+### Added
+- **SQLite database for job persistence** - Jobs are now stored in SQLite instead of JSON for better performance and reliability
+  - Automatic migration from queue.json to shrinkray.db on first run
+  - JSON backup created before migration (queue.json.backup)
+  - Supports large queues (1000+ jobs) with proper indexing
+- **Session and lifetime space saved tracking** (#31)
+  - Header shows session saved (resets when you choose)
+  - Dropdown shows both session and lifetime totals
+  - "Reset Session" button to start fresh count
+  - Lifetime total persists forever across restarts and queue clears
+- Schema versioning for future database migrations
+
+### Changed
+- Job queue now uses SQLite with WAL mode for better concurrent access
+- Stats calculation moved from in-memory to database queries
+- Updated golangci-lint config for v2 format
+
+### Fixed
+- Running jobs correctly reset to pending on restart (#35)
+
 ## [1.4.12] - 2026-01-08
 
 ### Fixed

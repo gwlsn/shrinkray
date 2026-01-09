@@ -1,4 +1,4 @@
-package jobs
+package jobs_test
 
 import (
 	"path/filepath"
@@ -6,16 +6,12 @@ import (
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/jobs"
+	"github.com/gwlsn/shrinkray/internal/store"
 )
 
 func TestQueue(t *testing.T) {
-	tmpDir := t.TempDir()
-	queueFile := filepath.Join(tmpDir, "queue.json")
-
-	queue, err := NewQueue(queueFile)
-	if err != nil {
-		t.Fatalf("failed to create queue: %v", err)
-	}
+	queue := jobs.NewQueue()
 
 	// Create a test probe result
 	probe := &ffmpeg.ProbeResult{
@@ -34,7 +30,7 @@ func TestQueue(t *testing.T) {
 		t.Error("job ID should not be empty")
 	}
 
-	if job.Status != StatusPending {
+	if job.Status != jobs.StatusPending {
 		t.Errorf("expected status pending, got %s", job.Status)
 	}
 
@@ -52,7 +48,7 @@ func TestQueue(t *testing.T) {
 }
 
 func TestQueueLifecycle(t *testing.T) {
-	queue, _ := NewQueue("")
+	queue := jobs.NewQueue()
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -70,7 +66,7 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 
 	got := queue.Get(job.ID)
-	if got.Status != StatusRunning {
+	if got.Status != jobs.StatusRunning {
 		t.Errorf("expected status running, got %s", got.Status)
 	}
 
@@ -89,7 +85,7 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 
 	got = queue.Get(job.ID)
-	if got.Status != StatusComplete {
+	if got.Status != jobs.StatusComplete {
 		t.Errorf("expected status complete, got %s", got.Status)
 	}
 
@@ -102,10 +98,18 @@ func TestQueueLifecycle(t *testing.T) {
 
 func TestQueuePersistence(t *testing.T) {
 	tmpDir := t.TempDir()
-	queueFile := filepath.Join(tmpDir, "queue.json")
+	dbFile := filepath.Join(tmpDir, "test.db")
 
-	// Create queue and add jobs
-	queue1, _ := NewQueue(queueFile)
+	// Create store and queue
+	store1, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	queue1, err := jobs.NewQueueWithStore(store1)
+	if err != nil {
+		t.Fatalf("failed to create queue: %v", err)
+	}
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -128,8 +132,17 @@ func TestQueuePersistence(t *testing.T) {
 	queue1.StartJob(job1.ID, "/tmp/temp.mkv")
 	queue1.CompleteJob(job1.ID, "/media/video.mkv", 500000)
 
-	// Create a new queue from the same file
-	queue2, err := NewQueue(queueFile)
+	// Close store
+	store1.Close()
+
+	// Create a new store and queue from the same file
+	store2, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store2.Close()
+
+	queue2, err := jobs.NewQueueWithStore(store2)
 	if err != nil {
 		t.Fatalf("failed to load queue: %v", err)
 	}
@@ -141,12 +154,12 @@ func TestQueuePersistence(t *testing.T) {
 	}
 
 	got1 := queue2.Get(job1.ID)
-	if got1 == nil || got1.Status != StatusComplete {
+	if got1 == nil || got1.Status != jobs.StatusComplete {
 		t.Errorf("job1 not persisted correctly: %+v", got1)
 	}
 
 	got2 := queue2.Get(job2.ID)
-	if got2 == nil || got2.Status != StatusPending {
+	if got2 == nil || got2.Status != jobs.StatusPending {
 		t.Errorf("job2 not persisted correctly: %+v", got2)
 	}
 
@@ -155,10 +168,18 @@ func TestQueuePersistence(t *testing.T) {
 
 func TestQueueRunningJobsResetOnLoad(t *testing.T) {
 	tmpDir := t.TempDir()
-	queueFile := filepath.Join(tmpDir, "queue.json")
+	dbFile := filepath.Join(tmpDir, "test.db")
 
-	// Create queue and start a job
-	queue1, _ := NewQueue(queueFile)
+	// Create store and queue, start a job
+	store1, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	queue1, err := jobs.NewQueueWithStore(store1)
+	if err != nil {
+		t.Fatalf("failed to create queue: %v", err)
+	}
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -170,16 +191,37 @@ func TestQueueRunningJobsResetOnLoad(t *testing.T) {
 	queue1.StartJob(job.ID, "/tmp/temp.mkv")
 
 	// Verify it's running
-	if queue1.Get(job.ID).Status != StatusRunning {
+	if queue1.Get(job.ID).Status != jobs.StatusRunning {
 		t.Fatal("job should be running")
 	}
 
-	// Simulate restart - create new queue from file
-	queue2, _ := NewQueue(queueFile)
+	// Close store
+	store1.Close()
+
+	// Simulate restart - create new store (which resets running jobs)
+	store2, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store2.Close()
+
+	// Reset running jobs (this is normally done by InitStore)
+	count, err := store2.ResetRunningJobs()
+	if err != nil {
+		t.Fatalf("failed to reset running jobs: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 job reset, got %d", count)
+	}
+
+	queue2, err := jobs.NewQueueWithStore(store2)
+	if err != nil {
+		t.Fatalf("failed to load queue: %v", err)
+	}
 
 	// Running job should be reset to pending
 	got := queue2.Get(job.ID)
-	if got.Status != StatusPending {
+	if got.Status != jobs.StatusPending {
 		t.Errorf("expected running job to be reset to pending, got %s", got.Status)
 	}
 
@@ -190,10 +232,19 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 	// This test verifies the fix for issue #35:
 	// Running jobs should be reset to pending AND appear correctly in GetNext()
 	tmpDir := t.TempDir()
-	queueFile := filepath.Join(tmpDir, "queue.json")
+	dbFile := filepath.Join(tmpDir, "test.db")
 
-	// Create queue with 4 jobs
-	queue1, _ := NewQueue(queueFile)
+	// Create store and queue with 4 jobs
+	store1, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	queue1, err := jobs.NewQueueWithStore(store1)
+	if err != nil {
+		t.Fatalf("failed to create queue: %v", err)
+	}
+
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
 		Size:     1000000,
@@ -210,15 +261,30 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 	queue1.StartJob(job2.ID, "/tmp/temp2.mkv")
 
 	// Verify jobs 1&2 are running, 3&4 are pending
-	if queue1.Get(job1.ID).Status != StatusRunning {
+	if queue1.Get(job1.ID).Status != jobs.StatusRunning {
 		t.Fatal("job1 should be running")
 	}
-	if queue1.Get(job3.ID).Status != StatusPending {
+	if queue1.Get(job3.ID).Status != jobs.StatusPending {
 		t.Fatal("job3 should be pending")
 	}
 
+	// Close store
+	store1.Close()
+
 	// Simulate container restart
-	queue2, _ := NewQueue(queueFile)
+	store2, err := store.NewSQLiteStore(dbFile)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store2.Close()
+
+	// Reset running jobs
+	store2.ResetRunningJobs()
+
+	queue2, err := jobs.NewQueueWithStore(store2)
+	if err != nil {
+		t.Fatalf("failed to load queue: %v", err)
+	}
 
 	// Verify ALL jobs appear in GetAll()
 	all := queue2.GetAll()
@@ -227,10 +293,10 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 	}
 
 	// Verify jobs 1&2 are now pending (reset from running)
-	if queue2.Get(job1.ID).Status != StatusPending {
+	if queue2.Get(job1.ID).Status != jobs.StatusPending {
 		t.Errorf("job1 should be reset to pending, got %s", queue2.Get(job1.ID).Status)
 	}
-	if queue2.Get(job2.ID).Status != StatusPending {
+	if queue2.Get(job2.ID).Status != jobs.StatusPending {
 		t.Errorf("job2 should be reset to pending, got %s", queue2.Get(job2.ID).Status)
 	}
 
@@ -244,9 +310,14 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 		t.Errorf("GetNext() should return job1 (first reset job), got job with path %s", next.InputPath)
 	}
 
-	// Verify the reset was persisted to disk
-	queue3, _ := NewQueue(queueFile)
-	if queue3.Get(job1.ID).Status != StatusPending {
+	// Close and reopen to verify reset was persisted
+	store2.Close()
+
+	store3, _ := store.NewSQLiteStore(dbFile)
+	defer store3.Close()
+	queue3, _ := jobs.NewQueueWithStore(store3)
+
+	if queue3.Get(job1.ID).Status != jobs.StatusPending {
 		t.Error("reset status was not persisted to disk")
 	}
 
@@ -254,7 +325,7 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 }
 
 func TestQueueGetNext(t *testing.T) {
-	queue, _ := NewQueue("")
+	queue := jobs.NewQueue()
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -297,7 +368,7 @@ func TestQueueGetNext(t *testing.T) {
 }
 
 func TestQueueCancel(t *testing.T) {
-	queue, _ := NewQueue("")
+	queue := jobs.NewQueue()
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -314,7 +385,7 @@ func TestQueueCancel(t *testing.T) {
 	}
 
 	got := queue.Get(job.ID)
-	if got.Status != StatusCancelled {
+	if got.Status != jobs.StatusCancelled {
 		t.Errorf("expected status cancelled, got %s", got.Status)
 	}
 
@@ -326,7 +397,7 @@ func TestQueueCancel(t *testing.T) {
 }
 
 func TestQueueStats(t *testing.T) {
-	queue, _ := NewQueue("")
+	queue := jobs.NewQueue()
 
 	probe := &ffmpeg.ProbeResult{
 		Path:     "/media/video.mkv",
@@ -364,7 +435,7 @@ func TestQueueStats(t *testing.T) {
 }
 
 func TestQueueSubscription(t *testing.T) {
-	queue, _ := NewQueue("")
+	queue := jobs.NewQueue()
 
 	// Subscribe
 	ch := queue.Subscribe()

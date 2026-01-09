@@ -1,46 +1,51 @@
-run:
-  timeout: 5m
-
+version: "2"
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosec
     - gocritic
+    - gosec
     - misspell
-
-linters-settings:
-  errcheck:
-    check-blank: false
-    exclude-functions:
-      - (io.Closer).Close
-      - (net/http.ResponseWriter).Write
-      - (*encoding/json.Encoder).Encode
-      - fmt.Fprintf
-      - fmt.Sscanf
-  gosec:
-    excludes:
-      - G204  # Subprocess with variable - we need to run ffmpeg
-      - G306  # WriteFile permissions - 0644 is fine for configs
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - ifElseChain
-
+  settings:
+    errcheck:
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - fmt.Fprintf
+        - fmt.Sscanf
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+      enabled-tags:
+        - diagnostic
+        - performance
+    gosec:
+      excludes:
+        - G204
+        - G306
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+    paths:
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-use-default: true
-  exclude-dirs:
-    - vendor
-  exclude-rules:
-    # Ignore unchecked errors in tests
-    - path: _test\.go
-      linters:
-        - errcheck
   max-issues-per-linter: 50
   max-same-issues: 5
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -70,11 +70,8 @@ func TestWorkerPoolIntegration(t *testing.T) {
 		FFprobePath:      "ffprobe",
 	}
 
-	// Create queue
-	queue, err := NewQueue("")
-	if err != nil {
-		t.Fatalf("failed to create queue: %v", err)
-	}
+	// Create queue (in-memory for testing)
+	queue := NewQueue()
 
 	// Subscribe to events
 	events := queue.Subscribe()
@@ -167,7 +164,7 @@ func TestWorkerPoolCancel(t *testing.T) {
 		FFprobePath: "ffprobe",
 	}
 
-	queue, _ := NewQueue("")
+	queue := NewQueue()
 	pool := NewWorkerPool(queue, cfg, nil)
 
 	// Start and immediately stop
@@ -184,7 +181,7 @@ func TestWorkerPoolResize(t *testing.T) {
 		FFprobePath: "ffprobe",
 	}
 
-	queue, _ := NewQueue("")
+	queue := NewQueue()
 	pool := NewWorkerPool(queue, cfg, nil)
 	pool.Start()
 	defer pool.Stop()
@@ -232,7 +229,7 @@ func TestWorkerPoolResizeDown(t *testing.T) {
 		FFprobePath: "ffprobe",
 	}
 
-	queue, _ := NewQueue("")
+	queue := NewQueue()
 	pool := NewWorkerPool(queue, cfg, nil)
 	pool.Start()
 	defer pool.Stop()

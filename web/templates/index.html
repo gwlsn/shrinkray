@@ -162,6 +162,108 @@
         .stat-item.success .stat-value { color: var(--success); }
         .stat-item.running .stat-value { color: var(--accent); }
 
+        /* Saved stat dropdown */
+        .stat-saved-wrapper {
+            position: relative;
+        }
+
+        .stat-saved-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 4px 0;
+            margin: -4px 0;
+            border-radius: var(--radius-sm);
+            transition: opacity var(--transition-fast);
+        }
+
+        .stat-saved-toggle:hover {
+            opacity: 0.8;
+        }
+
+        .stat-saved-chevron {
+            width: 14px;
+            height: 14px;
+            color: var(--text-tertiary);
+            transition: transform var(--transition-fast);
+            flex-shrink: 0;
+        }
+
+        .stat-saved-wrapper.open .stat-saved-chevron {
+            transform: rotate(180deg);
+        }
+
+        .stat-saved-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(-4px);
+            opacity: 0;
+            visibility: hidden;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-md);
+            padding: 12px 16px;
+            min-width: 180px;
+            z-index: 200;
+            transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+        }
+
+        .stat-saved-wrapper.open .stat-saved-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .stat-saved-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+        }
+
+        .stat-saved-row:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-saved-row-label {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+        }
+
+        .stat-saved-row-value {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-saved-row-value.lifetime {
+            color: var(--success);
+        }
+
+        .stat-saved-reset {
+            width: 100%;
+            margin-top: 4px;
+            padding: 8px 12px;
+            font-size: 0.8125rem;
+            font-family: var(--font-sans);
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .stat-saved-reset:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-hover);
+        }
+
         .header-right {
             display: flex;
             align-items: center;
@@ -1224,9 +1326,27 @@
                         <span class="stat-value" id="stat-pending">0</span>
                         <span class="stat-label">pending</span>
                     </div>
-                    <div class="stat-item success">
-                        <span class="stat-value" id="stat-saved">0 MB</span>
-                        <span class="stat-label">saved</span>
+                    <div class="stat-item success stat-saved-wrapper" id="stat-saved-wrapper">
+                        <div class="stat-saved-toggle" onclick="toggleSavedDropdown(event)">
+                            <span class="stat-value" id="stat-saved">0 MB</span>
+                            <span class="stat-label">saved</span>
+                            <svg class="stat-saved-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="stat-saved-dropdown">
+                            <div class="stat-saved-row">
+                                <span class="stat-saved-row-label">Session</span>
+                                <span class="stat-saved-row-value" id="stat-session-saved">0 MB</span>
+                            </div>
+                            <div class="stat-saved-row">
+                                <span class="stat-saved-row-label">Lifetime</span>
+                                <span class="stat-saved-row-value lifetime" id="stat-lifetime-saved">0 MB</span>
+                            </div>
+                            <div class="stat-saved-row" style="border: none; padding-top: 8px;">
+                                <button class="stat-saved-reset" onclick="resetSession(event)">Reset Session</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1528,8 +1648,8 @@
         let eventSource = null;
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0 B';
-            if (bytes < 0) return '0 B';
+            if (bytes === 0) return '0';
+            if (bytes < 0) return '0';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -2056,8 +2176,47 @@
         function updateStats(stats) {
             document.getElementById('stat-pending').textContent = stats.pending;
             document.getElementById('stat-running').textContent = stats.running;
-            const saved = Math.max(0, stats.total_saved || 0);
-            document.getElementById('stat-saved').textContent = formatBytes(saved);
+
+            // Header shows session saved
+            const sessionSaved = Math.max(0, stats.session_saved || stats.total_saved || 0);
+            document.getElementById('stat-saved').textContent = formatBytes(sessionSaved);
+
+            // Dropdown values
+            const sessionEl = document.getElementById('stat-session-saved');
+            const lifetimeEl = document.getElementById('stat-lifetime-saved');
+            if (sessionEl) sessionEl.textContent = formatBytes(sessionSaved);
+            if (lifetimeEl) lifetimeEl.textContent = formatBytes(Math.max(0, stats.lifetime_saved || 0));
+        }
+
+        function toggleSavedDropdown(event) {
+            event.stopPropagation();
+            document.getElementById('stat-saved-wrapper').classList.toggle('open');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const wrapper = document.getElementById('stat-saved-wrapper');
+            if (wrapper && !wrapper.contains(event.target)) {
+                wrapper.classList.remove('open');
+            }
+        });
+
+        async function resetSession(event) {
+            event.stopPropagation();
+            try {
+                const response = await fetch('/api/stats/reset-session', { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to reset');
+
+                // Refresh stats
+                const statsResp = await fetch('/api/stats');
+                const stats = await statsResp.json();
+                updateStats(stats);
+
+                // Close dropdown
+                document.getElementById('stat-saved-wrapper').classList.remove('open');
+            } catch (err) {
+                console.error('Reset session failed:', err);
+            }
         }
 
         // Debounced refresh to avoid UI thrashing when many jobs are added

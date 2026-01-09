@@ -1,10 +1,7 @@
 package jobs
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,126 +9,109 @@ import (
 	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
+// Store defines the persistence interface for job data.
+// This interface is implemented by internal/store.SQLiteStore.
+type Store interface {
+	SaveJob(job *Job) error
+	GetJob(id string) (*Job, error)
+	DeleteJob(id string) error
+	SaveJobs(jobs []*Job) error
+	GetAllJobs() ([]*Job, []string, error)
+	GetJobsByStatus(status Status) ([]*Job, error)
+	GetNextPendingJob() (*Job, error)
+	AppendToOrder(id string) error
+	RemoveFromOrder(id string) error
+	ResetRunningJobs() (int, error)
+	AddToLifetimeSaved(bytes int64) error
+	Close() error
+}
+
+// StoreWithStats extends Store with session/lifetime stats support.
+// Stores that implement this interface can provide accurate session/lifetime stats.
+type StoreWithStats interface {
+	Store
+	SessionLifetimeStats() (sessionSaved, lifetimeSaved int64, err error)
+}
+
 // Queue manages the job queue with persistence
 type Queue struct {
-	mu       sync.RWMutex
-	jobs     map[string]*Job
-	order    []string // Job IDs in order of creation
-	filePath string   // Path to persistence file
+	mu    sync.RWMutex
+	jobs  map[string]*Job
+	order []string // Job IDs in order of creation
+	store Store    // Persistence store (nil = in-memory only)
 
 	// Subscribers for job events
 	subsMu      sync.RWMutex
 	subscribers map[chan JobEvent]struct{}
 }
 
-// NewQueue creates a new job queue, optionally loading from a persistence file
-func NewQueue(filePath string) (*Queue, error) {
+// NewQueue creates a new in-memory job queue (for testing).
+// Use NewQueueWithStore for production use with persistence.
+func NewQueue() *Queue {
+	return &Queue{
+		jobs:        make(map[string]*Job),
+		order:       make([]string, 0),
+		subscribers: make(map[chan JobEvent]struct{}),
+	}
+}
+
+// NewQueueWithStore creates a job queue backed by a persistent store.
+// The store should already be initialized and have running jobs reset.
+func NewQueueWithStore(store Store) (*Queue, error) {
 	q := &Queue{
 		jobs:        make(map[string]*Job),
 		order:       make([]string, 0),
-		filePath:    filePath,
+		store:       store,
 		subscribers: make(map[chan JobEvent]struct{}),
 	}
 
-	// Try to load existing queue
-	if filePath != "" {
-		if err := q.load(); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to load queue: %w", err)
+	// Load existing jobs from store into memory cache
+	if store != nil {
+		jobs, order, err := store.GetAllJobs()
+		if err != nil {
+			return nil, fmt.Errorf("load jobs from store: %w", err)
 		}
+
+		for _, job := range jobs {
+			q.jobs[job.ID] = job
+		}
+		q.order = order
 	}
 
 	return q, nil
 }
 
-// persistenceData is the structure saved to disk
-type persistenceData struct {
-	Jobs  []*Job `json:"jobs"`
-	Order []string `json:"order"`
+// persist saves a job to the store (if configured).
+// Called with lock held.
+func (q *Queue) persist(job *Job) {
+	if q.store == nil {
+		return
+	}
+	if err := q.store.SaveJob(job); err != nil {
+		logger.Warn("Failed to persist job", "job_id", job.ID, "error", err)
+	}
 }
 
-// load reads the queue from disk
-func (q *Queue) load() error {
-	if q.filePath == "" {
-		return nil
+// persistOrder adds a job ID to the store's order (if configured).
+// Called with lock held.
+func (q *Queue) persistOrder(id string) {
+	if q.store == nil {
+		return
 	}
-
-	data, err := os.ReadFile(q.filePath)
-	if err != nil {
-		return err
+	if err := q.store.AppendToOrder(id); err != nil {
+		logger.Warn("Failed to persist job order", "job_id", id, "error", err)
 	}
-
-	var pd persistenceData
-	if err := json.Unmarshal(data, &pd); err != nil {
-		return err
-	}
-
-	q.jobs = make(map[string]*Job)
-	for _, job := range pd.Jobs {
-		q.jobs[job.ID] = job
-	}
-	q.order = pd.Order
-
-	// Reset any running jobs to pending (they were interrupted)
-	resetCount := 0
-	for _, job := range q.jobs {
-		if job.Status == StatusRunning {
-			job.Status = StatusPending
-			job.Progress = 0
-			job.Speed = 0
-			job.ETA = ""
-			resetCount++
-		}
-	}
-
-	// Persist the reset state immediately so it survives another restart
-	if resetCount > 0 {
-		if err := q.save(); err != nil {
-			logger.Warn("Failed to persist reset jobs", "error", err)
-		} else {
-			logger.Info("Reset interrupted jobs to pending", "count", resetCount)
-		}
-	}
-
-	return nil
 }
 
-// save writes the queue to disk
-func (q *Queue) save() error {
-	if q.filePath == "" {
-		return nil
+// persistDelete removes a job from the store (if configured).
+// Called with lock held.
+func (q *Queue) persistDelete(id string) {
+	if q.store == nil {
+		return
 	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(q.filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	if err := q.store.DeleteJob(id); err != nil {
+		logger.Warn("Failed to delete job from store", "job_id", id, "error", err)
 	}
-
-	// Build ordered job list
-	jobs := make([]*Job, 0, len(q.jobs))
-	for _, id := range q.order {
-		if job, ok := q.jobs[id]; ok {
-			jobs = append(jobs, job)
-		}
-	}
-
-	pd := persistenceData{
-		Jobs:  jobs,
-		Order: q.order,
-	}
-
-	data, err := json.MarshalIndent(pd, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	// Write to temp file first, then rename (atomic)
-	tmpPath := q.filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return err
-	}
-
-	return os.Rename(tmpPath, q.filePath)
 }
 
 // Add adds a new job to the queue
@@ -179,10 +159,9 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	q.jobs[job.ID] = job
 	q.order = append(q.order, job.ID)
 
-	if err := q.save(); err != nil {
-		// Log error but don't fail - queue still works in memory
-		logger.Warn("Failed to persist queue", "error", err)
-	}
+	// Persist to store
+	q.persist(job)
+	q.persistOrder(job.ID)
 
 	// Broadcast appropriate event based on status
 	if skipReason != "" {
@@ -208,7 +187,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		isHardware = preset.Encoder != ffmpeg.HWAccelNone
 	}
 
-	jobs := make([]*Job, 0, len(probes))
+	jobList := make([]*Job, 0, len(probes))
 	addedCount := 0
 	failedCount := 0
 
@@ -246,12 +225,18 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 
 		q.jobs[job.ID] = job
 		q.order = append(q.order, job.ID)
-		jobs = append(jobs, job)
+		jobList = append(jobList, job)
 	}
 
-	// Save once after all jobs are added
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
+	// Batch persist to store
+	if q.store != nil && len(jobList) > 0 {
+		if err := q.store.SaveJobs(jobList); err != nil {
+			logger.Warn("Failed to persist jobs batch", "error", err)
+		}
+		// Add all to order
+		for _, job := range jobList {
+			q.persistOrder(job.ID)
+		}
 	}
 
 	// Broadcast single batch event (frontend will refresh once)
@@ -259,7 +244,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		q.broadcast(JobEvent{Type: "jobs_added", Count: addedCount + failedCount})
 	}
 
-	return jobs, nil
+	return jobList, nil
 }
 
 // Get returns a job by ID
@@ -314,10 +299,7 @@ func (q *Queue) StartJob(id string, tempPath string) error {
 	job.TempPath = tempPath
 	job.StartedAt = time.Now()
 
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
-	}
-
+	q.persist(job)
 	q.broadcast(JobEvent{Type: "started", Job: job})
 
 	return nil
@@ -362,8 +344,13 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 	job.TranscodeTime = int64(job.CompletedAt.Sub(job.StartedAt).Seconds())
 	job.TempPath = "" // Clear temp path
 
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
+	q.persist(job)
+
+	// Update session/lifetime saved counters
+	if q.store != nil && job.SpaceSaved > 0 {
+		if err := q.store.AddToLifetimeSaved(job.SpaceSaved); err != nil {
+			logger.Warn("Failed to update saved stats", "error", err)
+		}
 	}
 
 	q.broadcast(JobEvent{Type: "complete", Job: job})
@@ -386,10 +373,7 @@ func (q *Queue) FailJob(id string, errMsg string) error {
 	job.CompletedAt = time.Now()
 	job.TempPath = "" // Clear temp path
 
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
-	}
-
+	q.persist(job)
 	q.broadcast(JobEvent{Type: "failed", Job: job})
 
 	return nil
@@ -412,10 +396,7 @@ func (q *Queue) CancelJob(id string) error {
 	job.Status = StatusCancelled
 	job.CompletedAt = time.Now()
 
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
-	}
-
+	q.persist(job)
 	q.broadcast(JobEvent{Type: "cancelled", Job: job})
 
 	return nil
@@ -438,15 +419,12 @@ func (q *Queue) Clear() int {
 			// Keep only running jobs
 			newOrder = append(newOrder, id)
 		} else {
+			q.persistDelete(id)
 			delete(q.jobs, id)
 			count++
 		}
 	}
 	q.order = newOrder
-
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
-	}
 
 	return count
 }
@@ -456,6 +434,7 @@ func (q *Queue) Remove(id string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	q.persistDelete(id)
 	delete(q.jobs, id)
 
 	// Remove from order slice
@@ -466,10 +445,6 @@ func (q *Queue) Remove(id string) {
 		}
 	}
 	q.order = newOrder
-
-	if err := q.save(); err != nil {
-		logger.Warn("Failed to persist queue", "error", err)
-	}
 }
 
 // Subscribe returns a channel that receives job events
@@ -517,13 +492,15 @@ func (q *Queue) BroadcastProgress(probed, total int) {
 
 // Stats returns queue statistics
 type Stats struct {
-	Pending   int   `json:"pending"`
-	Running   int   `json:"running"`
-	Complete  int   `json:"complete"`
-	Failed    int   `json:"failed"`
-	Cancelled int   `json:"cancelled"`
-	Total     int   `json:"total"`
-	TotalSaved int64 `json:"total_saved"` // Total bytes saved by completed jobs
+	Pending       int   `json:"pending"`
+	Running       int   `json:"running"`
+	Complete      int   `json:"complete"`
+	Failed        int   `json:"failed"`
+	Cancelled     int   `json:"cancelled"`
+	Total         int   `json:"total"`
+	TotalSaved    int64 `json:"total_saved"`    // For API compatibility (= session_saved)
+	SessionSaved  int64 `json:"session_saved"`  // Bytes saved this session
+	LifetimeSaved int64 `json:"lifetime_saved"` // All-time bytes saved
 }
 
 func (q *Queue) Stats() Stats {
@@ -547,6 +524,17 @@ func (q *Queue) Stats() Stats {
 			stats.Cancelled++
 		}
 	}
+
+	// Get session/lifetime stats from store if available
+	if sws, ok := q.store.(StoreWithStats); ok {
+		sessionSaved, lifetimeSaved, err := sws.SessionLifetimeStats()
+		if err == nil {
+			stats.SessionSaved = sessionSaved
+			stats.LifetimeSaved = lifetimeSaved
+			stats.TotalSaved = sessionSaved // Header shows session saved
+		}
+	}
+
 	return stats
 }
 

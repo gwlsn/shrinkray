@@ -17,6 +17,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
+	"github.com/gwlsn/shrinkray/internal/store"
 )
 
 func main() {
@@ -76,19 +77,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up queue file path
-	if cfg.QueueFile == "" {
-		configDir := filepath.Dir(cfgPath)
-		if configDir == "." {
-			configDir = "config"
-		}
-		cfg.QueueFile = filepath.Join(configDir, "queue.json")
+	// Determine config directory for data storage
+	configDir := filepath.Dir(cfgPath)
+	if configDir == "." {
+		configDir = "config"
 	}
 
 	// Ensure config directory exists
-	if err := os.MkdirAll(filepath.Dir(cfg.QueueFile), 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		logger.Warn("Could not create config directory", "error", err)
 	}
+
+	// Initialize SQLite store (handles migration from JSON if needed)
+	jobStore, err := store.InitStore(configDir)
+	if err != nil {
+		logger.Error("Failed to initialize job store", "error", err)
+		os.Exit(1)
+	}
+	defer jobStore.Close()
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║                      🔬 SHRINKRAY                         ║")
@@ -97,7 +103,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("  Media path:   %s\n", cfg.MediaPath)
 	fmt.Printf("  Config:       %s\n", cfgPath)
-	fmt.Printf("  Queue file:   %s\n", cfg.QueueFile)
+	fmt.Printf("  Database:     %s\n", jobStore.Path())
 	if cfg.TempPath != "" {
 		fmt.Printf("  Temp path:    %s\n", cfg.TempPath)
 	} else {
@@ -131,16 +137,18 @@ func main() {
 	prober := ffmpeg.NewProber(cfg.FFprobePath)
 	browser := browse.NewBrowser(prober, cfg.MediaPath)
 
-	queue, err := jobs.NewQueue(cfg.QueueFile)
+	queue, err := jobs.NewQueueWithStore(jobStore)
 	if err != nil {
 		logger.Error("Failed to initialize job queue", "error", err)
-		os.Exit(1)
+		jobStore.Close()
+		os.Exit(1) //nolint:gocritic // store closed explicitly above
 	}
 
 	workerPool := jobs.NewWorkerPool(queue, cfg, browser.InvalidateCache)
 
 	// Create API handler
 	handler := api.NewHandler(browser, queue, workerPool, cfg, cfgPath)
+	handler.SetStore(jobStore) // Enable session/lifetime stats
 	router := api.NewRouter(handler, shrinkray.WebFS)
 
 	// Start worker pool
