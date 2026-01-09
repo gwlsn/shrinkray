@@ -1482,6 +1482,15 @@
                     </div>
                     <div class="setting-item">
                         <div class="setting-info">
+                            <div class="setting-name">Rename codec tag</div>
+                            <div class="setting-desc">Update codec tag in output filenames</div>
+                        </div>
+                        <div class="setting-control">
+                            <input type="checkbox" id="setting-rename-h264" onchange="updateSetting('rename_h264_to_h265', this.checked)">
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
                             <div class="setting-name">Concurrent jobs</div>
                             <div class="setting-desc">Simultaneous transcode tasks</div>
                         </div>
@@ -2296,6 +2305,7 @@
                 }
 
                 document.getElementById('setting-original-handling').value = config.original_handling || 'replace';
+                document.getElementById('setting-rename-h264').checked = config.rename_h264_to_h265 || false;
                 document.getElementById('setting-workers').value = config.workers || 1;
 
                 // Pushover settings

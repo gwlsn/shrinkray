@@ -419,7 +419,7 @@ func (w *Worker) processJob(job *Job) {
 
 	// Finalize the transcode (handle original file)
 	replace := w.cfg.OriginalHandling == "replace"
-	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, replace)
+	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, replace, w.cfg.RenameH264ToH265, preset.Codec)
 	if err != nil {
 		// Try to clean up
 		os.Remove(tempPath)

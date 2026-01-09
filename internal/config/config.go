@@ -47,6 +47,9 @@ type Config struct {
 	// QualityAV1 is the CRF value for AV1 encoding (lower = higher quality, default 35)
 	QualityAV1 int `yaml:"quality_av1"`
 
+	// RenameH264ToH265 updates codec tags in the output filename to match the target codec
+	RenameH264ToH265 bool `yaml:"rename_h264_to_h265"`
+
 	// ScheduleEnabled enables time-based scheduling for transcoding
 	ScheduleEnabled bool `yaml:"schedule_enabled"`
 
@@ -76,6 +79,7 @@ func DefaultConfig() *Config {
 		QueueFile:         "/config/queue.json",
 		QualityHEVC:       0, // 0 = use encoder-specific default
 		QualityAV1:        0, // 0 = use encoder-specific default
+		RenameH264ToH265:  false,
 		ScheduleEnabled:   false,
 		ScheduleStartHour: 22, // 10 PM
 		ScheduleEndHour:   6,  // 6 AM

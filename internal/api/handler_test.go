@@ -196,6 +196,9 @@ func TestConfigEndpoint(t *testing.T) {
 	if cfg["original_handling"] != "replace" {
 		t.Errorf("expected original_handling 'replace', got %v", cfg["original_handling"])
 	}
+	if cfg["rename_h264_to_h265"] != false {
+		t.Errorf("expected rename_h264_to_h265 false, got %v", cfg["rename_h264_to_h265"])
+	}
 
 	t.Logf("Config: %v", cfg)
 }
@@ -205,8 +208,10 @@ func TestUpdateConfigEndpoint(t *testing.T) {
 
 	// Update config
 	keepVal := "keep"
+	renameVal := true
 	reqBody := UpdateConfigRequest{
 		OriginalHandling: &keepVal,
+		RenameH264ToH265: &renameVal,
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -231,6 +236,9 @@ func TestUpdateConfigEndpoint(t *testing.T) {
 
 	if cfg["original_handling"] != "keep" {
 		t.Errorf("expected original_handling 'keep', got %v", cfg["original_handling"])
+	}
+	if cfg["rename_h264_to_h265"] != true {
+		t.Errorf("expected rename_h264_to_h265 true, got %v", cfg["rename_h264_to_h265"])
 	}
 }
 
@@ -295,4 +303,3 @@ func TestJobStreamEndpoint(t *testing.T) {
 
 	t.Logf("SSE response: %s", w.Body.String()[:min(200, len(w.Body.String()))])
 }
-
