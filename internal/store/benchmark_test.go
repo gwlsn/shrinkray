@@ -335,14 +335,6 @@ func BenchmarkConcurrentWrites(b *testing.B) {
 	})
 }
 
-// raceEnabled is set to true when running with -race flag
-// (detected by checking if sync/atomic operations are slower than expected)
-var raceEnabled = func() bool {
-	// Simple heuristic: race detector makes things ~10x slower
-	// We can't directly detect it, so we just skip in tests via t.Short()
-	return false
-}()
-
 // Test that verifies thresholds from the plan
 func TestPerformanceThresholds(t *testing.T) {
 	if testing.Short() {

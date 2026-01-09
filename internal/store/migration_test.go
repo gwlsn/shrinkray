@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -284,7 +285,7 @@ func TestMigration_BackupCreated(t *testing.T) {
 
 	// Backup should have same content
 	backupContent, _ := os.ReadFile(backupPath)
-	if string(backupContent) != string(jsonBytes) {
+	if !bytes.Equal(backupContent, jsonBytes) {
 		t.Error("backup content doesn't match original")
 	}
 }

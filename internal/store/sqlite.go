@@ -176,7 +176,7 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO jobs (

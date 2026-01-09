@@ -140,6 +140,7 @@ func main() {
 	queue, err := jobs.NewQueueWithStore(jobStore)
 	if err != nil {
 		logger.Error("Failed to initialize job queue", "error", err)
+		jobStore.Close()
 		os.Exit(1)
 	}
 
