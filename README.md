@@ -118,19 +118,6 @@ Shrinkray automatically detects and uses the best available hardware encoder. No
 **Intel / AMD:**
 1. Add to container Extra Parameters: `--device /dev/dri:/dev/dri`
 
-### Permissions for Hardware Acceleration (Non-Unraid)
-
-Hardware encoders require access to `/dev/dri` devices. For the container to access these on non-Unraid systems:
-
-1. Set `PUID` and `PGID` to a user that has access to your GPU devices
-2. Check your host's video/render group: `ls -la /dev/dri`
-3. Find your user's groups: `id`
-
-**Common configurations:**
-- Most Linux systems: `PUID=1000`, `PGID=1000` (default user)
-- Some systems may need the `render` group GID instead of `video`
-- If QSV/VAAPI still fails, try `PUID=0` (root) to diagnose permissions
-
 ### AV1 Hardware Requirements
 
 AV1 hardware encoding requires newer GPUs:
