@@ -70,6 +70,7 @@ func NewTranscoder(ffmpegPath string) *Transcoder {
 // qualityHEVC/qualityAV1 are CRF values to use (0 = use preset defaults)
 // totalFrames is the expected total frame count (for progress fallback when time-based stats unavailable)
 // softwareDecode: if true, use software decode with hardware encode (fallback for hw decode failures)
+// outputFormat: "mkv" or "mp4" - affects audio/subtitle handling
 func (t *Transcoder) Transcode(
 	ctx context.Context,
 	inputPath string,
@@ -82,6 +83,7 @@ func (t *Transcoder) Transcode(
 	totalFrames int64,
 	progressCh chan<- Progress,
 	softwareDecode bool,
+	outputFormat string,
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
 
@@ -94,7 +96,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode, outputFormat)
 
 	// Build ffmpeg command
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output
@@ -263,11 +265,16 @@ func (t *Transcoder) Transcode(
 }
 
 // BuildTempPath generates a temporary output path for transcoding
-func BuildTempPath(inputPath, tempDir string) string {
+// format should be "mkv" or "mp4"
+func BuildTempPath(inputPath, tempDir, format string) string {
 	base := filepath.Base(inputPath)
 	ext := filepath.Ext(base)
 	name := strings.TrimSuffix(base, ext)
-	tempName := fmt.Sprintf("%s.shrinkray.tmp.mkv", name)
+	outExt := "mkv"
+	if format == "mp4" {
+		outExt = "mp4"
+	}
+	tempName := fmt.Sprintf("%s.shrinkray.tmp.%s", name, outExt)
 	return filepath.Join(tempDir, tempName)
 }
 
@@ -297,12 +304,17 @@ func copyFile(src, dst string) error {
 // If replace=true, deletes original and copies temp to final location
 // If replace=false (keep), renames original to .old and copies temp to final location
 // Uses copy-then-delete instead of rename to support cross-filesystem moves.
-func FinalizeTranscode(inputPath, tempPath string, replace bool) (finalPath string, err error) {
+// format should be "mkv" or "mp4"
+func FinalizeTranscode(inputPath, tempPath, format string, replace bool) (finalPath string, err error) {
 	dir := filepath.Dir(inputPath)
 	base := filepath.Base(inputPath)
 	ext := filepath.Ext(base)
 	name := strings.TrimSuffix(base, ext)
-	finalPath = filepath.Join(dir, name+".mkv")
+	outExt := ".mkv"
+	if format == "mp4" {
+		outExt = ".mp4"
+	}
+	finalPath = filepath.Join(dir, name+outExt)
 
 	// Capture original modification time to preserve it on the output file
 	inputInfo, err := os.Stat(inputPath)

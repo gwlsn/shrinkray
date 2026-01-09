@@ -18,7 +18,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false, "mkv")
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -59,7 +59,7 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 		Codec:   CodecAV1,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false, "mkv")
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -92,7 +92,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, 0, 0, 0, 0, false)
+	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, 0, 0, 0, 0, false, "mkv")
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -113,7 +113,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, 0, 0, 0, 0, false)
+	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, 0, 0, 0, 0, false, "mkv")
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -136,7 +136,7 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, 0, 0, 0, 0, false)
+	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, 0, 0, 0, 0, false, "mkv")
 
 	// Software encoder should have no hwaccel input args
 	if len(inputArgs) != 0 {
@@ -177,7 +177,7 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetVT, 0, 0, 0, 0, 0, false)
+	inputArgs, outputArgs := BuildPresetArgs(presetVT, 0, 0, 0, 0, 0, false, "mkv")
 
 	// Should still have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -243,7 +243,7 @@ func TestQSVPresetFilterChain(t *testing.T) {
 				Codec:   tt.codec,
 			}
 
-			_, outputArgs := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false)
+			_, outputArgs := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false, "mkv")
 
 			// Find -vf argument
 			for i, arg := range outputArgs {
@@ -273,10 +273,10 @@ func TestBuildPresetArgsSoftwareDecode(t *testing.T) {
 	}
 
 	// Hardware decode (softwareDecode=false)
-	inputArgsHW, _ := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false)
+	inputArgsHW, _ := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false, "mkv")
 
 	// Software decode (softwareDecode=true)
-	inputArgsSW, outputArgsSW := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, true)
+	inputArgsSW, outputArgsSW := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, true, "mkv")
 
 	// Hardware decode should have -hwaccel
 	hasHwaccelHW := false

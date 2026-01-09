@@ -291,6 +291,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"schedule_enabled":      h.cfg.ScheduleEnabled,
 		"schedule_start_hour":   h.cfg.ScheduleStartHour,
 		"schedule_end_hour":     h.cfg.ScheduleEndHour,
+		"output_format":         h.cfg.OutputFormat,
 	})
 }
 
@@ -306,6 +307,7 @@ type UpdateConfigRequest struct {
 	ScheduleEnabled   *bool   `json:"schedule_enabled,omitempty"`
 	ScheduleStartHour *int    `json:"schedule_start_hour,omitempty"`
 	ScheduleEndHour   *int    `json:"schedule_end_hour,omitempty"`
+	OutputFormat      *string `json:"output_format,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -380,6 +382,15 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.ScheduleEndHour = *req.ScheduleEndHour
+	}
+
+	// Handle output format
+	if req.OutputFormat != nil {
+		if *req.OutputFormat != "mkv" && *req.OutputFormat != "mp4" {
+			writeError(w, http.StatusBadRequest, "output_format must be 'mkv' or 'mp4'")
+			return
+		}
+		h.cfg.OutputFormat = *req.OutputFormat
 	}
 
 	// Persist config to disk

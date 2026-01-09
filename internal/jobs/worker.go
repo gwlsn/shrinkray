@@ -315,7 +315,7 @@ func (w *Worker) processJob(job *Job) {
 
 	// Build temp output path
 	tempDir := w.cfg.GetTempDir(job.InputPath)
-	tempPath := ffmpeg.BuildTempPath(job.InputPath, tempDir)
+	tempPath := ffmpeg.BuildTempPath(job.InputPath, tempDir, w.cfg.OutputFormat)
 
 	// Mark job as started (first worker to call this wins)
 	if err := w.queue.StartJob(job.ID, tempPath); err != nil {
@@ -340,7 +340,7 @@ func (w *Worker) processJob(job *Job) {
 	duration := time.Duration(job.Duration) * time.Millisecond
 	// Calculate total frames for frame-based progress fallback (VAAPI reports N/A for time)
 	totalFrames := int64(float64(job.Duration) / 1000.0 * job.FrameRate)
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, progressCh, false)
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, progressCh, false, w.cfg.OutputFormat)
 
 	if err != nil {
 		// Check if it was cancelled
@@ -372,7 +372,7 @@ func (w *Worker) processJob(job *Job) {
 			}()
 
 			// Retry with software decode
-			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, retryProgressCh, true)
+			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, retryProgressCh, true, w.cfg.OutputFormat)
 
 			if err != nil {
 				// Check if cancelled during retry
@@ -419,7 +419,7 @@ func (w *Worker) processJob(job *Job) {
 
 	// Finalize the transcode (handle original file)
 	replace := w.cfg.OriginalHandling == "replace"
-	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, replace)
+	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, w.cfg.OutputFormat, replace)
 	if err != nil {
 		// Try to clean up
 		os.Remove(tempPath)
