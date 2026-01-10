@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.2] - 2026-01-09
+
+### Fixed
+- **iOS Safari bottom bar no longer clips UI**
+  - Added `viewport-fit=cover` and `100dvh` viewport height for proper safe area handling
+  - Fixes "Clear Queue" button being hidden behind Safari's redesigned bottom navigation in iOS 26
+
 ## [1.6.1] - 2026-01-09
 
 ### Fixed
