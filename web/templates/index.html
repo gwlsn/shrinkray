@@ -2154,7 +2154,7 @@
             }
 
             return `
-                <div class="job-item">
+                <div class="job-item" data-job-id="${job.id}">
                     <div class="job-header">
                         <span class="job-name" title="${job.input_path}">${filename}</span>
                         <div class="job-badges">
@@ -2185,6 +2185,90 @@
             `;
         }
 
+        // Incremental DOM update functions (avoid full rebuilds)
+        function updateJobProgress(jobId, progress, speed, eta) {
+            const el = document.querySelector(`.job-item[data-job-id="${jobId}"]`);
+            if (!el) return;
+
+            // Update progress bar
+            const progressFill = el.querySelector('.progress-fill');
+            if (progressFill) {
+                progressFill.style.width = progress + '%';
+                progressFill.classList.remove('initializing');
+            }
+
+            // Update text values - find the job-details container
+            const detailsEl = el.querySelector('.job-details');
+            if (detailsEl) {
+                detailsEl.innerHTML = `
+                    <span class="job-detail"><span class="job-detail-value">${progress.toFixed(1)}%</span></span>
+                    <span class="job-detail"><span class="job-detail-value">${speed.toFixed(2)}x</span></span>
+                    <span class="job-detail">ETA: <span class="job-detail-value">${eta || '...'}</span></span>
+                `;
+            }
+
+            // Update in allSortedJobs array for consistency
+            const job = allSortedJobs.find(j => j.id === jobId);
+            if (job) {
+                job.progress = progress;
+                job.speed = speed;
+                job.eta = eta;
+            }
+        }
+
+        function updateJobStatus(updatedJob) {
+            // Update in allSortedJobs
+            const idx = allSortedJobs.findIndex(j => j.id === updatedJob.id);
+            if (idx !== -1) {
+                allSortedJobs[idx] = updatedJob;
+            } else {
+                // Job not in our list yet, add it
+                allSortedJobs.push(updatedJob);
+            }
+
+            // Find existing element
+            const el = document.querySelector(`.job-item[data-job-id="${updatedJob.id}"]`);
+            if (!el) return;
+
+            // Replace with new HTML (status changed, need new markup)
+            const temp = document.createElement('div');
+            temp.innerHTML = renderJobHTML(updatedJob);
+            el.replaceWith(temp.firstElementChild);
+        }
+
+        function addJobToList(job) {
+            // Check if job already exists
+            if (allSortedJobs.find(j => j.id === job.id)) return;
+
+            allSortedJobs.push(job);
+            // Re-sort
+            const statusOrder = { running: 0, pending: 1, failed: 2, complete: 3, cancelled: 4 };
+            allSortedJobs.sort((a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5));
+
+            // Remove empty state if present
+            const container = document.getElementById('queue-list');
+            const emptyState = container.querySelector('.queue-empty');
+            if (emptyState) emptyState.remove();
+
+            // Find insertion point and insert
+            const newIdx = allSortedJobs.findIndex(j => j.id === job.id);
+            const temp = document.createElement('div');
+            temp.innerHTML = renderJobHTML(job);
+
+            if (newIdx === 0 || container.children.length === 0) {
+                container.prepend(temp.firstElementChild);
+            } else {
+                const prevJob = allSortedJobs[newIdx - 1];
+                const prevEl = container.querySelector(`.job-item[data-job-id="${prevJob.id}"]`);
+                if (prevEl) {
+                    prevEl.after(temp.firstElementChild);
+                } else {
+                    container.appendChild(temp.firstElementChild);
+                }
+            }
+            displayedJobCount++;
+        }
+
         // Infinite scroll state
         const JOBS_PER_PAGE = 50;
         let allSortedJobs = [];
@@ -2192,6 +2276,9 @@
 
         function updateJobs(jobs) {
             const container = document.getElementById('queue-list');
+
+            // Save scroll position before DOM rebuild
+            const savedScrollTop = container.scrollTop;
 
             if (!jobs || jobs.length === 0) {
                 allSortedJobs = [];
@@ -2227,6 +2314,11 @@
             displayedJobCount = 0;
             container.innerHTML = '';
             loadMoreJobs();
+
+            // Restore scroll position after DOM rebuild
+            requestAnimationFrame(() => {
+                container.scrollTop = Math.min(savedScrollTop, container.scrollHeight - container.clientHeight);
+            });
 
             // Sync Stop/Resume button state
             const hasRunningJobs = jobs.some(j => j.status === 'running');
@@ -2335,6 +2427,7 @@
         // Debounced refresh to avoid UI thrashing when many jobs are added
         let refreshTimeout = null;
         let browseTimeout = null;
+        let statsTimeout = null;
         function scheduleRefresh() {
             if (!refreshTimeout) {
                 refreshTimeout = setTimeout(() => {
@@ -2351,6 +2444,20 @@
                 }, 500);
             }
         }
+        function scheduleStatsRefresh() {
+            if (!statsTimeout) {
+                statsTimeout = setTimeout(async () => {
+                    statsTimeout = null;
+                    try {
+                        const resp = await fetch('/api/stats');
+                        const stats = await resp.json();
+                        updateStats(stats);
+                    } catch (err) {
+                        console.error('Stats refresh error:', err);
+                    }
+                }, 200);
+            }
+        }
 
         function connectSSE() {
             if (eventSource) eventSource.close();
@@ -2362,6 +2469,26 @@
                 if (data.type === 'init') {
                     updateJobs(data.jobs);
                     updateStats(data.stats);
+                } else if (data.type === 'progress') {
+                    // Incremental: update just progress bar (no DOM rebuild)
+                    updateJobProgress(data.job.id, data.job.progress, data.job.speed, data.job.eta);
+                } else if (data.type === 'started' || data.type === 'complete' ||
+                           data.type === 'failed' || data.type === 'cancelled' ||
+                           data.type === 'requeued') {
+                    // Status change: update that specific job element
+                    updateJobStatus(data.job);
+                    scheduleStatsRefresh();
+                    if (data.type === 'complete' || data.type === 'failed') {
+                        scheduleBrowseRefresh();
+                    }
+                } else if (data.type === 'added') {
+                    // Single job added
+                    addJobToList(data.job);
+                    scheduleStatsRefresh();
+                } else if (data.type === 'jobs_added') {
+                    // Batch of jobs finished processing, hide banner and full refresh
+                    document.getElementById('processing-banner').classList.add('hidden');
+                    scheduleRefresh();
                 } else if (data.type === 'notify_sent') {
                     // Notification was sent, uncheck the checkbox
                     document.getElementById('notify-checkbox').checked = false;
@@ -2371,16 +2498,8 @@
                     banner.classList.remove('hidden');
                     document.getElementById('processing-text').textContent =
                         `Processing file ${data.probed}/${data.total}...`;
-                } else if (data.type === 'jobs_added') {
-                    // Batch of jobs finished processing, hide banner and refresh
-                    document.getElementById('processing-banner').classList.add('hidden');
-                    scheduleRefresh();
-                } else {
-                    scheduleRefresh();
-                    if (data.type === 'complete' || data.type === 'failed') {
-                        scheduleBrowseRefresh();
-                    }
                 }
+                // No catch-all scheduleRefresh() - only refresh when truly needed
             };
 
             eventSource.onerror = () => {
