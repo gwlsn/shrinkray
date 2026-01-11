@@ -106,7 +106,8 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 	}
 
 	// Parse stream-level metadata
-	for _, stream := range probeOutput.Streams {
+	for i := range probeOutput.Streams {
+		stream := &probeOutput.Streams[i]
 		switch stream.CodecType {
 		case "video":
 			if result.VideoCodec == "" { // Take first video stream
