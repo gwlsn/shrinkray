@@ -2045,6 +2045,7 @@
                     const data = await resp.json();
                     alert(data.error || 'Failed to retry job');
                 }
+                // Job removal handled via SSE 'removed' event
             } catch (err) {
                 console.error('Retry error:', err);
             }
@@ -2739,6 +2740,18 @@
                     banner.classList.remove('hidden');
                     document.getElementById('processing-text').textContent =
                         `Processing file ${data.probed}/${data.total}...`;
+                } else if (data.type === 'removed') {
+                    // Job was removed (e.g., during retry)
+                    const idx = allSortedJobs.findIndex(j => j.id === data.job.id);
+                    if (idx !== -1) {
+                        allSortedJobs.splice(idx, 1);
+                    }
+                    const el = document.querySelector(`.job-item[data-job-id="${data.job.id}"]`);
+                    if (el) {
+                        el.remove();
+                        displayedJobCount--;
+                    }
+                    scheduleStatsRefresh();
                 }
                 // No catch-all scheduleRefresh() - only refresh when truly needed
             };

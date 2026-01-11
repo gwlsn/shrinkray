@@ -498,6 +498,9 @@ func (q *Queue) Remove(id string) {
 		}
 	}
 	q.order = newOrder
+
+	// Broadcast removal event
+	q.broadcast(JobEvent{Type: "removed", Job: &Job{ID: id}})
 }
 
 // Subscribe returns a channel that receives job events
