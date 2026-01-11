@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 const schema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS jobs (
 	width INTEGER,
 	height INTEGER,
 	frame_rate REAL,
+	video_codec TEXT,
+	profile TEXT,
+	bit_depth INTEGER,
 	transcode_secs INTEGER,
 	created_at TEXT NOT NULL,
 	started_at TEXT,
@@ -146,6 +149,24 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 				return nil, fmt.Errorf("init stats metadata: %w", err)
 			}
 		}
+		if version < 3 {
+			// Migrate v2 -> v3: add video_codec, profile, bit_depth columns
+			_, err = db.Exec(`ALTER TABLE jobs ADD COLUMN video_codec TEXT`)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("add video_codec column: %w", err)
+			}
+			_, err = db.Exec(`ALTER TABLE jobs ADD COLUMN profile TEXT`)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("add profile column: %w", err)
+			}
+			_, err = db.Exec(`ALTER TABLE jobs ADD COLUMN bit_depth INTEGER`)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("add bit_depth column: %w", err)
+			}
+		}
 		// Update version
 		_, err = db.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion)
 		if err != nil {
@@ -170,16 +191,17 @@ func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
 		INSERT OR REPLACE INTO jobs (
 			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, transcode_secs,
-			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+			transcode_secs, created_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
 		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
 		string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
 		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
 		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-		nullFloat64(job.FrameRate), nullInt64(job.TranscodeTime),
+		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
+		nullInt64(job.TranscodeTime),
 		formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
 	)
 	return err
@@ -197,8 +219,8 @@ func (s *SQLiteStore) getJobLocked(id string) (*jobs.Job, error) {
 	row := s.db.QueryRow(`
 		SELECT id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, transcode_secs,
-			created_at, started_at, completed_at
+			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+			transcode_secs, created_at, started_at, completed_at
 		FROM jobs WHERE id = ?
 	`, id)
 
@@ -230,9 +252,9 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 		INSERT OR REPLACE INTO jobs (
 			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, transcode_secs,
-			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+			transcode_secs, created_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -246,7 +268,8 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 			string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
 			job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
 			nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-			nullFloat64(job.FrameRate), nullInt64(job.TranscodeTime),
+			nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
+			nullInt64(job.TranscodeTime),
 			formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
 		)
 		if err != nil {
@@ -266,8 +289,8 @@ func (s *SQLiteStore) GetAllJobs() ([]*jobs.Job, []string, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.transcode_secs,
-			j.created_at, j.started_at, j.completed_at
+			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
+			j.transcode_secs, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		ORDER BY o.position ASC, j.created_at ASC
@@ -300,8 +323,8 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	rows, err := s.db.Query(`
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.transcode_secs,
-			j.created_at, j.started_at, j.completed_at
+			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
+			j.transcode_secs, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = ?
@@ -332,8 +355,8 @@ func (s *SQLiteStore) GetNextPendingJob() (*jobs.Job, error) {
 	row := s.db.QueryRow(`
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.transcode_secs,
-			j.created_at, j.started_at, j.completed_at
+			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
+			j.transcode_secs, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = 'pending'
@@ -526,8 +549,9 @@ type rowScanner interface {
 func scanJob(row rowScanner) (*jobs.Job, error) {
 	var job jobs.Job
 	var outputPath, tempPath, eta, errStr sql.NullString
+	var videoCodec, profile sql.NullString
 	var outputSize, spaceSaved, duration, bitrate, transcodeTime sql.NullInt64
-	var width, height sql.NullInt64
+	var width, height, bitDepth sql.NullInt64
 	var frameRate sql.NullFloat64
 	var isHardware int
 	var status string
@@ -538,8 +562,9 @@ func scanJob(row rowScanner) (*jobs.Job, error) {
 		&job.PresetID, &job.Encoder, &isHardware,
 		&status, &job.Progress, &job.Speed, &eta, &errStr,
 		&job.InputSize, &outputSize, &spaceSaved,
-		&duration, &bitrate, &width, &height, &frameRate, &transcodeTime,
-		&createdAt, &startedAt, &completedAt,
+		&duration, &bitrate, &width, &height, &frameRate,
+		&videoCodec, &profile, &bitDepth,
+		&transcodeTime, &createdAt, &startedAt, &completedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -558,6 +583,9 @@ func scanJob(row rowScanner) (*jobs.Job, error) {
 	job.Width = int(width.Int64)
 	job.Height = int(height.Int64)
 	job.FrameRate = frameRate.Float64
+	job.VideoCodec = videoCodec.String
+	job.Profile = profile.String
+	job.BitDepth = int(bitDepth.Int64)
 	job.TranscodeTime = transcodeTime.Int64
 	job.CreatedAt = parseTime(createdAt.String)
 	job.StartedAt = parseTime(startedAt.String)

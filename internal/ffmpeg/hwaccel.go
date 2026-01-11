@@ -366,3 +366,52 @@ func copyEncoders(src map[EncoderKey]*HWEncoder) map[EncoderKey]*HWEncoder {
 	}
 	return dst
 }
+
+// RequiresSoftwareDecode returns true if the video cannot be hardware decoded
+// by the given encoder's associated hardware decoder. This allows proactive
+// detection of unsupported formats before wasting time on a failed attempt.
+func RequiresSoftwareDecode(codec, profile string, bitDepth int, encoder HWAccel) bool {
+	// Software encoder has no hardware decode - no fallback needed
+	if encoder == HWAccelNone {
+		return false
+	}
+
+	codec = strings.ToLower(codec)
+	profile = strings.ToLower(profile)
+
+	// H.264/AVC 10-bit (High 10 profile) - NO GPU supports this
+	// This is a universal hardware limitation, not driver-specific
+	if (codec == "h264" || codec == "avc") && bitDepth >= 10 {
+		return true
+	}
+
+	// Encoder-specific limitations
+	switch encoder {
+	case HWAccelQSV:
+		// VC-1 decode is spotty on Intel QSV
+		if codec == "vc1" || codec == "wmv3" {
+			return true
+		}
+		// MPEG-4 ASP (DivX, XviD) not reliably supported
+		// Simple Profile is supported, but Advanced Simple is not
+		if codec == "mpeg4" && !strings.HasPrefix(profile, "simple") {
+			return true
+		}
+	case HWAccelVAAPI:
+		// VC-1 support varies by driver/hardware
+		if codec == "vc1" || codec == "wmv3" {
+			return true
+		}
+	case HWAccelNVENC:
+		// NVDEC has broader codec support but still no H.264 10-bit
+		// VC-1 decode was dropped in newer drivers
+		if codec == "vc1" {
+			return true
+		}
+	case HWAccelVideoToolbox:
+		// VideoToolbox has good codec coverage on Apple Silicon
+		// but still no H.264 10-bit (already caught above)
+	}
+
+	return false
+}
