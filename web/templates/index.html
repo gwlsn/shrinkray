@@ -2239,7 +2239,21 @@
             }
 
             // Re-sort array
-            allSortedJobs.sort((a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5));
+            allSortedJobs.sort((a, b) => {
+                const orderA = statusOrder[a.status] ?? 5;
+                const orderB = statusOrder[b.status] ?? 5;
+                if (orderA !== orderB) return orderA - orderB;
+
+                // Secondary sort by timestamp
+                // Pending: oldest first (FIFO). Others: most recent first.
+                if (a.status === 'pending') {
+                    return (a.created_at || '').localeCompare(b.created_at || '');
+                }
+                // Running/Complete/Failed/Cancelled: most recent first
+                const timeA = a.completed_at || a.started_at || '';
+                const timeB = b.completed_at || b.started_at || '';
+                return timeB.localeCompare(timeA);
+            });
 
             // Find new position after sort
             const newIdx = allSortedJobs.findIndex(j => j.id === updatedJob.id);
@@ -2301,7 +2315,21 @@
             allSortedJobs.push(job);
             // Re-sort
             const statusOrder = { running: 0, pending: 1, failed: 2, complete: 3, cancelled: 4 };
-            allSortedJobs.sort((a, b) => (statusOrder[a.status] ?? 5) - (statusOrder[b.status] ?? 5));
+            allSortedJobs.sort((a, b) => {
+                const orderA = statusOrder[a.status] ?? 5;
+                const orderB = statusOrder[b.status] ?? 5;
+                if (orderA !== orderB) return orderA - orderB;
+
+                // Secondary sort by timestamp
+                // Pending: oldest first (FIFO). Others: most recent first.
+                if (a.status === 'pending') {
+                    return (a.created_at || '').localeCompare(b.created_at || '');
+                }
+                // Running/Complete/Failed/Cancelled: most recent first
+                const timeA = a.completed_at || a.started_at || '';
+                const timeB = b.completed_at || b.started_at || '';
+                return timeB.localeCompare(timeA);
+            });
 
             // Remove empty state if present
             const container = document.getElementById('queue-list');
@@ -2365,7 +2393,17 @@
             allSortedJobs = [...jobs].sort((a, b) => {
                 const orderA = statusOrder[a.status] ?? 5;
                 const orderB = statusOrder[b.status] ?? 5;
-                return orderA - orderB;
+                if (orderA !== orderB) return orderA - orderB;
+
+                // Secondary sort by timestamp
+                // Pending: oldest first (FIFO). Others: most recent first.
+                if (a.status === 'pending') {
+                    return (a.created_at || '').localeCompare(b.created_at || '');
+                }
+                // Running/Complete/Failed/Cancelled: most recent first
+                const timeA = a.completed_at || a.started_at || '';
+                const timeB = b.completed_at || b.started_at || '';
+                return timeB.localeCompare(timeA);
             });
 
             // Render initial batch
