@@ -2197,6 +2197,15 @@
                 progressFill.classList.remove('initializing');
             }
 
+            // Update status badge if transitioning from initializing to running
+            // (initializing = progress=0 && speed=0, running = progress>0 || speed>0)
+            const statusBadge = el.querySelector('.job-badge.initializing');
+            if (statusBadge && (progress > 0 || speed > 0)) {
+                statusBadge.classList.remove('initializing');
+                statusBadge.classList.add('running');
+                statusBadge.textContent = 'Running';
+            }
+
             // Update text values - find the job-details container
             const detailsEl = el.querySelector('.job-details');
             if (detailsEl) {
