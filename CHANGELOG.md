@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] - 2026-01-11
+
+### Fixed
+- **Retry no longer leaves stale job entries in queue**
+  - Added SSE "removed" event so all connected clients update when a job is deleted
+  - Fixes duplicate/ghost jobs appearing after clicking Retry
+- **Clear button now respects queue filter** (#55)
+  - When a filter is active (e.g., "Failed"), Clear only removes jobs matching that filter
+  - Clear button disabled when viewing Running filter (can't clear running jobs)
+
 ## [1.7.0] - 2026-01-11
 
 ### Added
