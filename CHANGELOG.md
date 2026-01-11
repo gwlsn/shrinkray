@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-01-11
+
+### Added
+- **Stop All / Resume button** (#49)
+  - New button in queue footer to pause all running jobs
+  - Running jobs are requeued and restart from the beginning when resumed
+  - Auto-unpauses when new jobs are added to prevent accidental blocking
+  - Button syncs state with queue (shows "Resume" when paused)
+
+### Fixed
+- **Queue scroll position preserved during job updates** (#51)
+  - Progress updates no longer cause the queue list to jump to top
+  - Incremental DOM updates instead of full rebuilds for smoother UI
+  - Jobs correctly reposition when status changes (e.g., running → complete)
+  - Status badge now updates from "Initializing" to "Running" when encoding starts
+
 ## [1.6.2] - 2026-01-09
 
 ### Fixed
