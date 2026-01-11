@@ -2292,11 +2292,50 @@
             const container = document.getElementById('queue-list');
             const existingEl = container.querySelector(`.job-item[data-job-id="${updatedJob.id}"]`);
 
-            // If element not in DOM (beyond pagination), nothing to do
-            if (!existingEl) return;
+            // Check if job matches current filter
+            const matchesFilter = queueFilter === 'all' || updatedJob.status === queueFilter;
+
+            // If element not in DOM
+            if (!existingEl) {
+                // If job now matches filter, add it to the view
+                if (matchesFilter) {
+                    // Remove empty state if present
+                    const emptyState = container.querySelector('.queue-empty');
+                    if (emptyState) emptyState.remove();
+
+                    // Find position in filtered list and add
+                    const filteredJobs = getFilteredJobs();
+                    const filteredIdx = filteredJobs.findIndex(j => j.id === updatedJob.id);
+
+                    if (filteredIdx !== -1 && filteredIdx < displayedJobCount + 1) {
+                        const temp = document.createElement('div');
+                        temp.innerHTML = renderJobHTML(updatedJob);
+                        const newEl = temp.firstElementChild;
+
+                        if (filteredIdx === 0) {
+                            const firstJob = container.querySelector('.job-item');
+                            if (firstJob) {
+                                firstJob.before(newEl);
+                            } else {
+                                container.appendChild(newEl);
+                            }
+                        } else {
+                            const prevJob = filteredJobs[filteredIdx - 1];
+                            const prevEl = container.querySelector(`.job-item[data-job-id="${prevJob.id}"]`);
+                            if (prevEl) {
+                                prevEl.after(newEl);
+                            } else {
+                                container.appendChild(newEl);
+                            }
+                        }
+                        displayedJobCount++;
+                    }
+                }
+                return;
+            }
 
             // If job no longer matches current filter, just remove it
-            if (queueFilter !== 'all' && updatedJob.status !== queueFilter) {
+            if (!matchesFilter) {
                 existingEl.remove();
                 displayedJobCount--;
                 // Show empty state if no more jobs visible
