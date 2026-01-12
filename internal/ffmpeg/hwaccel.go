@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -228,18 +229,39 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 
 	var args []string
 
-	// For VAAPI encoders, we need to specify the device AND upload frames to hardware
-	// VAAPI (especially AMD) strictly requires frames in hardware format
-	if strings.Contains(encoder, "vaapi") {
+	// QSV on Linux: Must derive from VAAPI (this is the Jellyfin approach)
+	// This tests the actual pipeline we use in production
+	if strings.Contains(encoder, "qsv") && runtime.GOOS == "linux" {
+		device := detectVAAPIDevice()
+		if device == "" {
+			return false // No VAAPI device found - QSV won't work on Linux
+		}
+		// Store the detected device for later use
+		availableEncoders.vaapiDevice = device
+		// Test QSV with VAAPI derivation - matches presets.go pipeline
+		args = []string{
+			"-init_hw_device", "vaapi=va:" + device,
+			"-init_hw_device", "qsv=qs@va",
+			"-filter_hw_device", "qs",
+			"-f", "lavfi",
+			"-i", "color=c=black:s=256x256:d=0.1",
+			"-vf", "format=nv12,hwupload=extra_hw_frames=64",
+			"-frames:v", "1",
+			"-c:v", encoder,
+			"-f", "null",
+			"-",
+		}
+	} else if strings.Contains(encoder, "vaapi") {
+		// VAAPI: Use modern init_hw_device style (matches presets.go)
 		device := detectVAAPIDevice()
 		if device == "" {
 			return false // No VAAPI device found
 		}
 		// Store the detected device for later use
 		availableEncoders.vaapiDevice = device
-		// Build VAAPI-specific args with hwupload filter
 		args = []string{
-			"-vaapi_device", device,
+			"-init_hw_device", "vaapi=va:" + device,
+			"-filter_hw_device", "va",
 			"-f", "lavfi",
 			"-i", "color=c=black:s=256x256:d=0.1",
 			"-vf", "format=nv12,hwupload",
@@ -249,7 +271,7 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 			"-",
 		}
 	} else {
-		// Non-VAAPI encoders can accept software frames directly
+		// Non-VAAPI/QSV encoders (NVENC, VideoToolbox) can accept software frames directly
 		args = []string{
 			"-f", "lavfi",
 			"-i", "color=c=black:s=256x256:d=0.1",
