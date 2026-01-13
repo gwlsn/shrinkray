@@ -624,11 +624,6 @@
             color: var(--text-secondary);
         }
 
-        .codec-badge.hdr {
-            background: rgba(255, 200, 0, 0.15);
-            color: #d4a800;
-        }
-
         .file-list-empty {
             padding: 60px 20px;
             text-align: center;
@@ -870,11 +865,6 @@
         .job-badge.software {
             background: var(--bg-tertiary);
             color: var(--text-secondary);
-        }
-
-        .job-badge.hdr {
-            background: rgba(255, 200, 0, 0.15);
-            color: #d4a800;
         }
 
         .job-progress {
@@ -1821,19 +1811,6 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="setting-item">
-                            <div class="setting-info">
-                                <div class="setting-name">Tonemap HDR to SDR</div>
-                                <div class="setting-desc">Convert HDR content to SDR for compatibility with non-HDR displays</div>
-                            </div>
-                            <div class="setting-control">
-                                <label class="toggle">
-                                    <input type="checkbox" id="setting-tonemap-hdr" checked
-                                           onchange="updateSetting('tonemap_hdr', this.checked)">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -2011,8 +1988,7 @@
                         } else if (codec.includes('av1')) {
                             codecClass = 'av1';
                         }
-                        const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
-                        metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+                        metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span><span>${vi.width}x${vi.height}</span>`;
                     }
 
                     return `<li class="file-item" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
@@ -2364,7 +2340,6 @@
                     <div class="job-header">
                         <span class="job-name" title="${job.input_path}">${filename}</span>
                         <div class="job-badges">
-                            ${job.is_hdr ? '<span class="job-badge hdr">HDR</span>' : ''}
                             <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
                             <span class="job-badge ${statusClass}">${statusLabel}</span>
                         </div>
@@ -3014,10 +2989,6 @@
 
                 // Output format
                 document.getElementById('setting-output-format').value = config.output_format || 'mkv';
-
-                // Tonemap HDR (default true)
-                document.getElementById('setting-tonemap-hdr').checked = config.tonemap_hdr !== false;
-
                 updateScheduleStatusDisplay(config.schedule_enabled, config.schedule_start_hour ?? 22, config.schedule_end_hour ?? 6);
             } catch (err) {
                 console.error('Load settings error:', err);
