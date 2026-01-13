@@ -319,14 +319,14 @@ func TestBuildPresetArgsSoftwareDecode(t *testing.T) {
 	for i, arg := range outputArgsSW {
 		if arg == "-vf" && i+1 < len(outputArgsSW) {
 			filter := outputArgsSW[i+1]
-			// QSV software decode filter should have hwupload and vpp_qsv
-			if strings.Contains(filter, "hwupload") && strings.Contains(filter, "vpp_qsv") {
+			// QSV software decode filter should have hwupload (vpp_qsv removed - causes -38 errors)
+			if strings.Contains(filter, "hwupload") {
 				hasVF = true
 			}
 			break
 		}
 	}
 	if !hasVF {
-		t.Error("Software decode output args should have software decode filter with hwupload and vpp_qsv")
+		t.Error("Software decode output args should have software decode filter with hwupload")
 	}
 }

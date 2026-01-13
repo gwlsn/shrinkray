@@ -29,9 +29,10 @@ Thumbs.db
 queue.json
 config/shrinkray.yaml
 
-# Test data (videos)
-testdata/
+# Test data (videos) - ignore video files but keep scripts
+testdata/*
 !testdata/.gitkeep
+!testdata/*.sh
 
 # Logs
 *.log

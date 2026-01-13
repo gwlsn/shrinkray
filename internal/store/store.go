@@ -25,16 +25,22 @@ type Store interface {
 	GetAllJobs() ([]*jobs.Job, []string, error)
 
 	// GetJobsByStatus returns all jobs with the given status.
+	// NOTE: This method is primarily used for testing; production code
+	// uses the Queue's filtering methods instead.
 	GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error)
 
 	// GetNextPendingJob returns the first pending job in queue order.
 	// Returns nil if no pending jobs exist.
+	// NOTE: This method is primarily used for testing; production code
+	// uses the Queue's GetNext method instead.
 	GetNextPendingJob() (*jobs.Job, error)
 
 	// AppendToOrder adds a job ID to the end of the queue order.
 	AppendToOrder(id string) error
 
 	// RemoveFromOrder removes a job ID from the queue order.
+	// NOTE: This method is primarily used for testing; production code
+	// uses DeleteJob which handles order removal automatically.
 	RemoveFromOrder(id string) error
 
 	// SetOrder persists the full job order, replacing any existing order.
@@ -46,6 +52,9 @@ type Store interface {
 	ResetRunningJobs() (int, error)
 
 	// Stats returns queue statistics.
+	// NOTE: This method is primarily used for testing and benchmarks;
+	// production code uses the Queue's Stats method which combines
+	// store stats with runtime information.
 	Stats() (Stats, error)
 
 	// ResetSession resets the session start time to now.

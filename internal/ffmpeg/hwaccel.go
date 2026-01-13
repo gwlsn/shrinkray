@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -228,18 +229,39 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 
 	var args []string
 
-	// For VAAPI encoders, we need to specify the device AND upload frames to hardware
-	// VAAPI (especially AMD) strictly requires frames in hardware format
-	if strings.Contains(encoder, "vaapi") {
+	// QSV on Linux: Must derive from VAAPI (this is the Jellyfin approach)
+	// This tests the actual pipeline we use in production
+	if strings.Contains(encoder, "qsv") && runtime.GOOS == "linux" {
+		device := detectVAAPIDevice()
+		if device == "" {
+			return false // No VAAPI device found - QSV won't work on Linux
+		}
+		// Store the detected device for later use
+		availableEncoders.vaapiDevice = device
+		// Test QSV with VAAPI derivation - matches presets.go pipeline
+		args = []string{
+			"-init_hw_device", "vaapi=va:" + device,
+			"-init_hw_device", "qsv=qs@va",
+			"-filter_hw_device", "qs",
+			"-f", "lavfi",
+			"-i", "color=c=black:s=256x256:d=0.1",
+			"-vf", "format=nv12,hwupload=extra_hw_frames=64",
+			"-frames:v", "1",
+			"-c:v", encoder,
+			"-f", "null",
+			"-",
+		}
+	} else if strings.Contains(encoder, "vaapi") {
+		// VAAPI: Use modern init_hw_device style (matches presets.go)
 		device := detectVAAPIDevice()
 		if device == "" {
 			return false // No VAAPI device found
 		}
 		// Store the detected device for later use
 		availableEncoders.vaapiDevice = device
-		// Build VAAPI-specific args with hwupload filter
 		args = []string{
-			"-vaapi_device", device,
+			"-init_hw_device", "vaapi=va:" + device,
+			"-filter_hw_device", "va",
 			"-f", "lavfi",
 			"-i", "color=c=black:s=256x256:d=0.1",
 			"-vf", "format=nv12,hwupload",
@@ -249,7 +271,7 @@ func testEncoder(ffmpegPath string, encoder string) bool {
 			"-",
 		}
 	} else {
-		// Non-VAAPI encoders can accept software frames directly
+		// Non-VAAPI/QSV encoders (NVENC, VideoToolbox) can accept software frames directly
 		args = []string{
 			"-f", "lavfi",
 			"-i", "color=c=black:s=256x256:d=0.1",
@@ -365,4 +387,53 @@ func copyEncoders(src map[EncoderKey]*HWEncoder) map[EncoderKey]*HWEncoder {
 		dst[k] = &encCopy
 	}
 	return dst
+}
+
+// RequiresSoftwareDecode returns true if the video cannot be hardware decoded
+// by the given encoder's associated hardware decoder. This allows proactive
+// detection of unsupported formats before wasting time on a failed attempt.
+func RequiresSoftwareDecode(codec, profile string, bitDepth int, encoder HWAccel) bool {
+	// Software encoder has no hardware decode - no fallback needed
+	if encoder == HWAccelNone {
+		return false
+	}
+
+	codec = strings.ToLower(codec)
+	profile = strings.ToLower(profile)
+
+	// H.264/AVC 10-bit (High 10 profile) - NO GPU supports this
+	// This is a universal hardware limitation, not driver-specific
+	if (codec == "h264" || codec == "avc") && bitDepth >= 10 {
+		return true
+	}
+
+	// Encoder-specific limitations
+	switch encoder {
+	case HWAccelQSV:
+		// VC-1 decode is spotty on Intel QSV
+		if codec == "vc1" || codec == "wmv3" {
+			return true
+		}
+		// MPEG-4 ASP (DivX, XviD) not reliably supported
+		// Simple Profile is supported, but Advanced Simple is not
+		if codec == "mpeg4" && !strings.HasPrefix(profile, "simple") {
+			return true
+		}
+	case HWAccelVAAPI:
+		// VC-1 support varies by driver/hardware
+		if codec == "vc1" || codec == "wmv3" {
+			return true
+		}
+	case HWAccelNVENC:
+		// NVDEC has broader codec support but still no H.264 10-bit
+		// VC-1 decode was dropped in newer drivers
+		if codec == "vc1" {
+			return true
+		}
+	case HWAccelVideoToolbox:
+		// VideoToolbox has good codec coverage on Apple Silicon
+		// but still no H.264 10-bit (already caught above)
+	}
+
+	return false
 }

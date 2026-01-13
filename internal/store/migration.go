@@ -3,13 +3,13 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
+	"github.com/gwlsn/shrinkray/internal/util"
 )
 
 // jsonPersistenceData matches the structure in internal/jobs/queue.go
@@ -80,7 +80,7 @@ func MigrateFromJSON(jsonPath, dbPath string) *MigrationResult {
 
 	// Create backup before proceeding
 	backupPath := jsonPath + ".backup"
-	if err := copyFile(jsonPath, backupPath); err != nil {
+	if err := util.CopyFile(jsonPath, backupPath); err != nil {
 		result.ErrorMessage = fmt.Sprintf("create backup: %v", err)
 		handleMigrationFailure(jsonPath, result)
 		return result
@@ -168,24 +168,6 @@ func renameToBackup(jsonPath string, result *MigrationResult) {
 	} else {
 		result.BackupPath = backupPath
 	}
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }
 
 // GetDBPath converts a JSON queue path to the corresponding SQLite path.

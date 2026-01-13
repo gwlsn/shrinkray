@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/logger"
+	"github.com/gwlsn/shrinkray/internal/util"
 )
 
 // Progress represents the current transcoding progress
@@ -278,28 +278,6 @@ func BuildTempPath(inputPath, tempDir, format string) string {
 	return filepath.Join(tempDir, tempName)
 }
 
-// copyFile copies a file from src to dst.
-// Works across filesystems unlike os.Rename.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
-	}
-
-	return dstFile.Close()
-}
-
 // FinalizeTranscode handles the original file based on the configured behavior
 // If replace=true, deletes original and copies temp to final location
 // If replace=false (keep), renames original to .old and copies temp to final location
@@ -329,7 +307,7 @@ func FinalizeTranscode(inputPath, tempPath, format string, replace bool) (finalP
 			return "", fmt.Errorf("failed to remove original file: %w", err)
 		}
 
-		if err := copyFile(tempPath, finalPath); err != nil {
+		if err := util.CopyFile(tempPath, finalPath); err != nil {
 			return "", fmt.Errorf("failed to copy temp to final location: %w", err)
 		}
 
@@ -346,7 +324,7 @@ func FinalizeTranscode(inputPath, tempPath, format string, replace bool) (finalP
 		return "", fmt.Errorf("failed to rename original to .old: %w", err)
 	}
 
-	if err := copyFile(tempPath, finalPath); err != nil {
+	if err := util.CopyFile(tempPath, finalPath); err != nil {
 		// Try to restore original (best effort)
 		_ = os.Rename(oldPath, inputPath)
 		return "", fmt.Errorf("failed to copy temp to final location: %w", err)

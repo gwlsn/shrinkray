@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'feature/**'
+      - 'bugfix/**'
   workflow_dispatch:
     inputs:
       tag:
@@ -39,8 +40,9 @@ jobs:
         id: branch
         run: |
           BRANCH=${GITHUB_REF#refs/heads/}
-          # Convert feature/sqlite-migration to sqlite-migration
+          # Convert feature/sqlite-migration or bugfix/ffmpeg-err38 to short name
           SHORT_BRANCH=${BRANCH#feature/}
+          SHORT_BRANCH=${SHORT_BRANCH#bugfix/}
           # Sanitize for Docker tag (replace / with -)
           SAFE_BRANCH=$(echo "$SHORT_BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')
           echo "name=$SAFE_BRANCH" >> $GITHUB_OUTPUT

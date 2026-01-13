@@ -37,6 +37,9 @@ type Job struct {
 	Width       int       `json:"width,omitempty"`        // Source video width
 	Height      int       `json:"height,omitempty"`       // Source video height
 	FrameRate   float64   `json:"frame_rate,omitempty"`   // Source video frame rate
+	VideoCodec  string    `json:"video_codec,omitempty"`  // Source codec (h264, hevc, etc.)
+	Profile     string    `json:"profile,omitempty"`      // Codec profile (High, High 10, Main, etc.)
+	BitDepth    int       `json:"bit_depth,omitempty"`    // Color depth (8, 10, 12)
 	TranscodeTime int64   `json:"transcode_secs,omitempty"` // Time to transcode in seconds
 	CreatedAt   time.Time `json:"created_at"`
 	StartedAt   time.Time `json:"started_at,omitempty"`

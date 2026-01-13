@@ -72,27 +72,27 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-cq",
 		quality:     "28",
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
-		hwaccelArgs: []string{"-hwaccel", "cuda", "-hwaccel_output_format", "cuda"},
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
-		// No baseFilter needed - NVENC auto-handles CPU frames from sw decode fallback
+		baseFilter:  "scale_cuda=format=nv12", // Explicit format for compatibility
 	},
 	{HWAccelQSV, CodecHEVC}: {
 		encoder:     "hevc_qsv",
 		qualityFlag: "-global_quality",
 		quality:     "27",
 		extraArgs:   []string{"-preset", "medium"},
-		hwaccelArgs: []string{"-init_hw_device", "qsv=qsv", "-filter_hw_device", "qsv", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"},
-		scaleFilter: "vpp_qsv",
-		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64", // nv12 for sw decode fallback, qsv passthrough for hw decode
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
+		scaleFilter: "scale_qsv",
+		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64,scale_qsv=format=nv12", // Added scale_qsv for format compatibility
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:     "hevc_vaapi",
 		qualityFlag: "-qp",
 		quality:     "27",
 		extraArgs:   []string{},
-		hwaccelArgs: []string{"-vaapi_device", "", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"}, // Device path filled dynamically
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_vaapi",
-		baseFilter:  "format=nv12|vaapi,hwupload", // nv12 for sw decode fallback, vaapi passthrough for hw decode
+		baseFilter:  "format=nv12|vaapi,hwupload,scale_vaapi=format=nv12", // Added scale_vaapi for format compatibility
 	},
 
 	// AV1 encoders
@@ -124,27 +124,27 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		qualityFlag: "-cq",
 		quality:     "32",
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
-		hwaccelArgs: []string{"-hwaccel", "cuda", "-hwaccel_output_format", "cuda"},
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
-		// No baseFilter needed - NVENC auto-handles CPU frames from sw decode fallback
+		baseFilter:  "scale_cuda=format=nv12", // Explicit format for compatibility
 	},
 	{HWAccelQSV, CodecAV1}: {
 		encoder:     "av1_qsv",
 		qualityFlag: "-global_quality",
 		quality:     "32",
 		extraArgs:   []string{"-preset", "medium"},
-		hwaccelArgs: []string{"-init_hw_device", "qsv=qsv", "-filter_hw_device", "qsv", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"},
-		scaleFilter: "vpp_qsv",
-		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64", // nv12 for sw decode fallback, qsv passthrough for hw decode
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
+		scaleFilter: "scale_qsv",
+		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64,scale_qsv=format=nv12", // Added scale_qsv for format compatibility
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:     "av1_vaapi",
 		qualityFlag: "-qp",
 		quality:     "32",
 		extraArgs:   []string{},
-		hwaccelArgs: []string{"-vaapi_device", "", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"}, // Device path filled dynamically
+		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_vaapi",
-		baseFilter:  "format=nv12|vaapi,hwupload", // nv12 for sw decode fallback, vaapi passthrough for hw decode
+		baseFilter:  "format=nv12|vaapi,hwupload,scale_vaapi=format=nv12", // Added scale_vaapi for format compatibility
 	},
 }
 
@@ -205,6 +205,62 @@ func crfToBitrateModifier(crf int) float64 {
 	return modifier
 }
 
+// getHwaccelInputArgs returns the FFmpeg input arguments for hardware acceleration.
+// This generates the correct device initialization and hwaccel flags for each encoder type.
+// softwareDecode: if true, skip -hwaccel flags but keep device init for the encoder.
+func getHwaccelInputArgs(encoder HWAccel, softwareDecode bool) []string {
+	switch encoder {
+	case HWAccelNVENC:
+		// NVIDIA CUDA - simple init
+		// Per NVIDIA FFmpeg guide: https://developer.nvidia.com/blog/nvidia-ffmpeg-transcoding-guide/
+		args := []string{
+			"-init_hw_device", "cuda=cu:0",
+			"-filter_hw_device", "cu",
+		}
+		if !softwareDecode {
+			args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
+		}
+		return args
+
+	case HWAccelQSV:
+		// Intel QSV - MUST derive from VAAPI on Linux
+		// Per Jellyfin: https://github.com/jellyfin/jellyfin/blob/master/MediaBrowser.Controller/MediaEncoding/EncodingHelper.cs
+		device := GetVAAPIDevice()
+		args := []string{
+			"-init_hw_device", "vaapi=va:" + device,
+			"-init_hw_device", "qsv=qs@va",
+			"-filter_hw_device", "qs",
+		}
+		if !softwareDecode {
+			args = append(args, "-hwaccel", "qsv", "-hwaccel_output_format", "qsv")
+		}
+		return args
+
+	case HWAccelVAAPI:
+		// Linux VAAPI (Intel/AMD)
+		device := GetVAAPIDevice()
+		args := []string{
+			"-init_hw_device", "vaapi=va:" + device,
+			"-filter_hw_device", "va",
+		}
+		if !softwareDecode {
+			args = append(args, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi")
+		}
+		return args
+
+	case HWAccelVideoToolbox:
+		// macOS VideoToolbox - simple, encoder handles CPU frames directly
+		if !softwareDecode {
+			return []string{"-hwaccel", "videotoolbox"}
+		}
+		return nil
+
+	default:
+		// Software encoder - no hwaccel args needed
+		return nil
+	}
+}
+
 // BuildPresetArgs builds FFmpeg arguments for a preset with the specified encoder
 // sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
 // sourceWidth/sourceHeight are the source video dimensions (for calculating scaled output)
@@ -221,24 +277,8 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	}
 
 	// Input args: hardware acceleration for decoding
-	// When softwareDecode is true, skip -hwaccel and -hwaccel_output_format but keep device init args
-	skipNext := false
-	for _, arg := range config.hwaccelArgs {
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		// Skip hardware decode flags when using software decode
-		if softwareDecode && (arg == "-hwaccel" || arg == "-hwaccel_output_format") {
-			skipNext = true // skip the next arg (the value)
-			continue
-		}
-		// Fill in VAAPI device path dynamically
-		if arg == "" && len(inputArgs) > 0 && inputArgs[len(inputArgs)-1] == "-vaapi_device" {
-			arg = GetVAAPIDevice()
-		}
-		inputArgs = append(inputArgs, arg)
-	}
+	// Generated dynamically based on encoder type
+	inputArgs = getHwaccelInputArgs(preset.Encoder, softwareDecode)
 
 	// Output args
 	outputArgs = []string{}
@@ -262,21 +302,7 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		if scaleFilter == "" {
 			scaleFilter = "scale"
 		}
-
-		// vpp_qsv requires explicit dimensions (doesn't support -2 for auto aspect ratio)
-		if scaleFilter == "vpp_qsv" {
-			// Calculate output dimensions maintaining aspect ratio
-			targetHeight := preset.MaxHeight
-			targetWidth := sourceWidth * targetHeight / sourceHeight
-			// Ensure width is even (required for video encoding)
-			if targetWidth%2 != 0 {
-				targetWidth++
-			}
-			filterParts = append(filterParts, fmt.Sprintf("vpp_qsv=w=%d:h=%d", targetWidth, targetHeight))
-		} else {
-			// Other scalers support -2 for auto aspect ratio
-			filterParts = append(filterParts, fmt.Sprintf("%s=-2:'min(ih,%d)'", scaleFilter, preset.MaxHeight))
-		}
+		filterParts = append(filterParts, fmt.Sprintf("%s=-2:'min(ih,%d)'", scaleFilter, preset.MaxHeight))
 	}
 
 	// Apply filter chain if we have any filters
@@ -419,15 +445,21 @@ func getSoftwarePreset(id string) *Preset {
 	return nil
 }
 
-// getSoftwareDecodeFilter returns the filter chain for software decode + hardware encode
+// getSoftwareDecodeFilter returns the filter chain for software decode + hardware encode.
+// These are simplified filters that avoid problematic hardware post-processing filters
+// like vpp_qsv which can cause -38 errors near end of stream.
 func getSoftwareDecodeFilter(encoder HWAccel) string {
 	switch encoder {
 	case HWAccelQSV:
-		return "format=nv12,hwupload=extra_hw_frames=64,vpp_qsv=format=nv12"
+		// Simple hwupload - no vpp_qsv (causes -38 errors near EOF)
+		// Per Jellyfin PR #5534: hwupload is sufficient for QSV encoding
+		return "format=nv12,hwupload=extra_hw_frames=64"
 	case HWAccelVAAPI:
 		return "format=nv12,hwupload"
 	case HWAccelNVENC:
 		return "" // NVENC auto-handles CPU frames
+	case HWAccelVideoToolbox:
+		return "" // VideoToolbox encoder handles CPU frames directly
 	default:
 		return ""
 	}

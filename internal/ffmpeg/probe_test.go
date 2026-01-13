@@ -156,3 +156,126 @@ func TestIsVideoFile(t *testing.T) {
 		}
 	}
 }
+
+// TestInferBitDepth verifies bit depth inference from pixel format strings
+func TestInferBitDepth(t *testing.T) {
+	tests := []struct {
+		pixFmt   string
+		expected int
+	}{
+		// 8-bit formats
+		{"yuv420p", 8},
+		{"yuv422p", 8},
+		{"yuv444p", 8},
+		{"nv12", 8},
+		{"rgb24", 8},
+		{"bgr24", 8},
+
+		// 10-bit formats
+		{"yuv420p10le", 10},
+		{"yuv420p10be", 10},
+		{"yuv422p10le", 10},
+		{"yuv444p10le", 10},
+		{"p010le", 10},
+		{"p010be", 10},
+
+		// 12-bit formats
+		{"yuv420p12le", 12},
+		{"yuv420p12be", 12},
+		{"yuv422p12le", 12},
+		{"yuv444p12le", 12},
+
+		// Edge cases
+		{"", 8},           // Empty defaults to 8
+		{"unknown", 8},    // Unknown defaults to 8
+		{"p016le", 8},     // 16-bit not explicitly matched, defaults to 8
+		{"gbrp10le", 10},  // RGB 10-bit
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pixFmt, func(t *testing.T) {
+			result := inferBitDepth(tt.pixFmt)
+			if result != tt.expected {
+				t.Errorf("inferBitDepth(%q) = %d, want %d", tt.pixFmt, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestProbe_BitDepthDetection tests that probing extracts correct profile and bit depth
+func TestProbe_BitDepthDetection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping probe integration test in short mode")
+	}
+
+	testdataDir := getTestdataPath()
+
+	tests := []struct {
+		file           string
+		expectCodec    string
+		expectProfile  string
+		expectBitDepth int
+		expectPixFmt   string
+	}{
+		{"test_h264_8bit_high.mp4", "h264", "Constrained Baseline", 8, "yuv420p"},
+		{"test_h264_10bit_high10.mkv", "h264", "High 10", 10, "yuv420p10le"},
+		{"test_hevc_8bit_main.mkv", "hevc", "Main", 8, "yuv420p"},
+		{"test_hevc_10bit_main10.mkv", "hevc", "Main 10", 10, "yuv420p10le"},
+	}
+
+	prober := NewProber("ffprobe")
+	ctx := context.Background()
+
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			path := filepath.Join(testdataDir, tt.file)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				t.Skipf("test file not found: %s (run testdata/generate_test_vectors.sh)", tt.file)
+			}
+
+			result, err := prober.Probe(ctx, path)
+			if err != nil {
+				t.Fatalf("probe failed: %v", err)
+			}
+
+			if result.VideoCodec != tt.expectCodec {
+				t.Errorf("codec = %q, want %q", result.VideoCodec, tt.expectCodec)
+			}
+			if result.Profile != tt.expectProfile {
+				t.Errorf("profile = %q, want %q", result.Profile, tt.expectProfile)
+			}
+			if result.BitDepth != tt.expectBitDepth {
+				t.Errorf("bit_depth = %d, want %d", result.BitDepth, tt.expectBitDepth)
+			}
+			if result.PixelFormat != tt.expectPixFmt {
+				t.Errorf("pix_fmt = %q, want %q", result.PixelFormat, tt.expectPixFmt)
+			}
+
+			t.Logf("Probe result: codec=%s profile=%s bit_depth=%d pix_fmt=%s",
+				result.VideoCodec, result.Profile, result.BitDepth, result.PixelFormat)
+		})
+	}
+}
+
+// TestIsAV1Codec verifies AV1 codec detection
+func TestIsAV1Codec(t *testing.T) {
+	tests := []struct {
+		codec    string
+		expected bool
+	}{
+		{"av1", true},
+		{"AV1", true},
+		{"libaom-av1", true},
+		{"libsvtav1", true},
+		{"h264", false},
+		{"hevc", false},
+		{"vp9", false},
+	}
+
+	for _, tt := range tests {
+		result := isAV1Codec(tt.codec)
+		if result != tt.expected {
+			t.Errorf("isAV1Codec(%s) = %v, expected %v", tt.codec, result, tt.expected)
+		}
+	}
+}
