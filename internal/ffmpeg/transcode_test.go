@@ -88,7 +88,7 @@ func TestTranscode(t *testing.T) {
 	}()
 
 	totalFrames := int64(probeResult.Duration.Seconds() * probeResult.FrameRate)
-	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, totalFrames, progressCh, false, "mkv")
+	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, totalFrames, progressCh, false, "mkv", nil)
 	<-done
 
 	if err != nil {

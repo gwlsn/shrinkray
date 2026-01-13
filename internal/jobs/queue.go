@@ -157,6 +157,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		VideoCodec: probe.VideoCodec,
 		Profile:    probe.Profile,
 		BitDepth:   probe.BitDepth,
+		IsHDR:      probe.IsHDR,
 		CreatedAt:  time.Now(),
 	}
 
@@ -227,6 +228,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 			VideoCodec: probe.VideoCodec,
 			Profile:    probe.Profile,
 			BitDepth:   probe.BitDepth,
+			IsHDR:      probe.IsHDR,
 			CreatedAt:  time.Now(),
 		}
 

@@ -449,7 +449,21 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat)
+	// Set up HDR tonemapping if enabled and source is HDR
+	var tonemapParams *ffmpeg.TonemapParams
+	if job.IsHDR && w.cfg.TonemapHDR {
+		tonemapParams = &ffmpeg.TonemapParams{
+			IsHDR:         true,
+			EnableTonemap: true,
+			Algorithm:     w.cfg.TonemapAlgorithm,
+		}
+		logger.Debug("HDR tonemapping enabled",
+			"job_id", job.ID,
+			"algorithm", w.cfg.TonemapAlgorithm,
+		)
+	}
+
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
 
 	if err != nil {
 		// Check if it was cancelled
@@ -483,7 +497,7 @@ func (w *Worker) processJob(job *Job) {
 			}()
 
 			// Retry with software decode
-			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, retryProgressCh, true, w.cfg.OutputFormat)
+			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, retryProgressCh, true, w.cfg.OutputFormat, tonemapParams)
 
 			if err != nil {
 				// Check if cancelled during retry

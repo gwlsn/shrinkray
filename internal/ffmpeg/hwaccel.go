@@ -73,9 +73,30 @@ type AvailableEncoders struct {
 	nvencInitMode NVENCInitMode // Which NVENC init method works on this system
 }
 
+// AvailableFilters holds the detected FFmpeg filters (for tonemapping support)
+type AvailableFilters struct {
+	mu       sync.RWMutex
+	filters  map[string]bool
+	detected bool
+}
+
 // Global encoder detection cache
 var availableEncoders = &AvailableEncoders{
 	encoders: make(map[EncoderKey]*HWEncoder),
+}
+
+// Global filter detection cache
+var availableFilters = &AvailableFilters{
+	filters: make(map[string]bool),
+}
+
+// Tonemapping filter names we care about
+var tonemapFilters = []string{
+	"tonemap_vaapi",  // VAAPI hardware tonemapping
+	"tonemap_cuda",   // NVIDIA CUDA tonemapping
+	"tonemap_opencl", // OpenCL tonemapping (for QSV and cross-platform)
+	"tonemap",        // Software tonemapping
+	"zscale",         // Required for software tonemap chain
 }
 
 // allEncoderDefs defines all possible encoders (HEVC and AV1 variants)
@@ -212,6 +233,99 @@ func DetectEncoders(ffmpegPath string) map[EncoderKey]*HWEncoder {
 
 	availableEncoders.detected = true
 	return copyEncoders(availableEncoders.encoders)
+}
+
+// DetectFilters probes FFmpeg to detect available filters (especially tonemapping filters)
+func DetectFilters(ffmpegPath string) map[string]bool {
+	availableFilters.mu.Lock()
+	defer availableFilters.mu.Unlock()
+
+	// Return cached results if already detected
+	if availableFilters.detected {
+		return copyFilters(availableFilters.filters)
+	}
+
+	// Get list of available filters from ffmpeg
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, ffmpegPath, "-filters", "-hide_banner")
+	output, err := cmd.Output()
+	if err != nil {
+		// Assume software filters are available, hardware may not be
+		availableFilters.filters["tonemap"] = true
+		availableFilters.filters["zscale"] = true
+		availableFilters.detected = true
+		return copyFilters(availableFilters.filters)
+	}
+
+	filterList := string(output)
+
+	// Check each tonemapping filter we care about
+	for _, filter := range tonemapFilters {
+		// Filters are listed in format: " T.. filter_name description"
+		// We look for the filter name followed by space or end of line
+		available := strings.Contains(filterList, " "+filter+" ") ||
+			strings.Contains(filterList, " "+filter+"\n")
+		availableFilters.filters[filter] = available
+	}
+
+	availableFilters.detected = true
+	return copyFilters(availableFilters.filters)
+}
+
+// IsTonemapFilterAvailable checks if a specific tonemapping filter is available
+func IsTonemapFilterAvailable(filterName string) bool {
+	availableFilters.mu.RLock()
+	defer availableFilters.mu.RUnlock()
+
+	if !availableFilters.detected {
+		// Not yet detected - assume unavailable for HW filters, available for SW
+		return filterName == "tonemap" || filterName == "zscale"
+	}
+
+	return availableFilters.filters[filterName]
+}
+
+// GetTonemapFilterForEncoder returns the appropriate tonemap filter for a given encoder.
+// Returns the filter name and whether hardware tonemapping is available.
+func GetTonemapFilterForEncoder(encoder HWAccel) (filterName string, isHardware bool) {
+	switch encoder {
+	case HWAccelVAAPI:
+		if IsTonemapFilterAvailable("tonemap_vaapi") {
+			return "tonemap_vaapi", true
+		}
+	case HWAccelNVENC:
+		if IsTonemapFilterAvailable("tonemap_cuda") {
+			return "tonemap_cuda", true
+		}
+	case HWAccelQSV:
+		// QSV uses OpenCL for tonemapping
+		if IsTonemapFilterAvailable("tonemap_opencl") {
+			return "tonemap_opencl", true
+		}
+	case HWAccelVideoToolbox:
+		// VideoToolbox doesn't have hardware tonemapping in FFmpeg
+		// Fall through to software
+	}
+
+	// Software fallback - check if zscale is available (preferred) or basic tonemap
+	if IsTonemapFilterAvailable("zscale") {
+		return "zscale", false
+	}
+	if IsTonemapFilterAvailable("tonemap") {
+		return "tonemap", false
+	}
+
+	return "", false
+}
+
+func copyFilters(src map[string]bool) map[string]bool {
+	dst := make(map[string]bool)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // detectVAAPIDevice finds the first available VAAPI render device

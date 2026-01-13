@@ -71,6 +71,7 @@ func NewTranscoder(ffmpegPath string) *Transcoder {
 // totalFrames is the expected total frame count (for progress fallback when time-based stats unavailable)
 // softwareDecode: if true, use software decode with hardware encode (fallback for hw decode failures)
 // outputFormat: "mkv" or "mp4" - affects audio/subtitle handling
+// tonemap: optional HDR to SDR tonemapping parameters (nil = no tonemapping)
 func (t *Transcoder) Transcode(
 	ctx context.Context,
 	inputPath string,
@@ -84,6 +85,7 @@ func (t *Transcoder) Transcode(
 	progressCh chan<- Progress,
 	softwareDecode bool,
 	outputFormat string,
+	tonemap *TonemapParams,
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
 
@@ -96,7 +98,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode, outputFormat)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode, outputFormat, tonemap)
 
 	// Build ffmpeg command
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output

@@ -118,8 +118,9 @@ func main() {
 	fmt.Printf("  FFprobe:      %s\n", cfg.FFprobePath)
 	fmt.Println()
 
-	// Detect available hardware encoders
+	// Detect available hardware encoders and filters
 	ffmpeg.DetectEncoders(cfg.FFmpegPath)
+	ffmpeg.DetectFilters(cfg.FFmpegPath)
 	ffmpeg.InitPresets()
 
 	// Display detected encoders

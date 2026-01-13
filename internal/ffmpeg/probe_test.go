@@ -279,3 +279,125 @@ func TestIsAV1Codec(t *testing.T) {
 		}
 	}
 }
+
+// TestProbe_HDRDetection verifies HDR detection on real test files
+func TestProbe_HDRDetection(t *testing.T) {
+	testdata := getTestdataPath()
+	prober := NewProber("ffprobe")
+
+	tests := []struct {
+		filename  string
+		expectHDR bool
+		hdrType   string // "HDR10", "HLG", "fallback", or ""
+	}{
+		// HDR10 files (smpte2084 PQ transfer)
+		{"comp_h264_hdr10_short.mkv", true, "HDR10"},
+		{"comp_hevc_hdr10_short.mkv", true, "HDR10"},
+		{"comp_hevc_hdr10_4k.mkv", true, "HDR10"},
+		{"comp_hevc_hdr10_coverart.mkv", true, "HDR10"},
+		{"comp_vp9_hdr10_short.mkv", true, "HDR10"},
+		{"comp_av1_hdr10_short.mkv", true, "HDR10"},
+
+		// HLG file (arib-std-b67 transfer)
+		{"comp_hevc_hlg_short.mkv", true, "HLG"},
+
+		// Fallback detection (10-bit bt2020, no explicit transfer)
+		{"comp_h264_bt2020_notransfer.mkv", true, "fallback"},
+
+		// SDR files (should NOT be detected as HDR)
+		{"comp_h264_8bit_short.mp4", false, ""},
+		{"comp_hevc_8bit_short.mkv", false, ""},
+		{"comp_hevc_10bit_short.mkv", false, ""}, // 10-bit but NOT bt2020
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			testFile := filepath.Join(testdata, tt.filename)
+
+			if _, err := os.Stat(testFile); os.IsNotExist(err) {
+				t.Skipf("test file not found: %s (run testdata/generate_comprehensive_vectors.sh)", tt.filename)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			result, err := prober.Probe(ctx, testFile)
+			if err != nil {
+				t.Fatalf("Probe failed: %v", err)
+			}
+
+			t.Logf("Probe result: codec=%s transfer=%s primaries=%s bit_depth=%d is_hdr=%v",
+				result.VideoCodec, result.ColorTransfer, result.ColorPrimaries, result.BitDepth, result.IsHDR)
+
+			if result.IsHDR != tt.expectHDR {
+				t.Errorf("expected IsHDR=%v, got %v (transfer=%s primaries=%s bit_depth=%d)",
+					tt.expectHDR, result.IsHDR, result.ColorTransfer, result.ColorPrimaries, result.BitDepth)
+			}
+
+			// Verify HDR type detection
+			if tt.expectHDR && tt.hdrType != "" {
+				switch tt.hdrType {
+				case "HDR10":
+					if result.ColorTransfer != "smpte2084" {
+						t.Errorf("expected HDR10 (smpte2084), got transfer=%s", result.ColorTransfer)
+					}
+				case "HLG":
+					if result.ColorTransfer != "arib-std-b67" {
+						t.Errorf("expected HLG (arib-std-b67), got transfer=%s", result.ColorTransfer)
+					}
+				case "fallback":
+					// Fallback: no explicit transfer but bt2020 + 10-bit
+					if result.ColorPrimaries != "bt2020" || result.BitDepth < 10 {
+						t.Errorf("expected fallback HDR (bt2020 10-bit), got primaries=%s bit_depth=%d",
+							result.ColorPrimaries, result.BitDepth)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestDetectHDR verifies HDR detection based on color metadata
+func TestDetectHDR(t *testing.T) {
+	tests := []struct {
+		name           string
+		colorTransfer  string
+		colorPrimaries string
+		bitDepth       int
+		expected       bool
+	}{
+		// HDR10 (PQ transfer function)
+		{"HDR10 with smpte2084", "smpte2084", "bt2020", 10, true},
+		{"HDR10 uppercase", "SMPTE2084", "bt2020", 10, true},
+		{"HDR10 with 8-bit still HDR", "smpte2084", "bt2020", 8, true},
+
+		// HLG
+		{"HLG with arib-std-b67", "arib-std-b67", "bt2020", 10, true},
+		{"HLG uppercase", "ARIB-STD-B67", "bt2020", 10, true},
+
+		// Fallback heuristic: 10-bit + bt2020 without explicit transfer
+		{"Fallback: 10-bit bt2020 no transfer", "", "bt2020", 10, true},
+		{"Fallback: 10-bit BT2020 uppercase", "", "BT2020", 10, true},
+
+		// SDR content
+		{"SDR with bt709", "bt709", "bt709", 8, false},
+		{"SDR 10-bit without bt2020", "", "bt709", 10, false},
+		{"SDR 8-bit with bt2020 primaries", "", "bt2020", 8, false},
+		{"SDR empty metadata", "", "", 8, false},
+		{"SDR with srgb", "iec61966-2-1", "bt709", 8, false},
+
+		// Edge cases
+		{"Unknown transfer with bt2020 8-bit", "unknown", "bt2020", 8, false},
+		{"bt2020 primaries but bt709 transfer", "bt709", "bt2020", 10, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := detectHDR(tt.colorTransfer, tt.colorPrimaries, tt.bitDepth)
+			if result != tt.expected {
+				t.Errorf("detectHDR(%q, %q, %d) = %v, want %v",
+					tt.colorTransfer, tt.colorPrimaries, tt.bitDepth, result, tt.expected)
+			}
+		})
+	}
+}
