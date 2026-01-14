@@ -28,6 +28,7 @@ Thumbs.db
 # Config and state (generated at runtime)
 queue.json
 config/shrinkray.yaml
+config/*.db*
 
 # Test data (videos) - ignore video files but keep scripts
 testdata/*
@@ -40,3 +41,4 @@ testdata/*
 # Housekeeping
 ghcr.sh
 CLAUDE.md
+HANDOFF.md
