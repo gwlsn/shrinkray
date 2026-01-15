@@ -27,6 +27,11 @@ type ProbeResult struct {
 	Profile     string        `json:"profile"`     // e.g., "High", "High 10", "Main 10"
 	PixelFormat string        `json:"pix_fmt"`     // e.g., "yuv420p", "yuv420p10le"
 	BitDepth    int           `json:"bit_depth"`   // 8, 10, 12
+	// HDR metadata
+	ColorTransfer  string `json:"color_transfer"`  // e.g., "smpte2084" (HDR10), "arib-std-b67" (HLG), "bt709"
+	ColorPrimaries string `json:"color_primaries"` // e.g., "bt2020", "bt709"
+	ColorSpace     string `json:"color_space"`     // e.g., "bt2020nc", "bt709"
+	IsHDR          bool   `json:"is_hdr"`          // true if HDR content detected
 }
 
 // ffprobeOutput represents the JSON output from ffprobe
@@ -53,6 +58,10 @@ type ffprobeStream struct {
 	Profile          string `json:"profile"`
 	PixelFormat      string `json:"pix_fmt"`
 	BitsPerRawSample string `json:"bits_per_raw_sample"`
+	// Color metadata for HDR detection
+	ColorTransfer  string `json:"color_transfer"`
+	ColorPrimaries string `json:"color_primaries"`
+	ColorSpace     string `json:"color_space"`
 }
 
 // Prober wraps ffprobe functionality
@@ -129,6 +138,11 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 				if result.BitDepth == 0 {
 					result.BitDepth = inferBitDepth(stream.PixelFormat)
 				}
+				// HDR metadata
+				result.ColorTransfer = stream.ColorTransfer
+				result.ColorPrimaries = stream.ColorPrimaries
+				result.ColorSpace = stream.ColorSpace
+				result.IsHDR = detectHDR(stream.ColorTransfer, stream.ColorPrimaries, result.BitDepth)
 			}
 		case "audio":
 			if result.AudioCodec == "" { // Take first audio stream
@@ -138,6 +152,34 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 	}
 
 	return result, nil
+}
+
+// detectHDR determines if video is HDR based on color metadata.
+// Primary detection: smpte2084 (PQ) transfer = HDR10
+// Fallback heuristic: 10-bit + bt2020 primaries = likely HDR
+func detectHDR(colorTransfer, colorPrimaries string, bitDepth int) bool {
+	transfer := strings.ToLower(colorTransfer)
+
+	// Primary detection: PQ transfer function = HDR10
+	if transfer == "smpte2084" {
+		return true
+	}
+
+	// HLG detection (for future support)
+	if transfer == "arib-std-b67" {
+		return true
+	}
+
+	// Fallback heuristic: if color_transfer is missing but we have
+	// 10-bit + bt2020 primaries, assume HDR (catches poorly-tagged content)
+	if colorTransfer == "" && bitDepth >= 10 {
+		primaries := strings.ToLower(colorPrimaries)
+		if primaries == "bt2020" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isHEVCCodec returns true if the codec is HEVC/x265

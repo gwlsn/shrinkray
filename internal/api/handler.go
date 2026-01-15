@@ -318,6 +318,8 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"schedule_start_hour":   h.cfg.ScheduleStartHour,
 		"schedule_end_hour":     h.cfg.ScheduleEndHour,
 		"output_format":         h.cfg.OutputFormat,
+		"tonemap_hdr":           h.cfg.TonemapHDR,
+		"tonemap_algorithm":     h.cfg.TonemapAlgorithm,
 	})
 }
 
@@ -334,6 +336,8 @@ type UpdateConfigRequest struct {
 	ScheduleStartHour *int    `json:"schedule_start_hour,omitempty"`
 	ScheduleEndHour   *int    `json:"schedule_end_hour,omitempty"`
 	OutputFormat      *string `json:"output_format,omitempty"`
+	TonemapHDR        *bool   `json:"tonemap_hdr,omitempty"`
+	TonemapAlgorithm  *string `json:"tonemap_algorithm,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -417,6 +421,21 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.cfg.OutputFormat = *req.OutputFormat
+	}
+
+	// Handle HDR tonemapping settings
+	if req.TonemapHDR != nil {
+		h.cfg.TonemapHDR = *req.TonemapHDR
+	}
+	if req.TonemapAlgorithm != nil {
+		// Validate algorithm
+		switch *req.TonemapAlgorithm {
+		case "hable", "bt2390", "reinhard", "mobius", "clip", "linear", "gamma":
+			h.cfg.TonemapAlgorithm = *req.TonemapAlgorithm
+		default:
+			writeError(w, http.StatusBadRequest, "tonemap_algorithm must be one of: hable, bt2390, reinhard, mobius, clip, linear, gamma")
+			return
+		}
 	}
 
 	// Persist config to disk

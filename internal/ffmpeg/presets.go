@@ -281,19 +281,42 @@ func getHwaccelInputArgs(encoder HWAccel, softwareDecode bool) []string {
 	}
 }
 
+// TonemapParams holds parameters for HDR to SDR tonemapping
+type TonemapParams struct {
+	IsHDR          bool   // True if source is HDR content
+	EnableTonemap  bool   // True if tonemapping should be applied
+	Algorithm      string // Tonemapping algorithm: hable, bt2390, reinhard, etc.
+}
+
 // BuildPresetArgs builds FFmpeg arguments for a preset with the specified encoder
 // sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
 // sourceWidth/sourceHeight are the source video dimensions (for calculating scaled output)
 // qualityHEVC/qualityAV1 are optional CRF overrides (0 = use default)
 // softwareDecode: if true, skip hardware decode args and use software decode filter
 // outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC and strips subtitles
+// tonemap: optional tonemapping parameters (nil = no tonemapping)
 // Returns (inputArgs, outputArgs) - inputArgs go before -i, outputArgs go after
-func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, softwareDecode bool, outputFormat string) (inputArgs []string, outputArgs []string) {
+func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, softwareDecode bool, outputFormat string, tonemap *TonemapParams) (inputArgs []string, outputArgs []string) {
 	key := EncoderKey{preset.Encoder, preset.Codec}
 	config, ok := encoderConfigs[key]
 	if !ok {
 		// Fallback to software encoder for the target codec
 		config = encoderConfigs[EncoderKey{HWAccelNone, preset.Codec}]
+	}
+
+	// Check if we need tonemapping
+	needsTonemap := tonemap != nil && tonemap.IsHDR && tonemap.EnableTonemap
+	// Check if we need to preserve HDR (HDR source, tonemapping disabled)
+	preserveHDR := tonemap != nil && tonemap.IsHDR && !tonemap.EnableTonemap
+	var tonemapFilter string
+	if needsTonemap {
+		algorithm := tonemap.Algorithm
+		if algorithm == "" {
+			algorithm = "hable"
+		}
+		tonemapFilter, _ = BuildTonemapFilter(algorithm)
+		// Software tonemapping requires software decode
+		softwareDecode = true
 	}
 
 	// Input args: hardware acceleration for decoding
@@ -305,19 +328,51 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 
 	// Build video filter chain
 	var filterParts []string
+
+	// First add any base filters for decode pipeline
 	if softwareDecode {
 		// Use software decode filter for the encoder
-		swFilter := getSoftwareDecodeFilter(preset.Encoder)
+		// Pass preserveHDR=false when tonemapping (SW tonemap outputs 8-bit SDR)
+		swFilter := getSoftwareDecodeFilter(preset.Encoder, preserveHDR && !needsTonemap)
 		if swFilter != "" {
 			filterParts = append(filterParts, swFilter)
 		}
 	} else if config.baseFilter != "" {
 		// Use normal hardware decode filter
-		filterParts = append(filterParts, config.baseFilter)
+		// For HDR preservation, replace nv12 with p010 in the filter chain
+		baseFilter := config.baseFilter
+		if preserveHDR && !needsTonemap {
+			baseFilter = strings.ReplaceAll(baseFilter, "format=nv12", "format=p010")
+			baseFilter = strings.ReplaceAll(baseFilter, "=format=nv12", "=format=p010")
+		}
+		filterParts = append(filterParts, baseFilter)
 	}
 
-	// Add scaling filter if needed
-	if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+	// Add tonemapping filter if needed
+	// Software tonemap (zscale) goes before hwupload since it requires CPU frames
+	if needsTonemap && tonemapFilter != "" {
+		// Software tonemap - insert at beginning (before hwupload)
+		// The zscale chain expects CPU frames and outputs CPU frames
+		filterParts = []string{tonemapFilter}
+
+		// Add CPU scaling if needed - must be done BEFORE hwupload since
+		// software tonemapping outputs CPU frames. Hardware scalers (scale_qsv,
+		// scale_cuda, etc.) don't work after hwupload from software tonemap.
+		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+			filterParts = append(filterParts, fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
+		}
+
+		// Re-add hwupload after tonemap (and optional scale) if encoder needs it
+		// Tonemap outputs 8-bit SDR, so preserveHDR=false
+		swFilter := getSoftwareDecodeFilter(preset.Encoder, false)
+		if swFilter != "" {
+			filterParts = append(filterParts, swFilter)
+		}
+	}
+
+	// Add scaling filter if needed (non-tonemapping path only)
+	// When tonemapping, scaling is already handled above with CPU scale
+	if !needsTonemap && preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
 		scaleFilter := config.scaleFilter
 		if scaleFilter == "" {
 			scaleFilter = "scale"
@@ -378,6 +433,34 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 
 	// Add encoder-specific extra args
 	outputArgs = append(outputArgs, config.extraArgs...)
+
+	// Add HDR preservation flags when preserving HDR content
+	// Per FFmpeg docs and Jellyfin implementation:
+	// - Main10 profile for 10-bit HEVC/AV1
+	// - Color metadata for HDR10 (BT.2020 colorspace, PQ transfer)
+	if preserveHDR && !needsTonemap {
+		// Set 10-bit profile for HEVC encoders
+		// Most HW encoders auto-detect, but explicit is safer
+		if preset.Codec == CodecHEVC {
+			switch preset.Encoder {
+			case HWAccelNVENC:
+				outputArgs = append(outputArgs, "-profile:v", "main10")
+			case HWAccelQSV, HWAccelVAAPI:
+				outputArgs = append(outputArgs, "-profile:v", "main10")
+			case HWAccelVideoToolbox:
+				outputArgs = append(outputArgs, "-profile:v", "main10")
+			case HWAccelNone:
+				// libx265 uses x265-params for profile
+				outputArgs = append(outputArgs, "-profile:v", "main10")
+			}
+		}
+		// Add HDR10 color metadata to preserve HDR signaling
+		outputArgs = append(outputArgs,
+			"-color_primaries", "bt2020",
+			"-color_trc", "smpte2084",
+			"-colorspace", "bt2020nc",
+		)
+	}
 
 	// Add stream mapping and handle audio/subtitles based on output format
 	// Use explicit stream selection to skip attached pictures (cover art)
@@ -468,14 +551,19 @@ func getSoftwarePreset(id string) *Preset {
 // getSoftwareDecodeFilter returns the filter chain for software decode + hardware encode.
 // These are simplified filters that avoid problematic hardware post-processing filters
 // like vpp_qsv which can cause -38 errors near end of stream.
-func getSoftwareDecodeFilter(encoder HWAccel) string {
+// When preserveHDR is true, uses p010 (10-bit) format to preserve HDR color depth.
+func getSoftwareDecodeFilter(encoder HWAccel, preserveHDR bool) string {
+	pixFmt := "nv12"
+	if preserveHDR {
+		pixFmt = "p010"
+	}
 	switch encoder {
 	case HWAccelQSV:
 		// Simple hwupload - no vpp_qsv (causes -38 errors near EOF)
 		// Per Jellyfin PR #5534: hwupload is sufficient for QSV encoding
-		return "format=nv12,hwupload=extra_hw_frames=64"
+		return fmt.Sprintf("format=%s,hwupload=extra_hw_frames=64", pixFmt)
 	case HWAccelVAAPI:
-		return "format=nv12,hwupload"
+		return fmt.Sprintf("format=%s,hwupload", pixFmt)
 	case HWAccelNVENC:
 		return "" // NVENC auto-handles CPU frames
 	case HWAccelVideoToolbox:
@@ -483,6 +571,17 @@ func getSoftwareDecodeFilter(encoder HWAccel) string {
 	default:
 		return ""
 	}
+}
+
+// BuildTonemapFilter returns the FFmpeg filter chain for HDR to SDR tonemapping.
+// Returns the filter string and whether it requires software decode.
+// Uses software tonemapping (zscale) for universal compatibility across all hardware.
+// The algorithm parameter should be one of: hable, bt2390, reinhard, mobius, clip, linear, gamma.
+func BuildTonemapFilter(algorithm string) (filter string, requiresSoftwareDecode bool) {
+	// Software tonemapping via zscale - works universally with all encoders
+	// Pipeline: HDR (BT.2020 PQ) -> linear light -> tonemap -> SDR (BT.709)
+	// Encoding is still hardware-accelerated; only tonemapping uses CPU
+	return fmt.Sprintf("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=%s:desat=0:peak=100,zscale=t=bt709:m=bt709,format=yuv420p", algorithm), true
 }
 
 // ListPresets returns all available presets

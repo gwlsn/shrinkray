@@ -157,6 +157,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		VideoCodec: probe.VideoCodec,
 		Profile:    probe.Profile,
 		BitDepth:   probe.BitDepth,
+		IsHDR:      probe.IsHDR,
 		CreatedAt:  time.Now(),
 	}
 
@@ -167,11 +168,11 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	q.persist(job)
 	q.persistOrder(job.ID)
 
-	// Broadcast appropriate event based on status
+	// Broadcast appropriate event based on status (copy to avoid races)
 	if skipReason != "" {
-		q.broadcast(JobEvent{Type: "skipped", Job: job})
+		q.broadcast(JobEvent{Type: "skipped", Job: job.Copy()})
 	} else {
-		q.broadcast(JobEvent{Type: "added", Job: job})
+		q.broadcast(JobEvent{Type: "added", Job: job.Copy()})
 	}
 
 	return job, nil
@@ -227,6 +228,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 			VideoCodec: probe.VideoCodec,
 			Profile:    probe.Profile,
 			BitDepth:   probe.BitDepth,
+			IsHDR:      probe.IsHDR,
 			CreatedAt:  time.Now(),
 		}
 
@@ -307,7 +309,7 @@ func (q *Queue) StartJob(id string, tempPath string) error {
 	job.StartedAt = time.Now()
 
 	q.persist(job)
-	q.broadcast(JobEvent{Type: "started", Job: job})
+	q.broadcast(JobEvent{Type: "started", Job: job.Copy()})
 
 	return nil
 }
@@ -329,7 +331,7 @@ func (q *Queue) UpdateProgress(id string, progress float64, speed float64, eta s
 	// Don't persist on every progress update (too expensive)
 	// Just broadcast to subscribers
 
-	q.broadcast(JobEvent{Type: "progress", Job: job})
+	q.broadcast(JobEvent{Type: "progress", Job: job.Copy()})
 }
 
 // CompleteJob marks a job as complete
@@ -360,7 +362,7 @@ func (q *Queue) CompleteJob(id string, outputPath string, outputSize int64) erro
 		}
 	}
 
-	q.broadcast(JobEvent{Type: "complete", Job: job})
+	q.broadcast(JobEvent{Type: "complete", Job: job.Copy()})
 
 	return nil
 }
@@ -381,7 +383,7 @@ func (q *Queue) FailJob(id string, errMsg string) error {
 	job.TempPath = "" // Clear temp path
 
 	q.persist(job)
-	q.broadcast(JobEvent{Type: "failed", Job: job})
+	q.broadcast(JobEvent{Type: "failed", Job: job.Copy()})
 
 	return nil
 }
@@ -404,7 +406,7 @@ func (q *Queue) CancelJob(id string) error {
 	job.CompletedAt = time.Now()
 
 	q.persist(job)
-	q.broadcast(JobEvent{Type: "cancelled", Job: job})
+	q.broadcast(JobEvent{Type: "cancelled", Job: job.Copy()})
 
 	return nil
 }
@@ -449,7 +451,7 @@ func (q *Queue) Requeue(id string) error {
 		}
 	}
 
-	q.broadcast(JobEvent{Type: "requeued", Job: job})
+	q.broadcast(JobEvent{Type: "requeued", Job: job.Copy()})
 
 	return nil
 }

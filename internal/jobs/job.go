@@ -41,6 +41,7 @@ type Job struct {
 	VideoCodec  string    `json:"video_codec,omitempty"`  // Source codec (h264, hevc, etc.)
 	Profile     string    `json:"profile,omitempty"`      // Codec profile (High, High 10, Main, etc.)
 	BitDepth    int       `json:"bit_depth,omitempty"`    // Color depth (8, 10, 12)
+	IsHDR       bool      `json:"is_hdr,omitempty"`       // True if source is HDR (HDR10, HLG, etc.)
 	TranscodeTime int64   `json:"transcode_secs,omitempty"` // Time to transcode in seconds
 	CreatedAt   time.Time `json:"created_at"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
@@ -50,6 +51,12 @@ type Job struct {
 // IsTerminal returns true if the job is in a terminal state
 func (j *Job) IsTerminal() bool {
 	return j.Status == StatusComplete || j.Status == StatusFailed || j.Status == StatusCancelled || j.Status == StatusSkipped
+}
+
+// Copy returns a shallow copy of the job (safe since Job has no pointer/slice fields)
+func (j *Job) Copy() *Job {
+	copy := *j
+	return &copy
 }
 
 // JobEvent represents an event for SSE streaming

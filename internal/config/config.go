@@ -66,6 +66,15 @@ type Config struct {
 	// OutputFormat is the container format for transcoded files: "mkv" or "mp4"
 	// MKV preserves all streams; MP4 transcodes audio to AAC and strips subtitles
 	OutputFormat string `yaml:"output_format"`
+
+	// TonemapHDR enables automatic HDR to SDR conversion (default: false)
+	// When enabled, HDR content (HDR10, HLG) is tonemapped to SDR using CPU.
+	// When disabled, HDR metadata is preserved for HDR-capable displays.
+	TonemapHDR bool `yaml:"tonemap_hdr"`
+
+	// TonemapAlgorithm is the tonemapping algorithm to use: "hable", "bt2390", "reinhard"
+	// Default is "hable" (filmic, good for movies)
+	TonemapAlgorithm string `yaml:"tonemap_algorithm"`
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -85,6 +94,8 @@ func DefaultConfig() *Config {
 		ScheduleEndHour:   6,  // 6 AM
 		LogLevel:          "info",
 		OutputFormat:      "mkv",
+		TonemapHDR:        false,   // HDR passthrough by default; enable for SDR conversion (uses CPU)
+		TonemapAlgorithm:  "hable", // Filmic tonemapping, good for movies
 	}
 }
 
@@ -127,6 +138,19 @@ func Load(path string) (*Config, error) {
 
 	if cfg.OutputFormat == "" {
 		cfg.OutputFormat = "mkv"
+	}
+
+	// Validate tonemapping algorithm
+	if cfg.TonemapAlgorithm == "" {
+		cfg.TonemapAlgorithm = "hable"
+	}
+	// Ensure it's a valid algorithm
+	switch cfg.TonemapAlgorithm {
+	case "hable", "bt2390", "reinhard", "mobius", "clip", "linear", "gamma":
+		// Valid algorithms
+	default:
+		// Unknown algorithm - fall back to hable
+		cfg.TonemapAlgorithm = "hable"
 	}
 
 	return cfg, nil

@@ -608,11 +608,11 @@ func TestBuildPresetArgsComprehensive(t *testing.T) {
 				}
 
 				// Test hardware decode
-				inputArgsHW, outputArgsHW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, false, "mkv")
+				inputArgsHW, outputArgsHW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, false, "mkv", nil)
 				t.Logf("HW decode: input=%v output=%v", inputArgsHW, outputArgsHW)
 
 				// Test software decode
-				inputArgsSW, outputArgsSW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, true, "mkv")
+				inputArgsSW, outputArgsSW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, true, "mkv", nil)
 				t.Logf("SW decode: input=%v output=%v", inputArgsSW, outputArgsSW)
 
 				// Verify encoder is in output args

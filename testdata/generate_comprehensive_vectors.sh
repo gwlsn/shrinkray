@@ -328,6 +328,102 @@ generate "comp_wmv2_short.wmv" "WMV2 ${SHORT_DURATION}s (Issue #32)" \
 echo ""
 
 # ============================================================================
+# HDR TEST FILES - Issue #65 HDR to SDR Tonemapping
+# ============================================================================
+echo "--- HDR Test Files (Issue #65 - HDR to SDR Tonemapping) ---"
+
+# H.264 10-bit with HDR10 metadata (smpte2084 PQ transfer)
+generate "comp_h264_hdr10_short.mkv" "10-bit HDR10 (PQ transfer), ${SHORT_DURATION}s" \
+    -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+    -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+    -c:v libx264 -pix_fmt yuv420p10le -profile:v high10 -crf 23 -preset ultrafast \
+    -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_h264_hdr10_short.mkv
+
+# HEVC 10-bit HDR10 (the most common HDR format)
+generate "comp_hevc_hdr10_short.mkv" "10-bit HEVC HDR10 (PQ transfer), ${SHORT_DURATION}s" \
+    -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+    -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+    -c:v libx265 -pix_fmt yuv420p10le -profile:v main10 -crf 28 -preset ultrafast -x265-params log-level=error \
+    -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_hevc_hdr10_short.mkv
+
+# HEVC 10-bit HLG (hybrid log-gamma - common for broadcast)
+generate "comp_hevc_hlg_short.mkv" "10-bit HEVC HLG (arib-std-b67 transfer), ${SHORT_DURATION}s" \
+    -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+    -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+    -c:v libx265 -pix_fmt yuv420p10le -profile:v main10 -crf 28 -preset ultrafast -x265-params log-level=error \
+    -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_hevc_hlg_short.mkv
+
+# HEVC HDR10 4K (realistic HDR content)
+generate "comp_hevc_hdr10_4k.mkv" "4K HEVC HDR10, 3s" \
+    -y -f lavfi -i "testsrc2=s=3840x2160:d=3:r=30" \
+    -f lavfi -i "sine=f=440:d=3" \
+    -c:v libx265 -pix_fmt yuv420p10le -profile:v main10 -crf 32 -preset ultrafast -x265-params log-level=error \
+    -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_hevc_hdr10_4k.mkv
+
+# HEVC HDR10 with cover art (combine HDR + cover art edge cases)
+echo -n "  Generating comp_hevc_hdr10_coverart.mkv (HDR10 with cover art)... "
+ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+    -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+    -c:v libx265 -pix_fmt yuv420p10le -profile:v main10 -crf 28 -preset ultrafast -x265-params log-level=error \
+    -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_hevc_hdr10_coverart_temp.mkv 2>&1 && \
+ffmpeg -hide_banner -loglevel error -y \
+    -i comp_hevc_hdr10_coverart_temp.mkv \
+    -i cover_art.jpg \
+    -map 0 -map 1 \
+    -c copy \
+    -disposition:v:1 attached_pic \
+    comp_hevc_hdr10_coverart.mkv 2>&1 && \
+rm -f comp_hevc_hdr10_coverart_temp.mkv && echo "OK" || echo "FAILED"
+
+# VP9 10-bit with HDR10 metadata (webm HDR)
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libvpx-vp9; then
+    generate "comp_vp9_hdr10_short.mkv" "10-bit VP9 HDR10, ${SHORT_DURATION}s" \
+        -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+        -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+        -c:v libvpx-vp9 -pix_fmt yuv420p10le -profile:v 2 -crf 35 -b:v 0 -cpu-used 8 \
+        -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+        -c:a aac -b:a 128k \
+        comp_vp9_hdr10_short.mkv
+else
+    echo "  SKIP: libvpx-vp9 not available for VP9 HDR test"
+fi
+
+# AV1 10-bit with HDR10 metadata
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libsvtav1; then
+    generate "comp_av1_hdr10_short.mkv" "10-bit AV1 HDR10, ${SHORT_DURATION}s" \
+        -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+        -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+        -c:v libsvtav1 -pix_fmt yuv420p10le -crf 40 -preset 8 \
+        -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc \
+        -c:a aac -b:a 128k \
+        comp_av1_hdr10_short.mkv
+else
+    echo "  SKIP: libsvtav1 not available for AV1 HDR test"
+fi
+
+# 10-bit bt2020 without transfer function (fallback HDR detection test)
+generate "comp_h264_bt2020_notransfer.mkv" "10-bit bt2020 primaries, no transfer (fallback test)" \
+    -y -f lavfi -i "testsrc2=s=1280x720:d=$SHORT_DURATION:r=30" \
+    -f lavfi -i "sine=f=440:d=$SHORT_DURATION" \
+    -c:v libx264 -pix_fmt yuv420p10le -profile:v high10 -crf 23 -preset ultrafast \
+    -color_primaries bt2020 -colorspace bt2020nc \
+    -c:a aac -b:a 128k \
+    comp_h264_bt2020_notransfer.mkv
+
+echo ""
+
+# ============================================================================
 # EDGE CASE TEST FILES
 # ============================================================================
 echo "--- Edge Case Test Files ---"
