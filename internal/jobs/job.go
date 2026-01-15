@@ -13,6 +13,7 @@ const (
 	StatusComplete  Status = "complete"
 	StatusFailed    Status = "failed"
 	StatusCancelled Status = "cancelled"
+	StatusSkipped   Status = "skipped"
 )
 
 // Job represents a transcoding job
@@ -48,12 +49,12 @@ type Job struct {
 
 // IsTerminal returns true if the job is in a terminal state
 func (j *Job) IsTerminal() bool {
-	return j.Status == StatusComplete || j.Status == StatusFailed || j.Status == StatusCancelled
+	return j.Status == StatusComplete || j.Status == StatusFailed || j.Status == StatusCancelled || j.Status == StatusSkipped
 }
 
 // JobEvent represents an event for SSE streaming
 type JobEvent struct {
-	Type   string `json:"type"`            // "added", "jobs_added", "discovery_progress", "complete", "failed", "cancelled", "progress"
+	Type   string `json:"type"`            // "added", "jobs_added", "discovery_progress", "complete", "failed", "skipped", "cancelled", "progress"
 	Job    *Job   `json:"job,omitempty"`   // Single job for most events
 	Count  int    `json:"count,omitempty"` // Number of jobs for batch events (jobs_added)
 	Probed int    `json:"probed,omitempty"` // Files probed so far (discovery_progress)

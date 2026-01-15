@@ -137,7 +137,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 
 	status := StatusPending
 	if skipReason != "" {
-		status = StatusFailed
+		status = StatusSkipped
 	}
 
 	job := &Job{
@@ -169,7 +169,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 
 	// Broadcast appropriate event based on status
 	if skipReason != "" {
-		q.broadcast(JobEvent{Type: "failed", Job: job})
+		q.broadcast(JobEvent{Type: "skipped", Job: job})
 	} else {
 		q.broadcast(JobEvent{Type: "added", Job: job})
 	}
@@ -204,7 +204,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 
 		status := StatusPending
 		if skipReason != "" {
-			status = StatusFailed
+			status = StatusSkipped
 			failedCount++
 		} else {
 			addedCount++
@@ -559,6 +559,7 @@ type Stats struct {
 	Complete      int   `json:"complete"`
 	Failed        int   `json:"failed"`
 	Cancelled     int   `json:"cancelled"`
+	Skipped       int   `json:"skipped"`
 	Total         int   `json:"total"`
 	TotalSaved    int64 `json:"total_saved"`    // For API compatibility (= session_saved)
 	SessionSaved  int64 `json:"session_saved"`  // Bytes saved this session
@@ -584,6 +585,8 @@ func (q *Queue) Stats() Stats {
 			stats.Failed++
 		case StatusCancelled:
 			stats.Cancelled++
+		case StatusSkipped:
+			stats.Skipped++
 		}
 	}
 

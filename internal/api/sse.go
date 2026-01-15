@@ -57,8 +57,8 @@ func (h *Handler) JobStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 
 			// Check if we should send a Pushover notification
-			// This happens when a job completes/fails/cancels and the queue is empty
-			if event.Type == "complete" || event.Type == "failed" || event.Type == "cancelled" {
+			// This happens when a job completes/fails/skips/cancels and the queue is empty
+			if event.Type == "complete" || event.Type == "failed" || event.Type == "cancelled" || event.Type == "skipped" {
 				h.checkAndSendNotification(w, flusher)
 			}
 		}

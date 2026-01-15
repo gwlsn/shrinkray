@@ -462,12 +462,13 @@ func (s *SQLiteStore) Stats() (Stats, error) {
 			SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
 			SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) as complete,
 			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-			SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+			SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+			SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped
 		FROM jobs
 	`)
 
 	err = row.Scan(&stats.Total, &stats.Pending, &stats.Running, &stats.Complete,
-		&stats.Failed, &stats.Cancelled)
+		&stats.Failed, &stats.Cancelled, &stats.Skipped)
 	if err != nil {
 		return stats, err
 	}

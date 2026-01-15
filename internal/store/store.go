@@ -76,6 +76,7 @@ type Stats struct {
 	Complete      int   `json:"complete"`
 	Failed        int   `json:"failed"`
 	Cancelled     int   `json:"cancelled"`
+	Skipped       int   `json:"skipped"`
 	Total         int   `json:"total"`
 	TotalSaved    int64 `json:"total_saved"`    // For API compatibility (= session_saved)
 	SessionSaved  int64 `json:"session_saved"`  // Bytes saved this session

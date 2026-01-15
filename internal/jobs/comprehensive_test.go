@@ -362,7 +362,7 @@ func runComprehensiveTest(t *testing.T, testdataDir, filename, presetID string,
 
 	// Check for expected skip
 	if expectSkip {
-		if job.Status == StatusFailed {
+		if job.Status == StatusSkipped {
 			if strings.Contains(job.Error, "already") ||
 				strings.Contains(job.Error, "HEVC") ||
 				strings.Contains(job.Error, "AV1") {

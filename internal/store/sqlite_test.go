@@ -441,14 +441,18 @@ func TestSQLiteStore_Stats(t *testing.T) {
 	cancelled.Status = jobs.StatusCancelled
 	store.SaveJob(cancelled)
 
+	skipped := createTestJob("skipped")
+	skipped.Status = jobs.StatusSkipped
+	store.SaveJob(skipped)
+
 	// Get stats
 	stats, err := store.Stats()
 	if err != nil {
 		t.Fatalf("failed to get stats: %v", err)
 	}
 
-	if stats.Total != 6 {
-		t.Errorf("expected Total 6, got %d", stats.Total)
+	if stats.Total != 7 {
+		t.Errorf("expected Total 7, got %d", stats.Total)
 	}
 	if stats.Pending != 1 {
 		t.Errorf("expected Pending 1, got %d", stats.Pending)
@@ -464,6 +468,9 @@ func TestSQLiteStore_Stats(t *testing.T) {
 	}
 	if stats.Cancelled != 1 {
 		t.Errorf("expected Cancelled 1, got %d", stats.Cancelled)
+	}
+	if stats.Skipped != 1 {
+		t.Errorf("expected Skipped 1, got %d", stats.Skipped)
 	}
 	// TotalSaved now equals SessionSaved for API compatibility
 	if stats.TotalSaved != 300000 {

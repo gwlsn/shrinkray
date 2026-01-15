@@ -868,6 +868,11 @@
             color: var(--error);
         }
 
+        .job-badge.skipped {
+            background: var(--warning-light);
+            color: var(--warning);
+        }
+
         .job-badge.initializing {
             background: var(--purple-light);
             color: var(--purple);
@@ -937,6 +942,12 @@
 
         .job-error {
             color: var(--error);
+            font-size: 0.8125rem;
+            margin-top: 8px;
+        }
+
+        .job-warning {
+            color: var(--warning);
             font-size: 0.8125rem;
             margin-top: 8px;
         }
@@ -1640,6 +1651,7 @@
                                 <option value="pending">Pending</option>
                                 <option value="failed">Failed</option>
                                 <option value="complete">Complete</option>
+                                <option value="skipped">Skipped</option>
                                 <option value="cancelled">Cancelled</option>
                             </select>
                         </div>
@@ -2378,6 +2390,7 @@
                     ` : ''}
                     <div class="job-details">${detailsHtml}</div>
                     ${job.status === 'failed' ? `<div class="job-error">${job.error}</div>` : ''}
+                    ${job.status === 'skipped' ? `<div class="job-warning">${job.error}</div>` : ''}
                     ${job.status === 'pending' || job.status === 'running' ? `
                         <div class="job-actions">
                             <button class="btn btn-secondary btn-sm" onclick="cancelJob('${job.id}')">Cancel</button>
@@ -2433,7 +2446,7 @@
         }
 
         function updateJobStatus(updatedJob) {
-            const statusOrder = { running: 0, pending: 1, failed: 2, complete: 3, cancelled: 4 };
+            const statusOrder = { running: 0, pending: 1, failed: 2, skipped: 3, complete: 4, cancelled: 5 };
 
             // Find current index before update
             const oldIdx = allSortedJobs.findIndex(j => j.id === updatedJob.id);
@@ -2571,7 +2584,7 @@
 
             allSortedJobs.push(job);
             // Re-sort
-            const statusOrder = { running: 0, pending: 1, failed: 2, complete: 3, cancelled: 4 };
+            const statusOrder = { running: 0, pending: 1, failed: 2, skipped: 3, complete: 4, cancelled: 5 };
             allSortedJobs.sort((a, b) => {
                 const orderA = statusOrder[a.status] ?? 5;
                 const orderB = statusOrder[b.status] ?? 5;
@@ -2616,7 +2629,7 @@
         const JOBS_PER_PAGE = 50;
         let allSortedJobs = [];
         let displayedJobCount = 0;
-        let queueFilter = 'all'; // 'all', 'running', 'pending', 'failed', 'complete', 'cancelled'
+        let queueFilter = 'all'; // 'all', 'running', 'pending', 'failed', 'skipped', 'complete', 'cancelled'
 
         function setQueueFilter(filter) {
             queueFilter = filter;
@@ -2662,7 +2675,7 @@
             }
 
             // Sort jobs by status: running first, then pending, failed, completed
-            const statusOrder = { running: 0, pending: 1, failed: 2, complete: 3, cancelled: 4 };
+            const statusOrder = { running: 0, pending: 1, failed: 2, skipped: 3, complete: 4, cancelled: 5 };
             allSortedJobs = [...jobs].sort((a, b) => {
                 const orderA = statusOrder[a.status] ?? 5;
                 const orderB = statusOrder[b.status] ?? 5;
@@ -2914,11 +2927,11 @@
                     updateJobProgress(data.job.id, data.job.progress, data.job.speed, data.job.eta);
                 } else if (data.type === 'started' || data.type === 'complete' ||
                            data.type === 'failed' || data.type === 'cancelled' ||
-                           data.type === 'requeued') {
+                           data.type === 'requeued' || data.type === 'skipped') {
                     // Status change: update that specific job element
                     updateJobStatus(data.job);
                     scheduleStatsRefresh();
-                    if (data.type === 'complete' || data.type === 'failed') {
+                    if (data.type === 'complete' || data.type === 'failed' || data.type === 'skipped') {
                         scheduleBrowseRefresh();
                     }
                 } else if (data.type === 'added') {

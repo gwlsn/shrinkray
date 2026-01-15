@@ -223,9 +223,9 @@ func runCodecDetectionTest(t *testing.T, testdataDir, filename, presetID string,
 		t.Fatalf("failed to add job: %v", err)
 	}
 
-	// Check for skip - jobs are created but immediately failed with skip message
+	// Check for skip - jobs are created but immediately skipped with skip message
 	if expectSkip {
-		if job.Status == StatusFailed {
+		if job.Status == StatusSkipped {
 			if strings.Contains(job.Error, "already") ||
 				strings.Contains(job.Error, "HEVC") ||
 				strings.Contains(job.Error, "AV1") {
