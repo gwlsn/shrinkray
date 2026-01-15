@@ -354,7 +354,15 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		// Software tonemap - insert at beginning (before hwupload)
 		// The zscale chain expects CPU frames and outputs CPU frames
 		filterParts = []string{tonemapFilter}
-		// Re-add hwupload after tonemap if encoder needs it
+
+		// Add CPU scaling if needed - must be done BEFORE hwupload since
+		// software tonemapping outputs CPU frames. Hardware scalers (scale_qsv,
+		// scale_cuda, etc.) don't work after hwupload from software tonemap.
+		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+			filterParts = append(filterParts, fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
+		}
+
+		// Re-add hwupload after tonemap (and optional scale) if encoder needs it
 		// Tonemap outputs 8-bit SDR, so preserveHDR=false
 		swFilter := getSoftwareDecodeFilter(preset.Encoder, false)
 		if swFilter != "" {
@@ -362,8 +370,9 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		}
 	}
 
-	// Add scaling filter if needed
-	if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+	// Add scaling filter if needed (non-tonemapping path only)
+	// When tonemapping, scaling is already handled above with CPU scale
+	if !needsTonemap && preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
 		scaleFilter := config.scaleFilter
 		if scaleFilter == "" {
 			scaleFilter = "scale"
