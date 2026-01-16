@@ -2923,8 +2923,8 @@
                     const sizeA = a.input_size || 0;
                     const sizeB = b.input_size || 0;
                     const result = sizeA - sizeB;
-                    // ↓ = smallest first, ↑ = largest first
-                    return queueSortAsc ? -result : result;
+                    // ↓ = largest first, ↑ = smallest first
+                    return queueSortAsc ? result : -result;
                 }
 
                 if (queueSortBy === 'output_size') {
@@ -2935,8 +2935,8 @@
                     if (!hasA && hasB) return 1;
                     if (!hasA && !hasB) return 0;
                     const result = a.output_size - b.output_size;
-                    // ↓ = smallest first, ↑ = largest first
-                    return queueSortAsc ? -result : result;
+                    // ↓ = largest first, ↑ = smallest first
+                    return queueSortAsc ? result : -result;
                 }
 
                 if (queueSortBy === 'space_saved') {
@@ -2947,8 +2947,8 @@
                     if (!hasA && hasB) return 1;
                     if (!hasA && !hasB) return 0;
                     const result = a.space_saved - b.space_saved;
-                    // ↓ = smallest first, ↑ = largest first
-                    return queueSortAsc ? -result : result;
+                    // ↓ = largest first, ↑ = smallest first
+                    return queueSortAsc ? result : -result;
                 }
 
                 return 0;
