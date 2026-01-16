@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/logger"
@@ -136,6 +137,36 @@ func (t *Transcoder) Transcode(
 	// Track last frame count for error reporting
 	var lastFrameCount int64
 
+	// First frame detection: if FFmpeg produces no frames for 10 seconds,
+	// the decoder is likely stuck (e.g., VAAPI trying to decode unsupported codec).
+	// Kill FFmpeg early to trigger software decode retry instead of hanging indefinitely.
+	// 10 seconds is generous - most videos produce their first frame within 1-2 seconds.
+	const firstFrameTimeout = 10 * time.Second
+	firstFrameReceived := make(chan struct{})
+	var firstFrameClosed bool
+	var firstFrameMu sync.Mutex
+
+	// Start a watchdog goroutine to kill FFmpeg if no frames appear
+	go func() {
+		select {
+		case <-firstFrameReceived:
+			// First frame received, no need to kill
+			return
+		case <-time.After(firstFrameTimeout):
+			// No frames received within timeout - likely decode failure
+			// Kill FFmpeg to trigger retry with software decode
+			logger.Warn("FFmpeg produced no frames within timeout, killing process",
+				"timeout", firstFrameTimeout)
+			// Send SIGKILL to FFmpeg - context cancellation is cleaner but this is faster
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+		case <-ctx.Done():
+			// Context cancelled (shutdown or job cancel), don't interfere
+			return
+		}
+	}()
+
 	// Parse progress from stdout
 	go func() {
 		defer close(progressCh)
@@ -153,6 +184,15 @@ func (t *Transcoder) Transcode(
 				case "frame":
 					currentProgress.Frame, _ = strconv.ParseInt(value, 10, 64)
 					lastFrameCount = currentProgress.Frame
+					// Signal first frame received to cancel the watchdog
+					if currentProgress.Frame > 0 {
+						firstFrameMu.Lock()
+						if !firstFrameClosed {
+							close(firstFrameReceived)
+							firstFrameClosed = true
+						}
+						firstFrameMu.Unlock()
+					}
 				case "fps":
 					currentProgress.FPS, _ = strconv.ParseFloat(value, 64)
 				case "total_size":
