@@ -764,8 +764,15 @@
             margin-left: auto;
         }
 
-        .queue-filter {
-            padding: 4px 8px;
+        .queue-menu {
+            position: relative;
+        }
+
+        .queue-menu-trigger {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
             font-size: 0.75rem;
@@ -773,15 +780,85 @@
             background: var(--bg-secondary);
             color: var(--text-primary);
             cursor: pointer;
+            transition: border-color 0.15s ease;
         }
 
-        .queue-filter:hover {
+        .queue-menu-trigger:hover {
             border-color: var(--border-hover);
         }
 
-        .queue-filter:focus {
-            outline: none;
-            border-color: var(--accent);
+        .queue-menu-trigger svg {
+            width: 14px;
+            height: 14px;
+            opacity: 0.6;
+        }
+
+        .queue-menu-dropdown {
+            position: fixed;
+            min-width: 200px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-4px);
+            transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+        }
+
+        .queue-menu-dropdown.open {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .queue-menu-section {
+            padding: 8px 0;
+        }
+
+        .queue-menu-section:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .queue-menu-label {
+            padding: 4px 12px 6px;
+            font-size: 0.625rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+        }
+
+        .queue-menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 12px;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.1s ease, color 0.1s ease;
+        }
+
+        .queue-menu-item:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .queue-menu-item.active {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .queue-menu-item .sort-arrow {
+            font-size: 0.75rem;
+            opacity: 0.5;
+            transition: opacity 0.1s ease;
+        }
+
+        .queue-menu-item.active .sort-arrow {
+            opacity: 1;
         }
 
         /* Queue Panel */
@@ -1655,15 +1732,37 @@
                                 <input type="checkbox" id="notify-checkbox" onchange="updateNotifySetting(this.checked)">
                                 <span>Notify when done</span>
                             </label>
-                            <select class="queue-filter" id="queue-filter" onchange="setQueueFilter(this.value)">
-                                <option value="all">All</option>
-                                <option value="running">Running</option>
-                                <option value="pending">Pending</option>
-                                <option value="failed">Failed</option>
-                                <option value="complete">Complete</option>
-                                <option value="skipped">Skipped</option>
-                                <option value="cancelled">Cancelled</option>
-                            </select>
+                            <div class="queue-menu" id="queue-menu">
+                                <button class="queue-menu-trigger" onclick="toggleQueueMenu(event)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="4" y1="6" x2="16" y2="6"/>
+                                        <line x1="4" y1="12" x2="12" y2="12"/>
+                                        <line x1="4" y1="18" x2="8" y2="18"/>
+                                        <polyline points="16 14 19 17 22 14"/>
+                                    </svg>
+                                    <span id="queue-menu-label">All</span>
+                                </button>
+                                <div class="queue-menu-dropdown" id="queue-menu-dropdown">
+                                    <div class="queue-menu-section">
+                                        <div class="queue-menu-label">Filter</div>
+                                        <div class="queue-menu-item active" data-filter="all" onclick="selectFilter('all')">All</div>
+                                        <div class="queue-menu-item" data-filter="running" onclick="selectFilter('running')">Running</div>
+                                        <div class="queue-menu-item" data-filter="pending" onclick="selectFilter('pending')">Pending</div>
+                                        <div class="queue-menu-item" data-filter="failed" onclick="selectFilter('failed')">Failed</div>
+                                        <div class="queue-menu-item" data-filter="complete" onclick="selectFilter('complete')">Complete</div>
+                                        <div class="queue-menu-item" data-filter="skipped" onclick="selectFilter('skipped')">Skipped</div>
+                                        <div class="queue-menu-item" data-filter="cancelled" onclick="selectFilter('cancelled')">Cancelled</div>
+                                    </div>
+                                    <div class="queue-menu-section">
+                                        <div class="queue-menu-label">Sort</div>
+                                        <div class="queue-menu-item active" data-sort="default" onclick="selectSort('default')">Default <span class="sort-arrow">↓</span></div>
+                                        <div class="queue-menu-item" data-sort="filename" onclick="selectSort('filename')">File Name <span class="sort-arrow">↓</span></div>
+                                        <div class="queue-menu-item" data-sort="input_size" onclick="selectSort('input_size')">Pre-Transcode Size <span class="sort-arrow">↓</span></div>
+                                        <div class="queue-menu-item" data-sort="output_size" onclick="selectSort('output_size')">Post-Transcode Size <span class="sort-arrow">↓</span></div>
+                                        <div class="queue-menu-item" data-sort="space_saved" onclick="selectSort('space_saved')">Space Saved <span class="sort-arrow">↓</span></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div id="processing-banner" class="processing-banner hidden">
@@ -2394,6 +2493,8 @@
                     <span class="job-detail">${formatBytes(job.input_size)} → ${formatBytes(job.output_size)}</span>
                     ${job.transcode_secs ? `<span class="job-detail">in <span class="job-detail-value">${formatDuration(job.transcode_secs)}</span></span>` : ''}
                 `;
+            } else if (job.status === 'pending' && job.input_size) {
+                detailsHtml = `<span class="job-detail">${formatBytes(job.input_size)}</span>`;
             }
 
             return `
@@ -2656,7 +2757,33 @@
         let displayedJobCount = 0;
         let queueFilter = 'all'; // 'all', 'running', 'pending', 'failed', 'skipped', 'complete', 'cancelled'
 
-        function setQueueFilter(filter) {
+        // Sort state
+        let queueSortBy = 'default'; // 'default', 'filename', 'input_size', 'output_size', 'space_saved'
+        let queueSortAsc = false; // false = descending, true = ascending
+
+        // Queue menu functions
+        function toggleQueueMenu(event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const dropdown = document.getElementById('queue-menu-dropdown');
+            const isOpen = dropdown.classList.contains('open');
+
+            if (!isOpen) {
+                // Position the dropdown below the trigger button
+                const rect = trigger.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + 6) + 'px';
+                dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+            }
+
+            dropdown.classList.toggle('open');
+        }
+
+        function closeQueueMenu() {
+            const dropdown = document.getElementById('queue-menu-dropdown');
+            dropdown.classList.remove('open');
+        }
+
+        function selectFilter(filter) {
             queueFilter = filter;
             displayedJobCount = 0;
             const container = document.getElementById('queue-list');
@@ -2664,6 +2791,168 @@
             loadMoreJobs();
             // Disable Clear button for running filter (can't clear running jobs)
             document.getElementById('clear-btn').disabled = filter === 'running';
+            updateQueueMenuDisplay();
+            closeQueueMenu();
+        }
+
+        function selectSort(sortBy) {
+            if (sortBy === queueSortBy) {
+                // Same sort selected - toggle direction
+                queueSortAsc = !queueSortAsc;
+            } else {
+                // New sort selected - default to descending
+                queueSortBy = sortBy;
+                queueSortAsc = false;
+            }
+            updateQueueMenuDisplay();
+            saveSortPreference();
+            applySortAndRender();
+            closeQueueMenu();
+        }
+
+        function loadSortPreference() {
+            const savedSortBy = localStorage.getItem('shrinkray_sort_by');
+            const savedSortAsc = localStorage.getItem('shrinkray_sort_asc');
+            if (savedSortBy) {
+                queueSortBy = savedSortBy;
+            }
+            if (savedSortAsc !== null) {
+                queueSortAsc = savedSortAsc === 'true';
+            }
+            updateQueueMenuDisplay();
+        }
+
+        function saveSortPreference() {
+            localStorage.setItem('shrinkray_sort_by', queueSortBy);
+            localStorage.setItem('shrinkray_sort_asc', queueSortAsc.toString());
+        }
+
+        function updateQueueMenuDisplay() {
+            const filterLabels = {
+                'all': 'All',
+                'running': 'Running',
+                'pending': 'Pending',
+                'failed': 'Failed',
+                'complete': 'Complete',
+                'skipped': 'Skipped',
+                'cancelled': 'Cancelled'
+            };
+
+            // Update trigger button label
+            const label = document.getElementById('queue-menu-label');
+            label.textContent = filterLabels[queueFilter] || 'All';
+
+            // Update filter items
+            document.querySelectorAll('.queue-menu-item[data-filter]').forEach(item => {
+                item.classList.toggle('active', item.dataset.filter === queueFilter);
+            });
+
+            // Update sort items with arrows
+            const arrow = queueSortAsc ? '↑' : '↓';
+            const sortLabels = {
+                'default': 'Default',
+                'filename': 'File Name',
+                'input_size': 'Pre-Transcode Size',
+                'output_size': 'Post-Transcode Size',
+                'space_saved': 'Space Saved'
+            };
+
+            document.querySelectorAll('.queue-menu-item[data-sort]').forEach(item => {
+                const sortKey = item.dataset.sort;
+                const isActive = sortKey === queueSortBy;
+                item.classList.toggle('active', isActive);
+                const arrowSpan = item.querySelector('.sort-arrow');
+                if (arrowSpan) {
+                    arrowSpan.textContent = isActive ? arrow : '↓';
+                }
+            });
+        }
+
+        // Close menu when clicking outside
+        document.addEventListener('click', (event) => {
+            const menu = document.getElementById('queue-menu');
+            if (menu && !menu.contains(event.target)) {
+                closeQueueMenu();
+            }
+        });
+
+        function applySortAndRender() {
+            // Re-sort the jobs array
+            allSortedJobs = sortJobs([...allSortedJobs]);
+            // Re-render the list
+            displayedJobCount = 0;
+            const container = document.getElementById('queue-list');
+            container.innerHTML = '';
+            loadMoreJobs();
+        }
+
+        function sortJobs(jobs) {
+            const statusOrder = { running: 0, pending: 1, failed: 2, skipped: 3, complete: 4, cancelled: 5 };
+
+            return jobs.sort((a, b) => {
+                if (queueSortBy === 'default') {
+                    // Default: status-based sort, then timestamp
+                    const orderA = statusOrder[a.status] ?? 5;
+                    const orderB = statusOrder[b.status] ?? 5;
+                    let result;
+                    if (orderA !== orderB) {
+                        result = orderA - orderB;
+                    } else {
+                        // Secondary sort by timestamp
+                        if (a.status === 'pending') {
+                            result = (a.created_at || '').localeCompare(b.created_at || '');
+                        } else {
+                            const timeA = a.completed_at || a.started_at || '';
+                            const timeB = b.completed_at || b.started_at || '';
+                            result = timeB.localeCompare(timeA);
+                        }
+                    }
+                    // ↓ = natural order, ↑ = reverse
+                    return queueSortAsc ? -result : result;
+                }
+
+                if (queueSortBy === 'filename') {
+                    const nameA = (a.input_path || '').split('/').pop().toLowerCase();
+                    const nameB = (b.input_path || '').split('/').pop().toLowerCase();
+                    const result = nameA.localeCompare(nameB);
+                    // ↓ = A-Z, ↑ = Z-A
+                    return queueSortAsc ? -result : result;
+                }
+
+                if (queueSortBy === 'input_size') {
+                    const sizeA = a.input_size || 0;
+                    const sizeB = b.input_size || 0;
+                    const result = sizeA - sizeB;
+                    // ↓ = smallest first, ↑ = largest first
+                    return queueSortAsc ? -result : result;
+                }
+
+                if (queueSortBy === 'output_size') {
+                    // Jobs without output_size go to bottom
+                    const hasA = a.output_size > 0;
+                    const hasB = b.output_size > 0;
+                    if (hasA && !hasB) return -1;
+                    if (!hasA && hasB) return 1;
+                    if (!hasA && !hasB) return 0;
+                    const result = a.output_size - b.output_size;
+                    // ↓ = smallest first, ↑ = largest first
+                    return queueSortAsc ? -result : result;
+                }
+
+                if (queueSortBy === 'space_saved') {
+                    // Jobs without space_saved go to bottom
+                    const hasA = a.space_saved !== undefined && a.space_saved !== null;
+                    const hasB = b.space_saved !== undefined && b.space_saved !== null;
+                    if (hasA && !hasB) return -1;
+                    if (!hasA && hasB) return 1;
+                    if (!hasA && !hasB) return 0;
+                    const result = a.space_saved - b.space_saved;
+                    // ↓ = smallest first, ↑ = largest first
+                    return queueSortAsc ? -result : result;
+                }
+
+                return 0;
+            });
         }
 
         function getFilteredJobs() {
@@ -2699,23 +2988,8 @@
                 return;
             }
 
-            // Sort jobs by status: running first, then pending, failed, completed
-            const statusOrder = { running: 0, pending: 1, failed: 2, skipped: 3, complete: 4, cancelled: 5 };
-            allSortedJobs = [...jobs].sort((a, b) => {
-                const orderA = statusOrder[a.status] ?? 5;
-                const orderB = statusOrder[b.status] ?? 5;
-                if (orderA !== orderB) return orderA - orderB;
-
-                // Secondary sort by timestamp
-                // Pending: oldest first (FIFO). Others: most recent first.
-                if (a.status === 'pending') {
-                    return (a.created_at || '').localeCompare(b.created_at || '');
-                }
-                // Running/Complete/Failed/Cancelled: most recent first
-                const timeA = a.completed_at || a.started_at || '';
-                const timeB = b.completed_at || b.started_at || '';
-                return timeB.localeCompare(timeA);
-            });
+            // Sort jobs using the current sort preference
+            allSortedJobs = sortJobs([...jobs]);
 
             // Render initial batch
             displayedJobCount = 0;
@@ -3244,6 +3518,7 @@
         // Initialize
         populateHourDropdowns();
         browse();
+        loadSortPreference();
         connectSSE();
         loadSettings();
         loadPresets();
