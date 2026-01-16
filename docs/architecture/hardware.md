@@ -297,10 +297,12 @@ Shrinkray proactively uses software decoding when hardware decode will fail:
 
 | Condition | Reason |
 |-----------|--------|
-| H.264 10-bit (High10 profile) | No GPU supports this |
+| H.264 High10 (4:2:0 10-bit) | No GPU supports this profile |
 | VC-1 / WMV3 | Inconsistent hardware support |
 | MPEG-4 Advanced Simple (DivX/XviD) | Not reliably supported |
 | HDR tonemapping enabled | Requires CPU processing |
+
+**Exception:** NVENC is allowed to attempt hardware decode for H.264 10-bit content because RTX 50 series supports H.264 High 4:2:2 (4:2:2 10-bit). If hardware decode fails, FFmpeg falls back at runtime.
 
 The `RequiresSoftwareDecode()` function detects these before encoding starts, avoiding wasted time on failed hardware decode attempts.
 
