@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.1] - 2026-01-16
+
+### Added
+- **Queue sort options** (#74)
+  - New unified filter/sort dropdown menu in queue header
+  - Sort by: Default, File Name, Pre-Transcode Size, Post-Transcode Size, Space Saved
+  - Click same sort option to toggle direction (↓ natural order, ↑ reverse)
+  - Sort preference persists in localStorage
+  - Pending jobs now show pre-transcode file size for sorting visibility
+
 ## [1.8.0] - 2026-01-15
 
 ### Added
