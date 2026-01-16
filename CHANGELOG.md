@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.2] - 2026-01-16
+
+### Fixed
+- **Stuck decoder hang with unsupported codecs** (#75)
+  - VAAPI hardware decode hangs indefinitely when codec isn't supported (e.g., AV1)
+  - Added 10-second first-frame timeout watchdog that kills stuck FFmpeg processes
+  - Allows existing software decode retry to trigger instead of hanging forever
+
 ## [1.8.1] - 2026-01-16
 
 ### Added
