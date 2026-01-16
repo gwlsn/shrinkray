@@ -106,25 +106,27 @@ Software decode + hardware encode still benefits from GPU encoding speed.
 
 ### HEVC encoding
 
-| Encoder | FFmpeg Name | Quality Flag | GPU Requirement |
-|---------|-------------|--------------|-----------------|
-| Software | libx265 | `-crf` | None |
-| NVENC | hevc_nvenc | `-cq` | GTX 1050+ |
-| QSV | hevc_qsv | `-global_quality` | Intel 6th gen+ |
-| VAAPI | hevc_vaapi | `-qp` | AMD Polaris+ |
-| VideoToolbox | hevc_videotoolbox | `-b:v` | Any Mac |
+| Encoder | FFmpeg Name | Quality Flag | Default | Extra Args | GPU Requirement |
+|---------|-------------|--------------|---------|------------|-----------------|
+| Software | libx265 | `-crf` | 26 | `-preset medium` | None |
+| NVENC | hevc_nvenc | `-cq` | 28 | `-preset p4 -tune hq -rc vbr` | GTX 1050+ |
+| QSV | hevc_qsv | `-global_quality` | 27 | `-preset medium` | Intel 6th gen+ |
+| VAAPI | hevc_vaapi | `-qp` | 27 | — | AMD Polaris+ |
+| VideoToolbox | hevc_videotoolbox | `-b:v` | 35% of source | `-allow_sw 1` | Any Mac |
 
 ### AV1 encoding
 
-| Encoder | FFmpeg Name | Quality Flag | GPU Requirement |
-|---------|-------------|--------------|-----------------|
-| Software | libsvtav1 | `-crf` | None |
-| NVENC | av1_nvenc | `-cq` | RTX 40 series |
-| QSV | av1_qsv | `-global_quality` | Intel Arc |
-| VAAPI | av1_vaapi | `-qp` | AMD RX 7000 |
-| VideoToolbox | av1_videotoolbox | `-b:v` | M3+ |
+| Encoder | FFmpeg Name | Quality Flag | Default | Extra Args | GPU Requirement |
+|---------|-------------|--------------|---------|------------|-----------------|
+| Software | libsvtav1 | `-crf` | 35 | `-preset 6` | None |
+| NVENC | av1_nvenc | `-cq` | 32 | `-preset p4 -tune hq -rc vbr` | RTX 40 series |
+| QSV | av1_qsv | `-global_quality` | 32 | `-preset medium` | Intel Arc |
+| VAAPI | av1_vaapi | `-qp` | 32 | — | AMD RX 7000 |
+| VideoToolbox | av1_videotoolbox | `-b:v` | 25% of source | `-allow_sw 1` | M3+ |
 
 AV1 hardware support is newer. Older GPUs fall back to software encoding for AV1 presets.
+
+> **Note:** VideoToolbox uses dynamic bitrate calculation. Target bitrate = source bitrate × modifier, clamped between 500 kbps and 15,000 kbps.
 
 ## Quality settings
 
@@ -139,6 +141,92 @@ Each encoder uses different quality parameters:
 | Bitrate | `-b:v` | kbps | VideoToolbox (calculated) |
 
 Shrinkray normalizes these differences. When you set a CRF value in settings, it's translated to the appropriate parameter for your encoder.
+
+### CRF to bitrate conversion (VideoToolbox)
+
+VideoToolbox only supports bitrate-based encoding. CRF values are converted using:
+
+```
+modifier = 0.8 - (crf × 0.02)
+```
+
+| CRF | Bitrate Modifier | Typical Use |
+|-----|------------------|-------------|
+| 15 | 50% | Near-lossless |
+| 22 | 36% | High quality |
+| 26 | 28% | Default compress |
+| 35 | 10% | Aggressive |
+
+Modifiers are clamped to 5%-80% to prevent extreme values.
+
+## Hardware initialization
+
+Shrinkray auto-detects the best initialization method at startup. NVENC and QSV have two modes depending on the environment.
+
+### NVENC (NVIDIA)
+
+**Simple mode** (Docker/container environments):
+```
+-hwaccel cuda -hwaccel_output_format cuda
+```
+
+**Explicit mode** (bare metal with CUDA filters):
+```
+-init_hw_device cuda=cu:0 -filter_hw_device cu -hwaccel cuda -hwaccel_output_format cuda
+```
+
+### Quick Sync (Intel)
+
+**Direct mode** (Docker/Unraid):
+```
+-init_hw_device qsv=qsv -filter_hw_device qsv -hwaccel qsv -hwaccel_output_format qsv
+```
+
+**VAAPI-derived mode** (bare metal Linux):
+```
+-init_hw_device vaapi=va:/dev/dri/renderD128 -init_hw_device qsv=qs@va -filter_hw_device qs -hwaccel qsv -hwaccel_output_format qsv
+```
+
+### VAAPI (Intel/AMD on Linux)
+
+```
+-init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va -hwaccel vaapi -hwaccel_output_format vaapi
+```
+
+### VideoToolbox (macOS)
+
+```
+-hwaccel videotoolbox
+```
+
+## Filter chains
+
+### Hardware upload (software decode → hardware encode)
+
+| Platform | Filter |
+|----------|--------|
+| QSV | `format=nv12,hwupload=extra_hw_frames=64` |
+| VAAPI | `format=nv12,hwupload` |
+| NVENC | (auto-handles CPU frames) |
+| VideoToolbox | (encoder handles CPU frames directly) |
+
+### Base filters (full hardware pipeline)
+
+| Platform | Base Filter |
+|----------|-------------|
+| NVENC | `scale_cuda=format=nv12` |
+| QSV | `format=nv12\|qsv,hwupload=extra_hw_frames=64,scale_qsv=format=nv12` |
+| VAAPI | `format=nv12\|vaapi,hwupload,scale_vaapi=format=nv12` |
+
+### Scaling filters (1080p/720p presets)
+
+| Platform | Scale Filter |
+|----------|--------------|
+| Software | `scale=-2:'min(ih,1080)'` |
+| NVENC | `scale_cuda=-2:'min(ih,1080)'` |
+| QSV | `scale_qsv=-2:'min(ih,1080)'` |
+| VAAPI | `scale_vaapi=-2:'min(ih,1080)'` |
+| VideoToolbox | `scale=-2:'min(ih,1080)'` (CPU) |
 
 ## HDR handling
 
@@ -164,8 +252,57 @@ flowchart TB
     style Direct fill:#3a4a5f,stroke:#8ab4ff
 ```
 
-- **HDR passthrough** (default): 10-bit Main10 profile, BT.2020 color space
-- **Tonemapping**: CPU zscale filter, outputs 8-bit SDR
+### HDR preservation (default)
+
+When encoding HDR content without tonemapping:
+
+- Uses `p010` pixel format (10-bit) instead of `nv12` (8-bit)
+- Adds `-profile:v main10` for HEVC encoders
+- Preserves HDR10 metadata:
+  ```
+  -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc
+  ```
+
+### Tonemapping (HDR to SDR)
+
+Software tonemapping uses the zscale filter chain:
+
+```
+zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap={algorithm}:desat=0:peak=100,zscale=t=bt709:m=bt709,format=yuv420p
+```
+
+Tonemapping always uses software decode, but encoding remains hardware-accelerated.
+
+Available algorithms: `hable` (default), `bt2390`, `reinhard`, `mobius`, `clip`, `linear`, `gamma`
+
+## Output format handling
+
+### MKV (default)
+
+Preserves all streams:
+```
+-map 0:v:0 -map 0:a? -map 0:s? -c:a copy -c:s copy
+```
+
+### MP4
+
+Transcodes audio for web compatibility, strips subtitles (PGS breaks MP4):
+```
+-map 0:v:0 -map 0:a? -c:a aac -b:a 192k -ac 2 -sn
+```
+
+## Software decode triggers
+
+Shrinkray proactively uses software decoding when hardware decode will fail:
+
+| Condition | Reason |
+|-----------|--------|
+| H.264 10-bit (High10 profile) | No GPU supports this |
+| VC-1 / WMV3 | Inconsistent hardware support |
+| MPEG-4 Advanced Simple (DivX/XviD) | Not reliably supported |
+| HDR tonemapping enabled | Requires CPU processing |
+
+The `RequiresSoftwareDecode()` function detects these before encoding starts, avoiding wasted time on failed hardware decode attempts.
 
 ## Docker GPU passthrough
 
