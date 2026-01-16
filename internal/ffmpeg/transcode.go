@@ -159,7 +159,7 @@ func (t *Transcoder) Transcode(
 				"timeout", firstFrameTimeout)
 			// Send SIGKILL to FFmpeg - context cancellation is cleaner but this is faster
 			if cmd.Process != nil {
-				cmd.Process.Kill()
+				_ = cmd.Process.Kill()
 			}
 		case <-ctx.Done():
 			// Context cancelled (shutdown or job cancel), don't interfere
