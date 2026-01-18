@@ -314,6 +314,11 @@ func TestTranscodeCorruptMPEG2(t *testing.T) {
 		t.Skip("skipping corrupt MPEG2 test in short mode")
 	}
 
+	// Skip if ffmpeg is not available (e.g., in CI environments)
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("skipping: ffmpeg not found in PATH")
+	}
+
 	tmpDir := t.TempDir()
 
 	// Step 1: Generate a clean MPEG2 transport stream test file
