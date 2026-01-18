@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -303,4 +304,224 @@ func TestFrameBasedSpeedAndETA(t *testing.T) {
 	}
 
 	t.Logf("Frame-based calculation: speed=%.2fx, eta=%v", speed, eta)
+}
+
+// TestTranscodeCorruptMPEG2 verifies that Shrinkray can handle corrupt MPEG2
+// transport streams without failing. This is a regression test for issue #74.
+// See: https://github.com/gwlsn/shrinkray/issues/74
+func TestTranscodeCorruptMPEG2(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping corrupt MPEG2 test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Step 1: Generate a clean MPEG2 transport stream test file
+	// Use 5 seconds at 25fps = 125 frames for meaningful corruption testing.
+	// This gives us enough frames that partial corruption (like issue #74)
+	// will still allow progress before hitting bad frames.
+	cleanPath := filepath.Join(tmpDir, "test_clean.ts")
+	genCmd := []string{
+		"-f", "lavfi",
+		"-i", "testsrc=duration=5:size=320x240:rate=25",
+		"-c:v", "mpeg2video",
+		"-b:v", "1M",
+		"-y", cleanPath,
+	}
+	t.Logf("Generating clean MPEG2 test file: ffmpeg %v", genCmd)
+
+	ctx := context.Background()
+	genCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := execCommandContext(genCtx, "ffmpeg", genCmd...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to generate test file: %v\nOutput: %s", err, output)
+	}
+
+	// Verify the clean file was created
+	cleanInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		t.Fatalf("failed to stat clean file: %v", err)
+	}
+	t.Logf("Generated clean MPEG2 file: %d bytes", cleanInfo.Size())
+
+	// Step 2: Create multiple corrupt versions with different corruption patterns
+	// These patterns simulate real-world corruption found in broadcast recordings:
+	// - Random byte injection (bitflips, transmission errors)
+	// - Zeroed chunks (dropped packets, storage issues)
+	// - Multiple scattered corruptions (typical of damaged .ts files)
+	corruptTests := []struct {
+		name      string
+		corruptFn func(path string) error
+	}{
+		{
+			name: "random_bytes_middle",
+			corruptFn: func(path string) error {
+				// Single corruption in the middle - tests basic error handling
+				return corruptFileAtOffset(path, cleanInfo.Size()/2, 500)
+			},
+		},
+		{
+			name: "zeroed_chunks",
+			corruptFn: func(path string) error {
+				// Zero out several small chunks (simulates dropped packets)
+				// Keep chunks small to avoid destroying entire GOPs
+				f, err := os.OpenFile(path, os.O_WRONLY, 0644)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				zeros := make([]byte, 100)
+				for offset := int64(10000); offset < cleanInfo.Size()-1000; offset += 25000 {
+					if _, err := f.WriteAt(zeros, offset); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name: "scattered_corruption",
+			corruptFn: func(path string) error {
+				// Scattered small corruptions throughout the file
+				// This simulates the typical .ts corruption pattern where
+				// some frames are corrupted but most remain decodable
+				// (like issue #74 where transcode reached 44% before failure)
+				for offset := int64(15000); offset < cleanInfo.Size()-5000; offset += 20000 {
+					if err := corruptFileAtOffset(path, offset, 80); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+	}
+
+	// Initialize presets for software encoding
+	InitPresets()
+	preset := getSoftwarePreset("compress-hevc")
+	if preset == nil {
+		t.Fatal("failed to get software HEVC preset")
+	}
+
+	for _, tt := range corruptTests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Copy clean file to corrupt test file
+			corruptPath := filepath.Join(tmpDir, tt.name+".ts")
+			if err := copyFile(cleanPath, corruptPath); err != nil {
+				t.Fatalf("failed to copy file: %v", err)
+			}
+
+			// Apply corruption
+			if err := tt.corruptFn(corruptPath); err != nil {
+				t.Fatalf("failed to corrupt file: %v", err)
+			}
+
+			// Probe the corrupt file (should still work - probing is lenient)
+			prober := NewProber("ffprobe")
+			probeResult, err := prober.Probe(ctx, corruptPath)
+			if err != nil {
+				t.Fatalf("failed to probe corrupt file: %v", err)
+			}
+
+			// Step 3: Transcode the corrupt file - this should NOT fail
+			outputPath := filepath.Join(tmpDir, tt.name+"_output.mkv")
+			transcoder := NewTranscoder("ffmpeg")
+			progressCh := make(chan Progress, 100)
+
+			// Drain progress channel in background
+			go func() {
+				for range progressCh {
+				}
+			}()
+
+			transcodeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+
+			totalFrames := int64(probeResult.Duration.Seconds() * probeResult.FrameRate)
+			result, err := transcoder.Transcode(
+				transcodeCtx,
+				corruptPath,
+				outputPath,
+				preset,
+				probeResult.Duration,
+				probeResult.Bitrate,
+				probeResult.Width,
+				probeResult.Height,
+				0, 0, // qualityHEVC, qualityAV1 (use defaults)
+				totalFrames,
+				progressCh,
+				false, // softwareDecode (test primary path first)
+				"mkv",
+				nil, // tonemap
+			)
+
+			// The key assertion: transcode should succeed despite corruption
+			if err != nil {
+				t.Errorf("CRITICAL: Transcode of corrupt MPEG2 failed: %v", err)
+				t.Errorf("This is the bug from issue #74 - corrupt frames causing -38/ENOSYS errors")
+				t.FailNow()
+			}
+
+			// Verify output was created
+			if result.OutputSize == 0 {
+				t.Error("output size is 0, transcode may have partially failed")
+			}
+
+			// Verify output is a valid video file
+			outputProbe, err := prober.Probe(ctx, outputPath)
+			if err != nil {
+				t.Errorf("failed to probe output file: %v", err)
+			} else if outputProbe.VideoCodec != "hevc" {
+				t.Errorf("expected hevc codec in output, got %s", outputProbe.VideoCodec)
+			}
+
+			t.Logf("SUCCESS: Corrupt MPEG2 (%s) transcoded: %d → %d bytes",
+				tt.name, result.InputSize, result.OutputSize)
+		})
+	}
+}
+
+// corruptFileAtOffset writes random bytes at the specified offset in a file
+func corruptFileAtOffset(path string, offset, count int64) error {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Use a deterministic "random" pattern for reproducibility
+	garbage := make([]byte, count)
+	for i := range garbage {
+		garbage[i] = byte((i * 17 + int(offset)) % 256)
+	}
+
+	_, err = f.WriteAt(garbage, offset)
+	return err
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+// execCommandContext wraps exec.CommandContext for testing
+func execCommandContext(ctx context.Context, name string, args ...string) *execCmd {
+	return &execCmd{ctx: ctx, name: name, args: args}
+}
+
+type execCmd struct {
+	ctx  context.Context
+	name string
+	args []string
+}
+
+func (c *execCmd) CombinedOutput() ([]byte, error) {
+	cmd := exec.CommandContext(c.ctx, c.name, c.args...)
+	return cmd.CombinedOutput()
 }

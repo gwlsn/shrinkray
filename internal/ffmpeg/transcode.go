@@ -102,14 +102,18 @@ func (t *Transcoder) Transcode(
 	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode, outputFormat, tonemap)
 
 	// Build ffmpeg command
-	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output
+	// Structure: ffmpeg [globalArgs] [inputArgs] -i input [outputArgs] output
 	args := []string{}
+	// Add global error resilience flags first (must be before -i)
+	// These handle corrupt frames in damaged files like MPEG2 transport streams
+	// from broadcast recordings:
+	// -max_error_rate 1.0: allow transcoding to complete even with 100% decoder
+	//   errors - prevents exit code 218 when corrupt frames cause filter failures
+	args = append(args, "-max_error_rate", "1.0")
 	args = append(args, inputArgs...)
-	// Add error resilience flags to handle corrupt frames in damaged files
-	// (common in MPEG2 transport streams from broadcast recordings)
-	// -fflags +discardcorrupt: discard corrupt packets at demuxer level before
-	// they reach the filter chain (prevents -38/ENOSYS errors in video filters)
-	// -err_detect ignore_err: continue decoding after errors
+	// Add input-level error resilience flags:
+	// -fflags +discardcorrupt: discard corrupt packets at demuxer level
+	// -err_detect ignore_err: continue decoding after errors, attempt concealment
 	args = append(args,
 		"-fflags", "+discardcorrupt",
 		"-err_detect", "ignore_err",
