@@ -5,13 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.8.3] - 2026-01-18
+## [1.8.4] - 2026-01-18
 
 ### Fixed
 - **MPEG2 transport stream corrupt frame handling** (#74)
-  - FFmpeg now ignores decoding errors instead of failing the entire transcode
-  - Fixes "exit status 218" failures on .ts files with corrupt frames
-  - Common with broadcast recordings where frames can be damaged
+  - Added `-max_error_rate 1.0` to allow transcoding to complete even with decoder errors
+  - Previous fix attempts (v1.8.3) only addressed demuxer/decoder-level errors but didn't
+    prevent filter chain failures when corrupt frames reached the video filters
+  - Now properly handles "exit status 218" (-38/ENOSYS) errors from corrupt .ts files
+
+## [1.8.3] - 2026-01-18
+
+### Fixed
+- **MPEG2 transport stream corrupt frame handling** (#74) - partial fix, see v1.8.4
+  - Added `-fflags +discardcorrupt` and `-err_detect ignore_err` flags
+  - Did not fully resolve the issue - filter chain still failed on corrupt frames
 
 ## [1.8.2] - 2026-01-16
 
