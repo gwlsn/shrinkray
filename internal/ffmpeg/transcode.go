@@ -105,7 +105,11 @@ func (t *Transcoder) Transcode(
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output
 	args := []string{}
 	args = append(args, inputArgs...)
+	// Add error resilience flags to handle corrupt frames in damaged files
+	// (common in MPEG2 transport streams from broadcast recordings)
+	// -err_detect ignore_err: ignore decoding errors instead of failing
 	args = append(args,
+		"-err_detect", "ignore_err",
 		"-i", inputPath,
 		"-y",                   // Overwrite output without asking
 		"-progress", "pipe:1", // Output progress to stdout
