@@ -107,8 +107,11 @@ func (t *Transcoder) Transcode(
 	args = append(args, inputArgs...)
 	// Add error resilience flags to handle corrupt frames in damaged files
 	// (common in MPEG2 transport streams from broadcast recordings)
-	// -err_detect ignore_err: ignore decoding errors instead of failing
+	// -fflags +discardcorrupt: discard corrupt packets at demuxer level before
+	// they reach the filter chain (prevents -38/ENOSYS errors in video filters)
+	// -err_detect ignore_err: continue decoding after errors
 	args = append(args,
+		"-fflags", "+discardcorrupt",
 		"-err_detect", "ignore_err",
 		"-i", inputPath,
 		"-y",                   // Overwrite output without asking
