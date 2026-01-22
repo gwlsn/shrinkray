@@ -229,7 +229,7 @@ go test ./...
 
 ## AI Disclosure
 
-This project was developed with AI assistance (Claude). All generated code is manually reviewed.
+This project was developed with AI assistance. Claude intentionally left as a contributor. All generated code is manually reviewed.
 
 ---
 
