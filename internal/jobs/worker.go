@@ -53,11 +53,14 @@ type WorkerPool struct {
 	// Pause state - when true, workers won't pick up new jobs
 	paused   bool
 	pausedMu sync.RWMutex
+
+	analysisSem chan struct{} // Limits concurrent VMAF analysis
 }
 
 // NewWorkerPool creates a new worker pool
 func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator) *WorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
+	analysisSem := make(chan struct{}, cfg.SmartShrink.MaxConcurrentAnalysis)
 
 	pool := &WorkerPool{
 		workers:         make([]*Worker, 0, cfg.Workers),
@@ -67,6 +70,7 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 		nextWorkerID:    0,
 		ctx:             ctx,
 		cancel:          cancel,
+		analysisSem:     analysisSem,
 	}
 
 	// Create workers
