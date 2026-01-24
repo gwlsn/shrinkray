@@ -557,9 +557,15 @@ func GeneratePresets() map[string]*Preset {
 		// Get the best available encoder for this preset's target codec
 		bestEncoder := GetBestEncoderForCodec(base.Codec)
 
+		// Add HW/SW suffix to name
+		suffix := " [SW]"
+		if bestEncoder.Accel != HWAccelNone {
+			suffix = " [HW]"
+		}
+
 		presets[base.ID] = &Preset{
 			ID:              base.ID,
-			Name:            base.Name,
+			Name:            base.Name + suffix,
 			Description:     base.Description,
 			Encoder:         bestEncoder.Accel,
 			Codec:           base.Codec,
@@ -602,7 +608,7 @@ func getSoftwarePreset(id string) *Preset {
 			}
 			return &Preset{
 				ID:              base.ID,
-				Name:            base.Name,
+				Name:            base.Name + " [SW]",
 				Description:     base.Description,
 				Encoder:         HWAccelNone,
 				Codec:           base.Codec,
@@ -663,7 +669,7 @@ func ListPresets() []*Preset {
 			}
 			presets = append(presets, &Preset{
 				ID:              base.ID,
-				Name:            base.Name,
+				Name:            base.Name + " [SW]",
 				Description:     base.Description,
 				Encoder:         HWAccelNone,
 				Codec:           base.Codec,
