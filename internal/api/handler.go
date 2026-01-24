@@ -122,9 +122,17 @@ func (h *Handler) Encoders(w http.ResponseWriter, r *http.Request) {
 	encoders := ffmpeg.ListAvailableEncoders()
 	best := ffmpeg.GetBestEncoder()
 
+	// TODO: Replace stubs with actual vmaf package calls once internal/ffmpeg/vmaf is implemented
+	// vmafAvailable := vmaf.IsAvailable()
+	// vmafModels := vmaf.GetModels()
+	vmafAvailable := false
+	vmafModels := []string{}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"encoders": encoders,
-		"best":     best,
+		"encoders":       encoders,
+		"best":           best,
+		"vmaf_available": vmafAvailable,
+		"vmaf_models":    vmafModels,
 	})
 }
 
@@ -320,24 +328,26 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"output_format":         h.cfg.OutputFormat,
 		"tonemap_hdr":           h.cfg.TonemapHDR,
 		"tonemap_algorithm":     h.cfg.TonemapAlgorithm,
+		"smartshrink_quality":   h.cfg.SmartShrink.Quality,
 	})
 }
 
 // UpdateConfigRequest is the request body for updating config
 type UpdateConfigRequest struct {
-	OriginalHandling  *string `json:"original_handling,omitempty"`
-	Workers           *int    `json:"workers,omitempty"`
-	PushoverUserKey   *string `json:"pushover_user_key,omitempty"`
-	PushoverAppToken  *string `json:"pushover_app_token,omitempty"`
-	NotifyOnComplete  *bool   `json:"notify_on_complete,omitempty"`
-	QualityHEVC       *int    `json:"quality_hevc,omitempty"`
-	QualityAV1        *int    `json:"quality_av1,omitempty"`
-	ScheduleEnabled   *bool   `json:"schedule_enabled,omitempty"`
-	ScheduleStartHour *int    `json:"schedule_start_hour,omitempty"`
-	ScheduleEndHour   *int    `json:"schedule_end_hour,omitempty"`
-	OutputFormat      *string `json:"output_format,omitempty"`
-	TonemapHDR        *bool   `json:"tonemap_hdr,omitempty"`
-	TonemapAlgorithm  *string `json:"tonemap_algorithm,omitempty"`
+	OriginalHandling   *string `json:"original_handling,omitempty"`
+	Workers            *int    `json:"workers,omitempty"`
+	PushoverUserKey    *string `json:"pushover_user_key,omitempty"`
+	PushoverAppToken   *string `json:"pushover_app_token,omitempty"`
+	NotifyOnComplete   *bool   `json:"notify_on_complete,omitempty"`
+	QualityHEVC        *int    `json:"quality_hevc,omitempty"`
+	QualityAV1         *int    `json:"quality_av1,omitempty"`
+	ScheduleEnabled    *bool   `json:"schedule_enabled,omitempty"`
+	ScheduleStartHour  *int    `json:"schedule_start_hour,omitempty"`
+	ScheduleEndHour    *int    `json:"schedule_end_hour,omitempty"`
+	OutputFormat       *string `json:"output_format,omitempty"`
+	TonemapHDR         *bool   `json:"tonemap_hdr,omitempty"`
+	TonemapAlgorithm   *string `json:"tonemap_algorithm,omitempty"`
+	SmartShrinkQuality *string `json:"smartshrink_quality,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -434,6 +444,17 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 			h.cfg.TonemapAlgorithm = *req.TonemapAlgorithm
 		default:
 			writeError(w, http.StatusBadRequest, "tonemap_algorithm must be one of: hable, bt2390, reinhard, mobius, clip, linear, gamma")
+			return
+		}
+	}
+
+	// Handle SmartShrink settings
+	if req.SmartShrinkQuality != nil {
+		switch *req.SmartShrinkQuality {
+		case "acceptable", "good", "excellent":
+			h.cfg.SmartShrink.Quality = *req.SmartShrinkQuality
+		default:
+			writeError(w, http.StatusBadRequest, "smartshrink_quality must be one of: acceptable, good, excellent")
 			return
 		}
 	}
