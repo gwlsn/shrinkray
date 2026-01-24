@@ -12,6 +12,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/pushover"
@@ -122,17 +123,11 @@ func (h *Handler) Encoders(w http.ResponseWriter, r *http.Request) {
 	encoders := ffmpeg.ListAvailableEncoders()
 	best := ffmpeg.GetBestEncoder()
 
-	// TODO: Replace stubs with actual vmaf package calls once internal/ffmpeg/vmaf is implemented
-	// vmafAvailable := vmaf.IsAvailable()
-	// vmafModels := vmaf.GetModels()
-	vmafAvailable := false
-	vmafModels := []string{}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"encoders":       encoders,
 		"best":           best,
-		"vmaf_available": vmafAvailable,
-		"vmaf_models":    vmafModels,
+		"vmaf_available": vmaf.IsAvailable(),
+		"vmaf_models":    vmaf.GetModels(),
 	})
 }
 

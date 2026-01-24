@@ -15,6 +15,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/store"
@@ -121,6 +122,14 @@ func main() {
 	// Detect available hardware encoders
 	ffmpeg.DetectEncoders(cfg.FFmpegPath)
 	ffmpeg.InitPresets()
+
+	// Detect VMAF availability (must be after FFmpeg path is known)
+	vmaf.DetectVMAF(cfg.FFmpegPath)
+	if vmaf.IsAvailable() {
+		logger.Info("VMAF support detected", "models", vmaf.GetModels())
+	} else {
+		logger.Info("VMAF not available - SmartShrink presets will be hidden")
+	}
 
 	// Display detected encoders
 	fmt.Println("  Encoders:")
