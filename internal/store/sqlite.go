@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 const schema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 	bit_depth INTEGER,
 	is_hdr INTEGER DEFAULT 0,
 	transcode_secs INTEGER,
+	phase TEXT DEFAULT '',
+	vmaf_score REAL DEFAULT 0,
+	selected_crf INTEGER DEFAULT 0,
+	quality_mod REAL DEFAULT 0,
+	skip_reason TEXT DEFAULT '',
 	created_at TEXT NOT NULL,
 	started_at TEXT,
 	completed_at TEXT
@@ -174,6 +179,22 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 			if err != nil {
 				db.Close()
 				return nil, fmt.Errorf("add is_hdr column: %w", err)
+			}
+		}
+		if version < 5 {
+			// Migrate v4 -> v5: Add SmartShrink fields
+			migrations := []string{
+				`ALTER TABLE jobs ADD COLUMN phase TEXT DEFAULT ''`,
+				`ALTER TABLE jobs ADD COLUMN vmaf_score REAL DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN selected_crf INTEGER DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN quality_mod REAL DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN skip_reason TEXT DEFAULT ''`,
+			}
+			for _, m := range migrations {
+				if _, err := db.Exec(m); err != nil {
+					db.Close()
+					return nil, fmt.Errorf("migration v4->v5 failed: %w", err)
+				}
 			}
 		}
 		// Update version
