@@ -639,6 +639,50 @@ func TestQueueSkipJobNotFound(t *testing.T) {
 	}
 }
 
+func TestQueueSkipJobClearsPhase(t *testing.T) {
+	queue := jobs.NewQueue()
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/test/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Add a job and start it
+	job, err := queue.Add(probe.Path, "compress", probe)
+	if err != nil {
+		t.Fatalf("failed to add job: %v", err)
+	}
+
+	err = queue.StartJob(job.ID, "/tmp/test.tmp.mkv")
+	if err != nil {
+		t.Fatalf("failed to start job: %v", err)
+	}
+
+	// Set phase to analyzing (simulating SmartShrink)
+	err = queue.UpdateJobPhase(job.ID, jobs.PhaseAnalyzing)
+	if err != nil {
+		t.Fatalf("failed to update phase: %v", err)
+	}
+
+	// Verify phase is set
+	if queue.Get(job.ID).Phase != jobs.PhaseAnalyzing {
+		t.Fatalf("expected phase analyzing, got %s", queue.Get(job.ID).Phase)
+	}
+
+	// Skip it
+	err = queue.SkipJob(job.ID, "Already optimized")
+	if err != nil {
+		t.Fatalf("SkipJob failed: %v", err)
+	}
+
+	// Verify phase is cleared
+	got := queue.Get(job.ID)
+	if got.Phase != jobs.PhaseNone {
+		t.Errorf("expected Phase to be cleared, got %s", got.Phase)
+	}
+}
+
 func TestQueueAllowSameCodec(t *testing.T) {
 	// Initialize presets so compress-hevc preset is available
 	ffmpeg.InitPresets()
