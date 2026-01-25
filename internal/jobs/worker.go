@@ -435,6 +435,19 @@ func (w *Worker) processJob(job *Job) {
 	if preset.IsSmartShrink {
 		shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, err := w.pool.runSmartShrinkAnalysis(jobCtx, job, preset)
 		if err != nil {
+			// Check if context was cancelled (user cancel or shutdown)
+			if jobCtx.Err() != nil {
+				// Job will be handled appropriately:
+				// - User cancel: jobCtx cancelled but w.ctx still active
+				// - Shutdown: w.ctx also cancelled, job left as running for restart
+				if w.ctx.Err() == nil {
+					logger.Info("Job cancelled during analysis", "job_id", job.ID)
+					_ = w.queue.CancelJob(job.ID)
+				} else {
+					logger.Info("Job interrupted by shutdown during analysis", "job_id", job.ID)
+				}
+				return
+			}
 			logger.Error("SmartShrink analysis failed", "job_id", job.ID, "error", err.Error())
 			_ = w.queue.FailJob(job.ID, err.Error())
 			return
@@ -457,7 +470,11 @@ func (w *Worker) processJob(job *Job) {
 			qualityHEVC = selectedCRF
 			qualityAV1 = selectedCRF
 		}
-		// TODO: handle qualityMod for VideoToolbox
+		// TODO: qualityMod is used for bitrate-based encoders like VideoToolbox.
+		// Currently stored in job results but not passed to transcode because
+		// BuildPresetArgs calculates bitrate from source, not from a modifier.
+		// Full fix requires refactoring Transcode() to accept qualityMod parameter.
+		_ = qualityMod // silence unused warning until implemented
 
 		logger.Info("SmartShrink analysis complete",
 			"job_id", job.ID,
@@ -694,6 +711,17 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		wp.cfg.SmartShrink.GetVMAFThreshold(),
 	)
 
+	// Set up tonemapping params if HDR content with tonemapping enabled.
+	// This ensures analysis samples match the final transcode output characteristics.
+	var tonemapParams *ffmpeg.TonemapParams
+	if job.IsHDR && wp.cfg.TonemapHDR {
+		tonemapParams = &ffmpeg.TonemapParams{
+			IsHDR:         true,
+			EnableTonemap: true,
+			Algorithm:     wp.cfg.TonemapAlgorithm,
+		}
+	}
+
 	// Create encode callback
 	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
 		// Build FFmpeg args for sample encode
@@ -701,7 +729,7 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 			preset, job.Width, job.Height,
 			quality, modifier,
 			false, // TODO: handle software decode fallback
-			nil,   // TODO: handle tonemap
+			tonemapParams,
 		)
 
 		outputPath := samplePath + ".encoded.mkv"
