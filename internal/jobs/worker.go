@@ -470,11 +470,18 @@ func (w *Worker) processJob(job *Job) {
 			qualityHEVC = selectedCRF
 			qualityAV1 = selectedCRF
 		}
-		// TODO: qualityMod is used for bitrate-based encoders like VideoToolbox.
-		// Currently stored in job results but not passed to transcode because
-		// BuildPresetArgs calculates bitrate from source, not from a modifier.
-		// Full fix requires refactoring Transcode() to accept qualityMod parameter.
-		_ = qualityMod // silence unused warning until implemented
+		// KNOWN LIMITATION: qualityMod is computed but not used for VideoToolbox.
+		// VideoToolbox uses bitrate modifiers instead of CRF, and the transcode
+		// path currently doesn't support passing a quality modifier.
+		// To fix: Add qualityMod parameter to Transcode() and BuildPresetArgs(),
+		// then use job.Bitrate * qualityMod as target bitrate for VideoToolbox.
+		// For now, VideoToolbox SmartShrink jobs will use the default bitrate.
+		if qualityMod > 0 {
+			logger.Info("SmartShrink selected quality modifier (not yet used in transcode)",
+				"job_id", job.ID,
+				"quality_mod", qualityMod,
+			)
+		}
 
 		logger.Info("SmartShrink analysis complete",
 			"job_id", job.ID,
@@ -725,10 +732,12 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	// Create encode callback
 	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
 		// Build FFmpeg args for sample encode
+		// Note: Always use software decode for sample encoding since FFV1 reference
+		// samples are CPU-decoded. HW encoders will still be used if preset specifies them.
 		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
 			preset, job.Width, job.Height,
 			quality, modifier,
-			false, // TODO: handle software decode fallback
+			true, // Force software decode for FFV1 samples
 			tonemapParams,
 		)
 

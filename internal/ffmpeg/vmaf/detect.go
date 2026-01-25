@@ -16,11 +16,14 @@ var (
 func DetectVMAF(ffmpegPath string) {
 	detected = true
 
+	// Reset state before detection
+	vmafAvailable = false
+	vmafModels = nil
+
 	// Check if libvmaf filter is available
 	cmd := exec.Command(ffmpegPath, "-filters")
 	output, err := cmd.Output()
 	if err != nil {
-		vmafAvailable = false
 		return
 	}
 

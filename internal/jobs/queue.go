@@ -158,6 +158,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		IsHardware: isHardware,
 		Status:     status,
 		Error:      skipReason,
+		SkipReason: skipReason, // Also set SkipReason for consistency
 		InputSize:  probe.Size,
 		Duration:   probe.Duration.Milliseconds(),
 		Bitrate:    probe.Bitrate,
@@ -229,6 +230,7 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 			IsHardware: isHardware,
 			Status:     status,
 			Error:      skipReason,
+			SkipReason: skipReason, // Also set SkipReason for consistency
 			InputSize:  probe.Size,
 			Duration:   probe.Duration.Milliseconds(),
 			Bitrate:    probe.Bitrate,
