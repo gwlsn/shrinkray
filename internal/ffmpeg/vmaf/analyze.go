@@ -10,6 +10,12 @@ import (
 	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
+// TonemapConfig holds tonemapping configuration for HDR content
+type TonemapConfig struct {
+	Enabled   bool   // True if HDR content should be tonemapped to SDR
+	Algorithm string // Tonemapping algorithm (hable, bt2390, etc.)
+}
+
 // Analyzer orchestrates VMAF analysis for SmartShrink
 type Analyzer struct {
 	FFmpegPath     string
@@ -17,6 +23,7 @@ type Analyzer struct {
 	SampleDuration int
 	FastAnalysis   bool
 	VMafThreshold  float64
+	Tonemap        *TonemapConfig // Optional tonemapping for HDR content
 }
 
 // NewAnalyzer creates a new VMAF analyzer
@@ -28,6 +35,15 @@ func NewAnalyzer(ffmpegPath, tempDir string, sampleDuration int, fastAnalysis bo
 		FastAnalysis:   fastAnalysis,
 		VMafThreshold:  threshold,
 	}
+}
+
+// WithTonemap sets tonemapping configuration for HDR content
+func (a *Analyzer) WithTonemap(enabled bool, algorithm string) *Analyzer {
+	a.Tonemap = &TonemapConfig{
+		Enabled:   enabled,
+		Algorithm: algorithm,
+	}
+	return a
 }
 
 // Analyze performs full VMAF analysis on a video
@@ -55,8 +71,10 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 		"threshold", a.VMafThreshold)
 
 	// Extract reference samples
+	// When tonemapping is enabled for HDR content, reference samples must also be
+	// tonemapped so VMAF compares SDR reference to SDR encoded (not HDR to SDR).
 	referenceSamples, err := ExtractSamples(ctx, a.FFmpegPath, inputPath, analysisDir,
-		videoDuration, a.SampleDuration, positions)
+		videoDuration, a.SampleDuration, positions, a.Tonemap)
 	if err != nil {
 		return nil, fmt.Errorf("extracting samples: %w", err)
 	}
@@ -95,7 +113,7 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 			// Re-run with full positions
 			fullPositions := []float64{0.25, 0.5, 0.75}
 			fullSamples, err := ExtractSamples(ctx, a.FFmpegPath, inputPath, analysisDir,
-				videoDuration, a.SampleDuration, fullPositions)
+				videoDuration, a.SampleDuration, fullPositions, a.Tonemap)
 			if err != nil {
 				return nil, fmt.Errorf("extracting full samples: %w", err)
 			}

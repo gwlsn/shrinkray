@@ -167,9 +167,10 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		FrameRate:  probe.FrameRate,
 		VideoCodec: probe.VideoCodec,
 		Profile:    probe.Profile,
-		BitDepth:   probe.BitDepth,
-		IsHDR:      probe.IsHDR,
-		CreatedAt:  time.Now(),
+		BitDepth:      probe.BitDepth,
+		IsHDR:         probe.IsHDR,
+		ColorTransfer: probe.ColorTransfer,
+		CreatedAt:     time.Now(),
 	}
 
 	q.jobs[job.ID] = job
@@ -239,9 +240,10 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 			FrameRate:  probe.FrameRate,
 			VideoCodec: probe.VideoCodec,
 			Profile:    probe.Profile,
-			BitDepth:   probe.BitDepth,
-			IsHDR:      probe.IsHDR,
-			CreatedAt:  time.Now(),
+			BitDepth:      probe.BitDepth,
+			IsHDR:         probe.IsHDR,
+			ColorTransfer: probe.ColorTransfer,
+			CreatedAt:     time.Now(),
 		}
 
 		q.jobs[job.ID] = job

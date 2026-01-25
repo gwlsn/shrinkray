@@ -602,10 +602,10 @@ func (w *Worker) processJob(job *Job) {
 
 	// Check if transcoded file is larger than original
 	if result.OutputSize >= job.InputSize && !w.cfg.KeepLargerFiles {
-		// Delete the temp file and fail the job
+		// Delete the temp file and skip the job (not fail - this is expected behavior)
 		os.Remove(tempPath)
 		logger.Warn("Job skipped - output larger than input", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("Transcoded file (%s) is larger than original (%s). File skipped.",
+		_ = w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
 			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize)))
 		return
 	} else if result.OutputSize >= job.InputSize {
@@ -690,11 +690,17 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	}
 
 	// Update phase
-	wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+	_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
 
 	// Check HDR without tonemap
 	if job.IsHDR && !wp.cfg.TonemapHDR {
 		return true, "HDR requires tonemapping for SmartShrink", 0, 0, 0, nil
+	}
+
+	// Check HDR detected via fallback (missing color_transfer metadata)
+	// Tonemapping requires proper transfer function (smpte2084, arib-std-b67, etc.)
+	if job.IsHDR && wp.cfg.TonemapHDR && job.ColorTransfer == "" {
+		return true, "HDR tonemapping requires color transfer metadata (poorly-tagged HDR)", 0, 0, 0, nil
 	}
 
 	// Check video duration
@@ -718,15 +724,16 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		wp.cfg.SmartShrink.GetVMAFThreshold(),
 	)
 
-	// Set up tonemapping params if HDR content with tonemapping enabled.
-	// This ensures analysis samples match the final transcode output characteristics.
-	var tonemapParams *ffmpeg.TonemapParams
+	// Set up tonemapping for HDR content with tonemapping enabled.
+	// When tonemapping is enabled, we tonemap the reference samples during extraction
+	// so they are SDR. The encode callback then receives SDR samples, so it should NOT
+	// apply tonemapping again (would cause double-tonemapping artifacts).
+	var encodeTonemapParams *ffmpeg.TonemapParams // nil = no tonemapping in encode callback
 	if job.IsHDR && wp.cfg.TonemapHDR {
-		tonemapParams = &ffmpeg.TonemapParams{
-			IsHDR:         true,
-			EnableTonemap: true,
-			Algorithm:     wp.cfg.TonemapAlgorithm,
-		}
+		// Tonemap reference samples during extraction (analyzer handles this)
+		analyzer.WithTonemap(true, wp.cfg.TonemapAlgorithm)
+		// Encode callback receives SDR samples - no tonemapping needed
+		// encodeTonemapParams stays nil
 	}
 
 	// Create encode callback
@@ -734,16 +741,20 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		// Build FFmpeg args for sample encode
 		// Note: Always use software decode for sample encoding since FFV1 reference
 		// samples are CPU-decoded. HW encoders will still be used if preset specifies them.
+		// Note: When HDR tonemapping is enabled, reference samples are pre-tonemapped to SDR,
+		// so encodeTonemapParams is nil to avoid double-tonemapping.
 		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
 			preset, job.Width, job.Height,
 			quality, modifier,
 			true, // Force software decode for FFV1 samples
-			tonemapParams,
+			encodeTonemapParams,
 		)
 
 		outputPath := samplePath + ".encoded.mkv"
 
-		args := append(inputArgs, "-i", samplePath)
+		args := make([]string, 0, len(inputArgs)+len(outputArgs)+4)
+		args = append(args, inputArgs...)
+		args = append(args, "-i", samplePath)
 		args = append(args, outputArgs...)
 		args = append(args, "-y", outputPath)
 

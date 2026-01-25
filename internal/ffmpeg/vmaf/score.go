@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
 // Score calculates the VMAF score between reference and distorted videos
@@ -29,7 +31,8 @@ func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string,
 	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("VMAF scoring failed: %w\nOutput: %s", err, string(output))
+		logger.Error("VMAF scoring failed", "error", err, "stderr", lastLines(string(output), 5))
+		return 0, fmt.Errorf("VMAF scoring failed: %w (%s)", err, lastLines(string(output), 3))
 	}
 
 	return parseVMAFScore(string(output))

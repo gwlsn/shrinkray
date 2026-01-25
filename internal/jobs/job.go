@@ -49,8 +49,9 @@ type Job struct {
 	FrameRate   float64   `json:"frame_rate,omitempty"`   // Source video frame rate
 	VideoCodec  string    `json:"video_codec,omitempty"`  // Source codec (h264, hevc, etc.)
 	Profile     string    `json:"profile,omitempty"`      // Codec profile (High, High 10, Main, etc.)
-	BitDepth    int       `json:"bit_depth,omitempty"`    // Color depth (8, 10, 12)
-	IsHDR       bool      `json:"is_hdr,omitempty"`       // True if source is HDR (HDR10, HLG, etc.)
+	BitDepth      int       `json:"bit_depth,omitempty"`      // Color depth (8, 10, 12)
+	IsHDR         bool      `json:"is_hdr,omitempty"`         // True if source is HDR (HDR10, HLG, etc.)
+	ColorTransfer string    `json:"color_transfer,omitempty"` // Transfer function (smpte2084, arib-std-b67, etc.)
 	TranscodeTime int64   `json:"transcode_secs,omitempty"` // Time to transcode in seconds
 	Phase       Phase   `json:"phase,omitempty"`         // Current phase for SmartShrink jobs
 	VMafScore   float64 `json:"vmaf_score,omitempty"`    // Final VMAF score achieved

@@ -8,14 +8,11 @@ import (
 var (
 	vmafAvailable bool
 	vmafModels    []string
-	detected      bool
 )
 
 // DetectVMAF probes FFmpeg for libvmaf support and available models.
 // Must be called at startup after FFmpeg path is known.
 func DetectVMAF(ffmpegPath string) {
-	detected = true
-
 	// Reset state before detection
 	vmafAvailable = false
 	vmafModels = nil
