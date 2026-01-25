@@ -1,0 +1,14 @@
+version: '3'
+services:
+  test:
+    image: lscr.io/linuxserver/ffmpeg:latest
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - GOPROXY=https://proxy.golang.org,direct
+    command: >
+      sh -c "
+        apt-get update && apt-get install -y golang-go &&
+        go test -tags=integration ./test/integration/... -v
+      "
