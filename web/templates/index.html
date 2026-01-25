@@ -1050,6 +1050,49 @@
             margin-top: 8px;
         }
 
+        .job-details-toggle {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            user-select: none;
+        }
+
+        .job-details-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .job-details-toggle .toggle-icon {
+            font-size: 0.625rem;
+            transition: transform var(--transition-fast);
+        }
+
+        .smartshrink-details {
+            margin-top: 8px;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 0.8125rem;
+        }
+
+        .smartshrink-detail {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+
+        .smartshrink-label {
+            color: var(--text-secondary);
+        }
+
+        .smartshrink-value {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
         .job-actions {
             margin-top: 12px;
         }
@@ -2056,6 +2099,23 @@
             return `${s}s`;
         }
 
+        function toggleJobDetails(jobId) {
+            const details = document.getElementById('smartshrink-details-' + jobId);
+            const toggle = document.querySelector(`.job-details-toggle[data-job-id="${jobId}"]`);
+            if (!details || !toggle) return;
+
+            const icon = toggle.querySelector('.toggle-icon');
+            if (expandedJobDetails.has(jobId)) {
+                expandedJobDetails.delete(jobId);
+                details.style.display = 'none';
+                if (icon) icon.textContent = '▶';
+            } else {
+                expandedJobDetails.add(jobId);
+                details.style.display = 'block';
+                if (icon) icon.textContent = '▼';
+            }
+        }
+
         async function browse(path = '') {
             try {
                 const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
@@ -2542,6 +2602,16 @@
                         </div>
                     ` : ''}
                     <div class="job-details">${detailsHtml}</div>
+                    ${job.status === 'complete' && job.vmaf_score > 0 ? `
+                        <div class="job-details-toggle" data-job-id="${job.id}" onclick="toggleJobDetails('${job.id}')">
+                            <span class="toggle-icon">${expandedJobDetails.has(job.id) ? '▼' : '▶'}</span> SmartShrink Details
+                        </div>
+                        <div class="smartshrink-details" id="smartshrink-details-${job.id}" style="display: ${expandedJobDetails.has(job.id) ? 'block' : 'none'};">
+                            <div class="smartshrink-detail"><span class="smartshrink-label">VMAF Score:</span> <span class="smartshrink-value">${job.vmaf_score.toFixed(1)}</span></div>
+                            ${job.selected_crf > 0 ? `<div class="smartshrink-detail"><span class="smartshrink-label">Quality:</span> <span class="smartshrink-value">CRF ${job.selected_crf}</span></div>` : ''}
+                            ${job.quality_mod > 0 ? `<div class="smartshrink-detail"><span class="smartshrink-label">Bitrate:</span> <span class="smartshrink-value">${(job.quality_mod * 100).toFixed(0)}%</span></div>` : ''}
+                        </div>
+                    ` : ''}
                     ${job.status === 'failed' ? `<div class="job-error">${job.error}</div>` : ''}
                     ${job.status === 'skipped' ? `<div class="job-warning">${job.error}</div>` : ''}
                     ${job.status === 'pending' || job.status === 'running' ? `
@@ -2809,6 +2879,7 @@
         let allSortedJobs = [];
         let displayedJobCount = 0;
         let queueFilter = 'all'; // 'all', 'running', 'pending', 'failed', 'skipped', 'complete', 'cancelled'
+        const expandedJobDetails = new Set(); // Track which jobs have expanded details
 
         // Sort state
         let queueSortBy = 'default'; // 'default', 'filename', 'input_size', 'output_size', 'space_saved'
