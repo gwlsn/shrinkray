@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/util"
 )
@@ -611,4 +613,81 @@ func (w *Worker) CancelAndStop() {
 func shouldRetryWithSoftwareDecode(encoder ffmpeg.HWAccel) bool {
 	// Software encoder has no hardware decode to fall back from
 	return encoder != ffmpeg.HWAccelNone
+}
+
+// runSmartShrinkAnalysis performs VMAF analysis and returns the optimal quality settings.
+// Returns (shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, error)
+func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, preset *ffmpeg.Preset) (bool, string, int, float64, float64, error) {
+	// Acquire analysis semaphore
+	select {
+	case wp.analysisSem <- struct{}{}:
+		defer func() { <-wp.analysisSem }()
+	case <-ctx.Done():
+		return false, "", 0, 0, 0, ctx.Err()
+	}
+
+	// Update phase
+	wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+
+	// Check HDR without tonemap
+	if job.IsHDR && !wp.cfg.TonemapHDR {
+		return true, "HDR requires tonemapping for SmartShrink", 0, 0, 0, nil
+	}
+
+	// Check video duration
+	duration := time.Duration(job.Duration) * time.Millisecond
+	if duration < 5*time.Second {
+		return true, "Video too short for analysis", 0, 0, 0, nil
+	}
+
+	// Get quality range for this encoder
+	qRange := ffmpeg.GetQualityRange(preset.Encoder, preset.Codec)
+
+	// Get temp directory for analysis
+	tempDir := wp.cfg.GetTempDir(job.InputPath)
+
+	// Create analyzer
+	analyzer := vmaf.NewAnalyzer(
+		wp.cfg.FFmpegPath,
+		tempDir,
+		wp.cfg.SmartShrink.SampleDuration,
+		wp.cfg.SmartShrink.FastAnalysis,
+		wp.cfg.SmartShrink.GetVMAFThreshold(),
+	)
+
+	// Create encode callback
+	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
+		// Build FFmpeg args for sample encode
+		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
+			preset, job.Width, job.Height,
+			quality, modifier,
+			false, // TODO: handle software decode fallback
+			nil,   // TODO: handle tonemap
+		)
+
+		outputPath := samplePath + ".encoded.mkv"
+
+		args := append(inputArgs, "-i", samplePath)
+		args = append(args, outputArgs...)
+		args = append(args, "-y", outputPath)
+
+		cmd := exec.CommandContext(ctx, wp.cfg.FFmpegPath, args...)
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+
+		return outputPath, nil
+	}
+
+	// Run analysis
+	result, err := analyzer.Analyze(ctx, job.InputPath, duration, job.Height, qRange, encodeSample)
+	if err != nil {
+		return false, "", 0, 0, 0, fmt.Errorf("VMAF analysis failed: %w", err)
+	}
+
+	if result.ShouldSkip {
+		return true, result.SkipReason, 0, 0, 0, nil
+	}
+
+	return false, "", result.OptimalCRF, result.QualityMod, result.VMafScore, nil
 }
