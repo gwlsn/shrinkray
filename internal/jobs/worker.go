@@ -65,8 +65,8 @@ type WorkerPool struct {
 // SmartShrink quality thresholds (hardcoded for simplicity)
 const (
 	vmafAcceptable = 85.0
-	vmafGood       = 93.0
-	vmafExcellent  = 96.0
+	vmafGood       = 90.0
+	vmafExcellent  = 94.0
 )
 
 // getSmartShrinkThreshold returns the VMAF threshold for a quality tier
