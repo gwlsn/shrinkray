@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -61,23 +62,53 @@ func parseVMAFScore(output string) (float64, error) {
 	return 0, fmt.Errorf("could not parse VMAF score from output")
 }
 
-// ScoreSamples calculates VMAF for multiple sample pairs and returns the minimum
+// trimmedMean calculates the trimmed mean of VMAF scores.
+// Drops the highest and lowest scores, averages the rest.
+// For 1-2 scores, returns simple average. For 3 scores, returns median.
+func trimmedMean(scores []float64) float64 {
+	if len(scores) == 0 {
+		return 0
+	}
+	if len(scores) == 1 {
+		return scores[0]
+	}
+	if len(scores) == 2 {
+		return (scores[0] + scores[1]) / 2
+	}
+
+	// Sort a copy to avoid modifying original
+	sorted := make([]float64, len(scores))
+	copy(sorted, scores)
+	sort.Float64s(sorted)
+
+	// Drop lowest and highest, average the rest
+	sum := 0.0
+	for i := 1; i < len(sorted)-1; i++ {
+		sum += sorted[i]
+	}
+	return sum / float64(len(sorted)-2)
+}
+
+// ScoreSamples calculates VMAF for multiple sample pairs and returns the trimmed mean.
+// Drops the highest and lowest scores, averages the middle scores.
+// This is more robust than minimum (too conservative) or average (ignores outliers).
 func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, distortedSamples []*Sample, height int) (float64, error) {
 	if len(referenceSamples) != len(distortedSamples) {
 		return 0, fmt.Errorf("sample count mismatch: %d vs %d", len(referenceSamples), len(distortedSamples))
 	}
 
-	minScore := 100.0
+	scores := make([]float64, 0, len(referenceSamples))
 
 	for i := range referenceSamples {
 		score, err := Score(ctx, ffmpegPath, referenceSamples[i].Path, distortedSamples[i].Path, height)
 		if err != nil {
 			return 0, fmt.Errorf("scoring sample %d: %w", i, err)
 		}
-		if score < minScore {
-			minScore = score
-		}
+		logger.Debug("Sample VMAF score", "sample", i, "score", score)
+		scores = append(scores, score)
 	}
 
-	return minScore, nil
+	result := trimmedMean(scores)
+	logger.Info("VMAF trimmed mean", "scores", scores, "result", result)
+	return result, nil
 }
