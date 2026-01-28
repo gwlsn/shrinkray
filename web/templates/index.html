@@ -656,6 +656,14 @@
             flex-shrink: 0;
         }
 
+        .smartshrink-hint {
+            padding: 8px 20px;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border);
+        }
+
         .preset-select {
             padding: 10px 14px;
             border: 1px solid var(--border);
@@ -1769,6 +1777,9 @@
                         <span class="selection-count" id="selection-summary"></span>
                         <span class="schedule-status" id="schedule-status"></span>
                     </div>
+                    <div class="smartshrink-hint" id="smartshrink-hint" style="display: none;">
+                        Requires quality analysis — takes longer than standard encoding
+                    </div>
                 </div>
             </div>
 
@@ -2346,12 +2357,11 @@
         function onPresetChange() {
             const preset = document.getElementById('preset-select').value;
             const qualityDropdown = document.getElementById('smartshrink-quality');
-            // Show quality dropdown for SmartShrink presets
-            if (preset.startsWith('smartshrink-')) {
-                qualityDropdown.style.display = 'inline-block';
-            } else {
-                qualityDropdown.style.display = 'none';
-            }
+            const hint = document.getElementById('smartshrink-hint');
+            const isSmartShrink = preset.startsWith('smartshrink-');
+            // Show quality dropdown and hint for SmartShrink presets
+            qualityDropdown.style.display = isSmartShrink ? 'inline-block' : 'none';
+            hint.style.display = isSmartShrink ? 'block' : 'none';
         }
 
         async function startJobs() {
