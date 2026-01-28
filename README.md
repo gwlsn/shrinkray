@@ -18,7 +18,7 @@ Shrinkray is a user-friendly video transcoding tool designed to be simple from t
 
 ### Features
 
-- **SmartShrink** — VMAF-guided auto-optimization finds the smallest file size for your target quality
+- **SmartShrink** — VMAF-guided auto-optimization finds the smallest file size while maintaining your target quality
 - **6 Presets** — SmartShrink (HEVC/AV1), Compress (HEVC/AV1), Downscale (1080p/720p)
 - **Full GPU Pipeline** — Hardware decoding AND encoding with software fallback
 - **HDR Support** — Automatic HDR detection with optional HDR-to-SDR tonemapping
