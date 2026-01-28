@@ -686,6 +686,123 @@
             border-color: var(--accent);
         }
 
+        /* Custom Preset Dropdown */
+        .preset-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .preset-dropdown-trigger {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            font-family: var(--font-sans);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            min-width: 200px;
+            transition: border-color var(--transition-fast);
+        }
+
+        .preset-dropdown-trigger:hover {
+            border-color: var(--border-hover);
+        }
+
+        .preset-dropdown-trigger:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .preset-dropdown-label {
+            flex: 1;
+            text-align: left;
+        }
+
+        .preset-dropdown-chevron {
+            width: 12px;
+            height: 12px;
+            opacity: 0.5;
+            transition: transform var(--transition-fast);
+        }
+
+        .preset-dropdown.open .preset-dropdown-chevron {
+            transform: rotate(180deg);
+        }
+
+        .preset-dropdown-menu {
+            position: fixed;
+            min-width: 200px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-4px);
+            transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+        }
+
+        .preset-dropdown.open-upward .preset-dropdown-menu {
+            transform: translateY(4px);
+        }
+
+        .preset-dropdown.open.open-upward .preset-dropdown-menu {
+            transform: translateY(0);
+        }
+
+        .preset-dropdown.open .preset-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .preset-dropdown-section {
+            padding: 8px 0;
+        }
+
+        .preset-dropdown-section:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preset-dropdown-section-label {
+            padding: 4px 12px 6px;
+            font-size: 0.625rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+        }
+
+        .preset-dropdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.1s ease, color 0.1s ease;
+        }
+
+        .preset-dropdown-item:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .preset-dropdown-item.selected {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .preset-dropdown-item .job-badge {
+            margin-left: 8px;
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;
@@ -1558,6 +1675,19 @@
                 width: 100%;
                 min-width: 0;
             }
+
+            .preset-dropdown {
+                width: 100%;
+            }
+
+            .preset-dropdown-trigger {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .preset-dropdown-menu {
+                width: 100%;
+            }
         }
 
         /* Loading State */
@@ -1765,14 +1895,30 @@
                         </li>
                     </ul>
                     <div class="actions-bar">
-                        <select class="preset-select" id="preset-select" onchange="onPresetChange()">
-                            <option value="compress-hevc">Compress (HEVC)</option>
-                        </select>
-                        <select class="preset-select" id="smartshrink-quality" style="display: none;">
-                            <option value="acceptable">Acceptable</option>
-                            <option value="good" selected>Good</option>
-                            <option value="excellent">Excellent</option>
-                        </select>
+                        <div class="preset-dropdown" id="preset-dropdown">
+                            <button class="preset-dropdown-trigger" onclick="togglePresetDropdown(event)">
+                                <span class="preset-dropdown-label">Loading...</span>
+                                <svg class="preset-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="preset-dropdown-menu" id="preset-dropdown-menu">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+                        <div class="preset-dropdown" id="quality-dropdown" style="display: none;">
+                            <button class="preset-dropdown-trigger" onclick="toggleQualityDropdown(event)">
+                                <span class="preset-dropdown-label">Good</span>
+                                <svg class="preset-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="preset-dropdown-menu" id="quality-dropdown-menu">
+                                <div class="preset-dropdown-item" data-quality="acceptable" onclick="selectQuality('acceptable')">Acceptable</div>
+                                <div class="preset-dropdown-item selected" data-quality="good" onclick="selectQuality('good')">Good</div>
+                                <div class="preset-dropdown-item" data-quality="excellent" onclick="selectQuality('excellent')">Excellent</div>
+                            </div>
+                        </div>
                         <button class="btn btn-primary" onclick="startJobs()" id="start-btn" disabled>Start Transcode</button>
                         <span class="selection-count" id="selection-summary"></span>
                         <span class="schedule-status" id="schedule-status"></span>
@@ -2084,6 +2230,11 @@
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
         let eventSource = null;
 
+        // Preset dropdown state
+        let allPresets = [];
+        let selectedPresetId = null;
+        let selectedQuality = 'good';
+
         function formatBytes(bytes) {
             if (bytes === 0) return '0';
             if (bytes < 0) return '0';
@@ -2354,24 +2505,13 @@
             }
         }
 
-        function onPresetChange() {
-            const preset = document.getElementById('preset-select').value;
-            const qualityDropdown = document.getElementById('smartshrink-quality');
-            const hint = document.getElementById('smartshrink-hint');
-            const isSmartShrink = preset.startsWith('smartshrink-');
-            // Show quality dropdown and hint for SmartShrink presets
-            qualityDropdown.style.display = isSmartShrink ? 'inline-block' : 'none';
-            hint.style.display = isSmartShrink ? 'block' : 'none';
-        }
-
         async function startJobs() {
             if (selectedPaths.size === 0) return;
 
             const banner = document.getElementById('processing-banner');
             try {
-                const preset = document.getElementById('preset-select').value;
-                const qualityDropdown = document.getElementById('smartshrink-quality');
-                const smartshrinkQuality = preset.startsWith('smartshrink-') ? qualityDropdown.value : '';
+                const preset = selectedPresetId;
+                const smartshrinkQuality = preset.startsWith('smartshrink-') ? selectedQuality : '';
 
                 // Sum up total files: for folders use their file_count, for files use 1
                 let totalFiles = 0;
@@ -3637,15 +3777,240 @@
 
         async function loadPresets() {
             try {
-                const presets = await fetch('/api/presets').then(r => r.json());
-                const select = document.getElementById('preset-select');
-                select.innerHTML = presets.map(p =>
-                    `<option value="${p.id}">${p.name}</option>`
-                ).join('');
+                allPresets = await fetch('/api/presets').then(r => r.json());
+                buildPresetDropdown();
+                // Select first preset by default
+                if (allPresets.length > 0) {
+                    selectPreset(allPresets[0].id);
+                }
             } catch (err) {
                 console.error('Load presets error:', err);
             }
         }
+
+        // Group presets by category
+        function groupPresets(presets) {
+            const groups = {
+                smartshrink: [],
+                compress: [],
+                downscale: []
+            };
+
+            for (const preset of presets) {
+                if (preset.id.startsWith('smartshrink-')) {
+                    groups.smartshrink.push(preset);
+                } else if (preset.id === '1080p' || preset.id === '720p') {
+                    groups.downscale.push(preset);
+                } else {
+                    groups.compress.push(preset);
+                }
+            }
+
+            return groups;
+        }
+
+        // Clean display name (remove [HW]/[SW] suffix and category prefix)
+        function getPresetDisplayName(preset) {
+            return preset.name
+                .replace(' [HW]', '')
+                .replace(' [SW]', '')
+                .replace('Compress (', '')
+                .replace('SmartShrink (', '')
+                .replace(')', '')
+                .replace('Downscale to ', '');
+        }
+
+        // Check if hardware encoder
+        function isHardwarePreset(preset) {
+            return preset.name.includes('[HW]');
+        }
+
+        // Build preset dropdown HTML
+        function buildPresetDropdown() {
+            const groups = groupPresets(allPresets);
+            const menu = document.getElementById('preset-dropdown-menu');
+
+            let sectionsHtml = '';
+
+            // SmartShrink section first (if available)
+            if (groups.smartshrink.length > 0) {
+                sectionsHtml += buildPresetSection('SMARTSHRINK', groups.smartshrink);
+            }
+
+            // Compress section
+            if (groups.compress.length > 0) {
+                sectionsHtml += buildPresetSection('COMPRESS', groups.compress);
+            }
+
+            // Downscale section
+            if (groups.downscale.length > 0) {
+                sectionsHtml += buildPresetSection('DOWNSCALE', groups.downscale);
+            }
+
+            menu.innerHTML = sectionsHtml;
+        }
+
+        function buildPresetSection(label, presets) {
+            const items = presets.map(p => {
+                const displayName = getPresetDisplayName(p);
+                const isHW = isHardwarePreset(p);
+                const badgeClass = isHW ? 'hardware' : 'software';
+                const badgeText = isHW ? 'HW' : 'SW';
+                return `<div class="preset-dropdown-item" data-preset="${p.id}" onclick="selectPreset('${p.id}')">
+                    <span>${displayName}</span>
+                    <span class="job-badge ${badgeClass}">${badgeText}</span>
+                </div>`;
+            }).join('');
+
+            return `<div class="preset-dropdown-section">
+                <div class="preset-dropdown-section-label">${label}</div>
+                ${items}
+            </div>`;
+        }
+
+        // Toggle preset dropdown
+        function togglePresetDropdown(event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const dropdown = document.getElementById('preset-dropdown');
+            const menu = document.getElementById('preset-dropdown-menu');
+            const isOpen = dropdown.classList.contains('open');
+
+            // Close other dropdowns
+            closeQualityDropdown();
+
+            if (!isOpen) {
+                // Position the dropdown - check if we need to open upward
+                const rect = trigger.getBoundingClientRect();
+                const menuHeight = menu.scrollHeight || 300; // Estimate if not yet rendered
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
+                menu.style.left = rect.left + 'px';
+
+                if (openUpward) {
+                    menu.style.top = 'auto';
+                    menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    menu.style.top = (rect.bottom + 6) + 'px';
+                    menu.style.bottom = 'auto';
+                }
+            }
+
+            dropdown.classList.toggle('open');
+        }
+
+        // Close preset dropdown
+        function closePresetDropdown() {
+            const dropdown = document.getElementById('preset-dropdown');
+            dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
+        }
+
+        // Select a preset
+        function selectPreset(presetId) {
+            selectedPresetId = presetId;
+            const preset = allPresets.find(p => p.id === presetId);
+            if (!preset) return;
+
+            // Update trigger display
+            const trigger = document.querySelector('#preset-dropdown .preset-dropdown-trigger');
+            const label = trigger.querySelector('.preset-dropdown-label');
+
+            // Get display name and badge info
+            const displayName = getPresetDisplayName(preset);
+            const isHW = isHardwarePreset(preset);
+
+            // Update label with name and badge
+            label.innerHTML = `${displayName} <span class="job-badge ${isHW ? 'hardware' : 'software'}">${isHW ? 'HW' : 'SW'}</span>`;
+
+            // Update selected state in menu
+            document.querySelectorAll('#preset-dropdown-menu .preset-dropdown-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.preset === presetId);
+            });
+
+            // Show/hide quality dropdown and hint for SmartShrink
+            const qualityDropdown = document.getElementById('quality-dropdown');
+            const hint = document.getElementById('smartshrink-hint');
+            const isSmartShrink = presetId.startsWith('smartshrink-');
+
+            qualityDropdown.style.display = isSmartShrink ? 'inline-block' : 'none';
+            hint.style.display = isSmartShrink ? 'block' : 'none';
+
+            // Close dropdown
+            closePresetDropdown();
+        }
+
+        // Toggle quality dropdown
+        function toggleQualityDropdown(event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const dropdown = document.getElementById('quality-dropdown');
+            const menu = document.getElementById('quality-dropdown-menu');
+            const isOpen = dropdown.classList.contains('open');
+
+            // Close other dropdowns
+            closePresetDropdown();
+
+            if (!isOpen) {
+                // Position the dropdown - check if we need to open upward
+                const rect = trigger.getBoundingClientRect();
+                const menuHeight = menu.scrollHeight || 200;
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
+                menu.style.left = rect.left + 'px';
+
+                if (openUpward) {
+                    menu.style.top = 'auto';
+                    menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    menu.style.top = (rect.bottom + 6) + 'px';
+                    menu.style.bottom = 'auto';
+                }
+            }
+
+            dropdown.classList.toggle('open');
+        }
+
+        // Close quality dropdown
+        function closeQualityDropdown() {
+            const dropdown = document.getElementById('quality-dropdown');
+            dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
+        }
+
+        // Select quality
+        function selectQuality(quality) {
+            selectedQuality = quality;
+
+            // Update trigger display
+            const label = document.querySelector('#quality-dropdown .preset-dropdown-label');
+            const displayNames = { acceptable: 'Acceptable', good: 'Good', excellent: 'Excellent' };
+            label.textContent = displayNames[quality] || quality;
+
+            // Update selected state in menu
+            document.querySelectorAll('#quality-dropdown-menu .preset-dropdown-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.quality === quality);
+            });
+
+            // Close dropdown
+            closeQualityDropdown();
+        }
+
+        // Close dropdowns on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#preset-dropdown')) {
+                closePresetDropdown();
+            }
+            if (!e.target.closest('#quality-dropdown')) {
+                closeQualityDropdown();
+            }
+        });
 
         // Keyboard shortcut for settings
         document.addEventListener('keydown', (e) => {
