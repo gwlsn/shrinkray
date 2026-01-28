@@ -18,7 +18,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false, "mkv", nil)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil)
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -59,7 +59,7 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 		Codec:   CodecAV1,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, false, "mkv", nil)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil)
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -80,6 +80,57 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 	}
 }
 
+func TestBuildPresetArgsQualityModOverride(t *testing.T) {
+	// Test that qualityMod overrides the default modifier for VideoToolbox
+	sourceBitrate := int64(10000000) // 10 Mbps
+
+	preset := &Preset{
+		ID:      "test-hevc-smartshrink",
+		Encoder: HWAccelVideoToolbox,
+		Codec:   CodecHEVC,
+	}
+
+	// With qualityMod=0.5, target should be 10000 * 0.5 = 5000k
+	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0.5, false, "mkv", nil)
+
+	for i, arg := range outputArgs {
+		if arg == "-b:v" && i+1 < len(outputArgs) {
+			bitrate := outputArgs[i+1]
+			t.Logf("HEVC VideoToolbox with qualityMod=0.5: source=%dkbps → target=%s", sourceBitrate/1000, bitrate)
+
+			if bitrate != "5000k" {
+				t.Errorf("expected 5000k with qualityMod=0.5, got %s", bitrate)
+			}
+			return
+		}
+	}
+	t.Error("expected to find -b:v flag in args")
+}
+
+func TestBuildPresetArgsQualityModIgnoredForCRFEncoders(t *testing.T) {
+	// Test that qualityMod is ignored for CRF-based encoders (NVENC, etc.)
+	sourceBitrate := int64(10000000)
+
+	preset := &Preset{
+		ID:      "test-nvenc",
+		Encoder: HWAccelNVENC,
+		Codec:   CodecHEVC,
+	}
+
+	// qualityMod should be ignored for NVENC (CRF-based)
+	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0.5, false, "mkv", nil)
+
+	// Should use -cq (constant quality) not -b:v
+	for i, arg := range outputArgs {
+		if arg == "-b:v" {
+			t.Errorf("NVENC should not use -b:v, found at index %d", i)
+		}
+		if arg == "-cq" {
+			t.Logf("NVENC correctly uses -cq for quality")
+		}
+	}
+}
+
 func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 	// Test min/max bitrate constraints
 
@@ -92,7 +143,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, 0, 0, 0, 0, false, "mkv", nil)
+	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, 0, 0, 0, 0, 0, false, "mkv", nil)
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -113,7 +164,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, 0, 0, 0, 0, false, "mkv", nil)
+	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, 0, 0, 0, 0, 0, false, "mkv", nil)
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -136,7 +187,7 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, 0, 0, 0, 0, false, "mkv", nil)
+	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil)
 
 	// Software encoder should have no hwaccel input args
 	if len(inputArgs) != 0 {
@@ -170,28 +221,28 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 }
 
 func TestBuildPresetArgsZeroBitrate(t *testing.T) {
-	// When source bitrate is 0, should use default behavior
+	// When source bitrate is 0, should use 10Mbps reference bitrate
 	presetVT := &Preset{
 		ID:      "test-vt-zero",
 		Encoder: HWAccelVideoToolbox,
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetVT, 0, 0, 0, 0, 0, false, "mkv", nil)
+	inputArgs, outputArgs := BuildPresetArgs(presetVT, 0, 0, 0, 0, 0, 0, false, "mkv", nil)
 
 	// Should still have hwaccel input args
 	if len(inputArgs) == 0 {
 		t.Error("expected hwaccel input args for VideoToolbox")
 	}
 
-	// Should still have -b:v but with raw modifier value
+	// Should use 10Mbps reference * 0.35 modifier = 3500k
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
-			t.Logf("Zero bitrate source → target=%s", bitrate)
-			// Should fall back to the raw modifier value "0.35"
-			if bitrate != "0.35" {
-				t.Errorf("expected fallback to '0.35', got %s", bitrate)
+			t.Logf("Zero bitrate source (10Mbps reference) → target=%s", bitrate)
+			// 10000 kbps * 0.35 = 3500k
+			if bitrate != "3500k" {
+				t.Errorf("expected 3500k with 10Mbps reference, got %s", bitrate)
 			}
 		}
 	}
@@ -243,7 +294,7 @@ func TestQSVPresetFilterChain(t *testing.T) {
 				Codec:   tt.codec,
 			}
 
-			_, outputArgs := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false, "mkv", nil)
+			_, outputArgs := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, false, "mkv", nil)
 
 			// Find -vf argument
 			for i, arg := range outputArgs {
@@ -273,10 +324,10 @@ func TestBuildPresetArgsSoftwareDecode(t *testing.T) {
 	}
 
 	// Hardware decode (softwareDecode=false)
-	inputArgsHW, _ := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, false, "mkv", nil)
+	inputArgsHW, _ := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, false, "mkv", nil)
 
 	// Software decode (softwareDecode=true)
-	inputArgsSW, outputArgsSW := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, true, "mkv", nil)
+	inputArgsSW, outputArgsSW := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, true, "mkv", nil)
 
 	// Hardware decode should have -hwaccel
 	hasHwaccelHW := false
@@ -387,7 +438,7 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 						}
 					}
 
-					_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, false, "mkv", tonemap)
+					_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap)
 
 					outputStr := strings.Join(outputArgs, " ")
 
@@ -497,7 +548,7 @@ func TestBuildPresetArgsHDRFilters(t *testing.T) {
 				Algorithm:     "hable",
 			}
 
-			inputArgs, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, false, "mkv", tonemap)
+			inputArgs, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap)
 			allArgs := strings.Join(append(inputArgs, outputArgs...), " ")
 
 			// Note: Filter availability depends on system, so we just log

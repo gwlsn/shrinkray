@@ -346,11 +346,12 @@ type TonemapParams struct {
 // sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
 // sourceWidth/sourceHeight are the source video dimensions (for calculating scaled output)
 // qualityHEVC/qualityAV1 are optional CRF overrides (0 = use default)
+// qualityMod is an optional bitrate modifier for VideoToolbox (0 = use default)
 // softwareDecode: if true, skip hardware decode args and use software decode filter
 // outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC and strips subtitles
 // tonemap: optional tonemapping parameters (nil = no tonemapping)
 // Returns (inputArgs, outputArgs) - inputArgs go before -i, outputArgs go after
-func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, softwareDecode bool, outputFormat string, tonemap *TonemapParams) (inputArgs []string, outputArgs []string) {
+func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, qualityMod float64, softwareDecode bool, outputFormat string, tonemap *TonemapParams) (inputArgs []string, outputArgs []string) {
 	key := EncoderKey{preset.Encoder, preset.Codec}
 	config, ok := encoderConfigs[key]
 	if !ok {
@@ -452,9 +453,13 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	}
 
 	// For encoders that use dynamic bitrate calculation (VideoToolbox)
-	if config.usesBitrate && sourceBitrate > 0 {
+	if config.usesBitrate {
+		// Derive modifier from qualityMod, CRF conversion, or default
 		var modifier float64
-		if qualityOverride > 0 {
+		if qualityMod > 0 {
+			// Use VMAF-optimized bitrate modifier directly
+			modifier = qualityMod
+		} else if qualityOverride > 0 {
 			// Convert CRF override to bitrate modifier
 			modifier = crfToBitrateModifier(qualityOverride)
 		} else {
@@ -463,8 +468,23 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 			fmt.Sscanf(config.quality, "%f", &modifier)
 		}
 
+		// Clamp modifier to encoder's valid range
+		if config.modMin > 0 && modifier < config.modMin {
+			modifier = config.modMin
+		}
+		if config.modMax > 0 && modifier > config.modMax {
+			modifier = config.modMax
+		}
+
+		// Use source bitrate if available, otherwise use 10Mbps reference
+		// (consistent with BuildSampleEncodeArgs behavior)
+		refKbps := int64(sourceBitrate / 1000)
+		if sourceBitrate <= 0 {
+			refKbps = 10000 // 10 Mbps reference bitrate
+		}
+
 		// Calculate target bitrate in kbps
-		targetKbps := int64(float64(sourceBitrate) * modifier / 1000)
+		targetKbps := int64(float64(refKbps) * modifier)
 
 		// Apply min/max constraints
 		if targetKbps < minBitrateKbps {
@@ -553,8 +573,11 @@ func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
 	tonemap *TonemapParams) (inputArgs []string, outputArgs []string) {
 
 	// Get base args from BuildPresetArgs
+	// We pass modifierOverride as qualityMod. For bitrate-based encoders (VideoToolbox),
+	// BuildPresetArgs uses a 10Mbps reference when sourceBitrate=0 and applies the modifier.
+	// When modifierOverride > 0, we also replace -b:v below for explicit control.
 	inputArgs, outputArgs = BuildPresetArgs(preset, 0, sourceWidth, sourceHeight,
-		qualityOverride, qualityOverride, softwareDecode, "mkv", tonemap)
+		qualityOverride, qualityOverride, modifierOverride, softwareDecode, "mkv", tonemap)
 
 	// Remove audio/subtitle mapping and replace with video-only
 	filteredArgs := make([]string, 0, len(outputArgs))
@@ -578,16 +601,24 @@ func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
 		filteredArgs = append(filteredArgs, arg)
 	}
 
-	// For bitrate-based encoders (VideoToolbox), handle modifierOverride
-	// Since we passed sourceBitrate=0 to BuildPresetArgs, bitrate calculation was skipped.
-	// When modifierOverride > 0, calculate bitrate based on a reference rate.
+	// For bitrate-based encoders (VideoToolbox), replace bitrate when modifierOverride > 0
+	// BuildPresetArgs already calculated a bitrate, but we replace it here for explicit control.
 	if modifierOverride > 0 {
 		key := EncoderKey{preset.Encoder, preset.Codec}
 		if config, ok := encoderConfigs[key]; ok && config.usesBitrate {
+			// Clamp modifier to encoder's valid range (consistent with BuildPresetArgs)
+			modifier := modifierOverride
+			if config.modMin > 0 && modifier < config.modMin {
+				modifier = config.modMin
+			}
+			if config.modMax > 0 && modifier > config.modMax {
+				modifier = config.modMax
+			}
+
 			// Use a reference bitrate of 10Mbps for sample encoding
 			// This gives reasonable quality for VMAF comparison
 			const referenceBitrateKbps = 10000
-			targetKbps := int64(float64(referenceBitrateKbps) * modifierOverride)
+			targetKbps := int64(float64(referenceBitrateKbps) * modifier)
 
 			// Apply min/max constraints
 			if targetKbps < minBitrateKbps {

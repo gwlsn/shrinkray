@@ -69,6 +69,7 @@ func NewTranscoder(ffmpegPath string) *Transcoder {
 // sourceBitrate is the source video bitrate in bits/second (for dynamic bitrate calculation)
 // sourceWidth/sourceHeight are source dimensions (for calculating scaled output)
 // qualityHEVC/qualityAV1 are CRF values to use (0 = use preset defaults)
+// qualityMod is a bitrate modifier for VideoToolbox (0 = use preset defaults)
 // totalFrames is the expected total frame count (for progress fallback when time-based stats unavailable)
 // softwareDecode: if true, use software decode with hardware encode (fallback for hw decode failures)
 // outputFormat: "mkv" or "mp4" - affects audio/subtitle handling
@@ -82,6 +83,7 @@ func (t *Transcoder) Transcode(
 	sourceBitrate int64,
 	sourceWidth, sourceHeight int,
 	qualityHEVC, qualityAV1 int,
+	qualityMod float64,
 	totalFrames int64,
 	progressCh chan<- Progress,
 	softwareDecode bool,
@@ -99,7 +101,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, softwareDecode, outputFormat, tonemap)
+	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, qualityMod, softwareDecode, outputFormat, tonemap)
 
 	// Build ffmpeg command
 	// Structure: ffmpeg [inputArgs] -i input [outputArgs] output

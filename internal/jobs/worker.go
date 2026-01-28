@@ -449,10 +449,16 @@ func (w *Worker) processJob(job *Job) {
 	// Initialize quality settings (may be overridden by SmartShrink analysis)
 	qualityHEVC := w.cfg.QualityHEVC
 	qualityAV1 := w.cfg.QualityAV1
+	var qualityMod float64
 
 	// Check if this is a SmartShrink preset
 	if preset.IsSmartShrink {
-		shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, err := w.pool.runSmartShrinkAnalysis(jobCtx, job, preset)
+		var shouldSkip bool
+		var skipReason string
+		var selectedCRF int
+		var vmafScore float64
+		var err error
+		shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, err = w.pool.runSmartShrinkAnalysis(jobCtx, job, preset)
 		if err != nil {
 			// Check if context was cancelled (user cancel or shutdown)
 			if jobCtx.Err() != nil {
@@ -489,14 +495,8 @@ func (w *Worker) processJob(job *Job) {
 			qualityHEVC = selectedCRF
 			qualityAV1 = selectedCRF
 		}
-		// KNOWN LIMITATION: qualityMod is computed but not used for VideoToolbox.
-		// VideoToolbox uses bitrate modifiers instead of CRF, and the transcode
-		// path currently doesn't support passing a quality modifier.
-		// To fix: Add qualityMod parameter to Transcode() and BuildPresetArgs(),
-		// then use job.Bitrate * qualityMod as target bitrate for VideoToolbox.
-		// For now, VideoToolbox SmartShrink jobs will use the default bitrate.
 		if qualityMod > 0 {
-			logger.Info("SmartShrink selected quality modifier (not yet used in transcode)",
+			logger.Info("SmartShrink selected quality modifier",
 				"job_id", job.ID,
 				"quality_mod", qualityMod,
 			)
@@ -551,7 +551,7 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
 
 	if err != nil {
 		// Check if it was cancelled
@@ -585,7 +585,7 @@ func (w *Worker) processJob(job *Job) {
 			}()
 
 			// Retry with software decode
-			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, totalFrames, retryProgressCh, true, w.cfg.OutputFormat, tonemapParams)
+			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, retryProgressCh, true, w.cfg.OutputFormat, tonemapParams)
 
 			if err != nil {
 				// Check if cancelled during retry
