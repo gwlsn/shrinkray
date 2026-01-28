@@ -18,22 +18,16 @@ type TonemapConfig struct {
 
 // Analyzer orchestrates VMAF analysis for SmartShrink
 type Analyzer struct {
-	FFmpegPath     string
-	TempDir        string
-	SampleDuration int
-	FastAnalysis   bool
-	VMafThreshold  float64
-	Tonemap        *TonemapConfig // Optional tonemapping for HDR content
+	FFmpegPath string
+	TempDir    string
+	Tonemap    *TonemapConfig // Optional tonemapping for HDR content
 }
 
 // NewAnalyzer creates a new VMAF analyzer
-func NewAnalyzer(ffmpegPath, tempDir string, sampleDuration int, fastAnalysis bool, threshold float64) *Analyzer {
+func NewAnalyzer(ffmpegPath, tempDir string) *Analyzer {
 	return &Analyzer{
-		FFmpegPath:     ffmpegPath,
-		TempDir:        tempDir,
-		SampleDuration: sampleDuration,
-		FastAnalysis:   fastAnalysis,
-		VMafThreshold:  threshold,
+		FFmpegPath: ffmpegPath,
+		TempDir:    tempDir,
 	}
 }
 

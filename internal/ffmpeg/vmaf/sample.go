@@ -28,8 +28,9 @@ type Sample struct {
 	Duration time.Duration // Sample duration
 }
 
-// SamplePositions returns the positions to sample based on video duration
-func SamplePositions(videoDuration time.Duration, fastMode bool) []float64 {
+// SamplePositions returns the 5 fixed positions to sample
+// Positions: 10%, 30%, 50%, 70%, 90% of video duration
+func SamplePositions(videoDuration time.Duration) []float64 {
 	seconds := videoDuration.Seconds()
 
 	// Handle zero/negative duration
@@ -42,24 +43,19 @@ func SamplePositions(videoDuration time.Duration, fastMode bool) []float64 {
 		return []float64{0.5}
 	}
 
-	// Short videos (15-30s): always full analysis (too short to risk fast mode)
-	if seconds < 30 {
-		return []float64{0.25, 0.5, 0.75}
-	}
-
-	// Normal videos (30s+): respect fast mode setting
-	if fastMode {
-		return []float64{0.5}
-	}
-
-	return []float64{0.25, 0.5, 0.75}
+	// All other videos: 5 samples at fixed positions
+	return []float64{0.10, 0.30, 0.50, 0.70, 0.90}
 }
 
+// SampleDuration is the fixed duration for each sample (5 seconds)
+const SampleDuration = 5
+
 // ExtractSamples extracts video samples at specified positions
+// Uses fixed 5-second sample duration for consistent VMAF measurement.
 // When tonemap is provided and enabled, samples are tonemapped from HDR to SDR
 // so that VMAF comparison is done in the same color space as the encoded output.
 func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
-	videoDuration time.Duration, sampleDuration int, positions []float64,
+	videoDuration time.Duration, positions []float64,
 	tonemap *TonemapConfig) ([]*Sample, error) {
 
 	samples := make([]*Sample, 0, len(positions))
@@ -68,8 +64,8 @@ func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
 		startTime := time.Duration(float64(videoDuration) * pos)
 
 		// Ensure we don't go past end of video
-		if startTime+time.Duration(sampleDuration)*time.Second > videoDuration {
-			startTime = videoDuration - time.Duration(sampleDuration)*time.Second
+		if startTime+time.Duration(SampleDuration)*time.Second > videoDuration {
+			startTime = videoDuration - time.Duration(SampleDuration)*time.Second
 			if startTime < 0 {
 				startTime = 0
 			}
@@ -81,7 +77,7 @@ func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
 		args := []string{
 			"-ss", fmt.Sprintf("%.3f", startTime.Seconds()),
 			"-i", inputPath,
-			"-t", fmt.Sprintf("%d", sampleDuration),
+			"-t", fmt.Sprintf("%d", SampleDuration),
 		}
 
 		// Apply tonemapping filter if enabled (for HDR content)
@@ -128,7 +124,7 @@ func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
 		samples = append(samples, &Sample{
 			Path:     samplePath,
 			Position: startTime,
-			Duration: time.Duration(sampleDuration) * time.Second,
+			Duration: time.Duration(SampleDuration) * time.Second,
 		})
 	}
 
