@@ -938,6 +938,14 @@
             transform: translateY(0);
         }
 
+        .queue-menu-dropdown.open-upward {
+            transform: translateY(4px);
+        }
+
+        .queue-menu-dropdown.open.open-upward {
+            transform: translateY(0);
+        }
+
         .queue-menu-section {
             padding: 8px 0;
         }
@@ -3046,10 +3054,33 @@
             const isOpen = dropdown.classList.contains('open');
 
             if (!isOpen) {
-                // Position the dropdown below the trigger button
+                // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
-                dropdown.style.top = (rect.bottom + 6) + 'px';
+                const menuHeight = dropdown.scrollHeight || 350;
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
                 dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    dropdown.style.maxHeight = availableSpace + 'px';
+                    dropdown.style.overflowY = 'auto';
+                } else {
+                    dropdown.style.maxHeight = '';
+                    dropdown.style.overflowY = '';
+                }
+
+                if (openUpward) {
+                    dropdown.style.top = 'auto';
+                    dropdown.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    dropdown.style.top = (rect.bottom + 6) + 'px';
+                    dropdown.style.bottom = 'auto';
+                }
             }
 
             dropdown.classList.toggle('open');
@@ -3058,6 +3089,7 @@
         function closeQueueMenu() {
             const dropdown = document.getElementById('queue-menu-dropdown');
             dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
         }
 
         function selectFilter(filter) {
@@ -3890,6 +3922,16 @@
                 dropdown.classList.toggle('open-upward', openUpward);
                 menu.style.left = rect.left + 'px';
 
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    menu.style.maxHeight = availableSpace + 'px';
+                    menu.style.overflowY = 'auto';
+                } else {
+                    menu.style.maxHeight = '';
+                    menu.style.overflowY = '';
+                }
+
                 if (openUpward) {
                     menu.style.top = 'auto';
                     menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
@@ -3964,6 +4006,16 @@
 
                 dropdown.classList.toggle('open-upward', openUpward);
                 menu.style.left = rect.left + 'px';
+
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    menu.style.maxHeight = availableSpace + 'px';
+                    menu.style.overflowY = 'auto';
+                } else {
+                    menu.style.maxHeight = '';
+                    menu.style.overflowY = '';
+                }
 
                 if (openUpward) {
                     menu.style.top = 'auto';
