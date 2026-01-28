@@ -85,7 +85,7 @@ func TestWorkerPoolIntegration(t *testing.T) {
 	}
 
 	// Add job
-	job, err := queue.Add(testCopy, "compress", probe)
+	job, err := queue.Add(testCopy, "compress", probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}

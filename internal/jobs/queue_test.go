@@ -21,7 +21,7 @@ func TestQueue(t *testing.T) {
 	}
 
 	// Add a job
-	job, err := queue.Add(probe.Path, "compress", probe)
+	job, err := queue.Add(probe.Path, "compress", probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 
 	// Add job
-	job, _ := queue.Add(probe.Path, "compress", probe)
+	job, _ := queue.Add(probe.Path, "compress", probe, "")
 
 	// Start job
 	err := queue.StartJob(job.ID, "/tmp/video.tmp.mkv")
@@ -125,8 +125,8 @@ func TestQueuePersistence(t *testing.T) {
 		Height:   2160, // 4K needs downscaling to 1080p
 	}
 
-	job1, _ := queue1.Add(probe.Path, "compress", probe)
-	job2, _ := queue1.Add(probe4K.Path, "1080p", probe4K)
+	job1, _ := queue1.Add(probe.Path, "compress", probe, "")
+	job2, _ := queue1.Add(probe4K.Path, "1080p", probe4K, "")
 
 	// Complete one job
 	queue1.StartJob(job1.ID, "/tmp/temp.mkv")
@@ -187,7 +187,7 @@ func TestQueueRunningJobsResetOnLoad(t *testing.T) {
 		Duration: 10 * time.Second,
 	}
 
-	job, _ := queue1.Add(probe.Path, "compress", probe)
+	job, _ := queue1.Add(probe.Path, "compress", probe, "")
 	queue1.StartJob(job.ID, "/tmp/temp.mkv")
 
 	// Verify it's running
@@ -251,10 +251,10 @@ func TestQueueRunningJobsResetAndVisible(t *testing.T) {
 		Duration: 10 * time.Second,
 	}
 
-	job1, _ := queue1.Add("/media/video1.mkv", "compress", probe)
-	job2, _ := queue1.Add("/media/video2.mkv", "compress", probe)
-	job3, _ := queue1.Add("/media/video3.mkv", "compress", probe)
-	_, _ = queue1.Add("/media/video4.mkv", "compress", probe) // job4
+	job1, _ := queue1.Add("/media/video1.mkv", "compress", probe, "")
+	job2, _ := queue1.Add("/media/video2.mkv", "compress", probe, "")
+	job3, _ := queue1.Add("/media/video3.mkv", "compress", probe, "")
+	_, _ = queue1.Add("/media/video4.mkv", "compress", probe, "") // job4
 
 	// Start jobs 1 and 2 (simulate running at 25-50%)
 	queue1.StartJob(job1.ID, "/tmp/temp1.mkv")
@@ -339,9 +339,9 @@ func TestQueueGetNext(t *testing.T) {
 	}
 
 	// Add jobs
-	job1, _ := queue.Add("/media/video1.mkv", "compress", probe)
-	job2, _ := queue.Add("/media/video2.mkv", "compress", probe)
-	job3, _ := queue.Add("/media/video3.mkv", "compress", probe)
+	job1, _ := queue.Add("/media/video1.mkv", "compress", probe, "")
+	job2, _ := queue.Add("/media/video2.mkv", "compress", probe, "")
+	job3, _ := queue.Add("/media/video3.mkv", "compress", probe, "")
 
 	// Should return first pending job
 	next := queue.GetNext()
@@ -376,7 +376,7 @@ func TestQueueCancel(t *testing.T) {
 		Duration: 10 * time.Second,
 	}
 
-	job, _ := queue.Add(probe.Path, "compress", probe)
+	job, _ := queue.Add(probe.Path, "compress", probe, "")
 
 	// Cancel pending job
 	err := queue.CancelJob(job.ID)
@@ -406,9 +406,9 @@ func TestQueueRequeue(t *testing.T) {
 	}
 
 	// Add multiple jobs
-	job1, _ := queue.Add("/media/v1.mkv", "compress", probe)
-	job2, _ := queue.Add("/media/v2.mkv", "compress", probe)
-	job3, _ := queue.Add("/media/v3.mkv", "compress", probe)
+	job1, _ := queue.Add("/media/v1.mkv", "compress", probe, "")
+	job2, _ := queue.Add("/media/v2.mkv", "compress", probe, "")
+	job3, _ := queue.Add("/media/v3.mkv", "compress", probe, "")
 
 	// Start job2 (make it running)
 	err := queue.StartJob(job2.ID, "/tmp/temp.mkv")
@@ -481,9 +481,9 @@ func TestQueueStats(t *testing.T) {
 	}
 
 	// Add some jobs in various states
-	job1, _ := queue.Add("/media/v1.mkv", "compress", probe)
-	queue.Add("/media/v2.mkv", "compress", probe)
-	queue.Add("/media/v3.mkv", "compress", probe)
+	job1, _ := queue.Add("/media/v1.mkv", "compress", probe, "")
+	queue.Add("/media/v2.mkv", "compress", probe, "")
+	queue.Add("/media/v3.mkv", "compress", probe, "")
 
 	queue.StartJob(job1.ID, "/tmp/temp.mkv")
 	queue.CompleteJob(job1.ID, "/media/v1.mkv", 500000)
@@ -522,7 +522,7 @@ func TestQueueSubscription(t *testing.T) {
 	}
 
 	// Add job - should receive event
-	job, _ := queue.Add(probe.Path, "compress", probe)
+	job, _ := queue.Add(probe.Path, "compress", probe, "")
 
 	select {
 	case event := <-ch:
@@ -564,7 +564,7 @@ func TestQueueSkipJob(t *testing.T) {
 	}
 
 	// Add a job and start it (make it running)
-	job, err := queue.Add(probe.Path, "compress", probe)
+	job, err := queue.Add(probe.Path, "compress", probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
@@ -618,7 +618,7 @@ func TestQueueSkipJobTerminalState(t *testing.T) {
 	}
 
 	// Add a job, start it, and complete it
-	job, _ := queue.Add(probe.Path, "compress", probe)
+	job, _ := queue.Add(probe.Path, "compress", probe, "")
 	queue.StartJob(job.ID, "/tmp/test.tmp.mkv")
 	queue.CompleteJob(job.ID, "/test/video.mkv", 500000)
 
@@ -649,7 +649,7 @@ func TestQueueSkipJobClearsPhase(t *testing.T) {
 	}
 
 	// Add a job and start it
-	job, err := queue.Add(probe.Path, "compress", probe)
+	job, err := queue.Add(probe.Path, "compress", probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
@@ -701,7 +701,7 @@ func TestQueueAllowSameCodec(t *testing.T) {
 		queue := jobs.NewQueue()
 		queue.SetAllowSameCodec(false)
 
-		job, err := queue.Add(hevcProbe.Path, "compress-hevc", hevcProbe)
+		job, err := queue.Add(hevcProbe.Path, "compress-hevc", hevcProbe, "")
 		if err != nil {
 			t.Fatalf("failed to add job: %v", err)
 		}
@@ -719,7 +719,7 @@ func TestQueueAllowSameCodec(t *testing.T) {
 		queue := jobs.NewQueue()
 		queue.SetAllowSameCodec(true)
 
-		job, err := queue.Add(hevcProbe.Path, "compress-hevc", hevcProbe)
+		job, err := queue.Add(hevcProbe.Path, "compress-hevc", hevcProbe, "")
 		if err != nil {
 			t.Fatalf("failed to add job: %v", err)
 		}
@@ -745,7 +745,7 @@ func TestQueueAllowSameCodec(t *testing.T) {
 		queue := jobs.NewQueue()
 		queue.SetAllowSameCodec(false)
 
-		job, _ := queue.Add(av1Probe.Path, "compress-av1", av1Probe)
+		job, _ := queue.Add(av1Probe.Path, "compress-av1", av1Probe, "")
 		if job.Status != jobs.StatusSkipped {
 			t.Errorf("expected AV1 file to be skipped, got %s", job.Status)
 		}
@@ -755,7 +755,7 @@ func TestQueueAllowSameCodec(t *testing.T) {
 		queue := jobs.NewQueue()
 		queue.SetAllowSameCodec(true)
 
-		job, _ := queue.Add(av1Probe.Path, "compress-av1", av1Probe)
+		job, _ := queue.Add(av1Probe.Path, "compress-av1", av1Probe, "")
 		if job.Status != jobs.StatusPending {
 			t.Errorf("expected AV1 file to be pending, got %s", job.Status)
 		}

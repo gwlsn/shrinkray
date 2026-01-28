@@ -355,7 +355,7 @@ func runComprehensiveTest(t *testing.T, testdataDir, filename, presetID string,
 	}
 
 	// Add job to queue
-	job, err := queue.Add(dstPath, presetID, probe)
+	job, err := queue.Add(dstPath, presetID, probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
