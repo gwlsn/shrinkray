@@ -23,7 +23,7 @@ stateDiagram-v2
 
     note right of pending: Waiting in queue
     note right of running: FFmpeg processing
-    note right of skipped: Auto-skip:<br/>Already HEVC/AV1<br/>or target resolution
+    note right of skipped: Already meets target codec/resolution
 ```
 
 ## Status descriptions
