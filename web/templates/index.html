@@ -704,7 +704,7 @@
             background: var(--bg-secondary);
             color: var(--text-primary);
             cursor: pointer;
-            min-width: 200px;
+            min-width: 230px;
             transition: border-color var(--transition-fast);
         }
 
@@ -3814,9 +3814,22 @@
             try {
                 allPresets = await fetch('/api/presets').then(r => r.json());
                 buildPresetDropdown();
-                // Select first preset by default
+
+                // Restore saved preset or use first as default
+                const savedPreset = localStorage.getItem('shrinkray_preset');
+                const savedQuality = localStorage.getItem('shrinkray_quality');
+
                 if (allPresets.length > 0) {
-                    selectPreset(allPresets[0].id);
+                    // Use saved preset if it exists in current presets, otherwise first
+                    const presetToSelect = savedPreset && allPresets.find(p => p.id === savedPreset)
+                        ? savedPreset
+                        : allPresets[0].id;
+                    selectPreset(presetToSelect);
+                }
+
+                // Restore saved quality
+                if (savedQuality && ['acceptable', 'good', 'excellent'].includes(savedQuality)) {
+                    selectQuality(savedQuality);
                 }
             } catch (err) {
                 console.error('Load presets error:', err);
@@ -3858,6 +3871,17 @@
         // Check if hardware encoder
         function isHardwarePreset(preset) {
             return preset.name.includes('[HW]');
+        }
+
+        // Get category name for preset (used in trigger display)
+        function getPresetCategory(preset) {
+            if (preset.id.startsWith('smartshrink-')) {
+                return 'SmartShrink';
+            } else if (preset.id === '1080p' || preset.id === '720p') {
+                return 'Downscale';
+            } else {
+                return 'Compress';
+            }
         }
 
         // Build preset dropdown HTML
@@ -3957,6 +3981,7 @@
         // Select a preset
         function selectPreset(presetId) {
             selectedPresetId = presetId;
+            localStorage.setItem('shrinkray_preset', presetId);
             const preset = allPresets.find(p => p.id === presetId);
             if (!preset) return;
 
@@ -3964,12 +3989,13 @@
             const trigger = document.querySelector('#preset-dropdown .preset-dropdown-trigger');
             const label = trigger.querySelector('.preset-dropdown-label');
 
-            // Get display name and badge info
+            // Get display name, category, and badge info
             const displayName = getPresetDisplayName(preset);
+            const category = getPresetCategory(preset);
             const isHW = isHardwarePreset(preset);
 
-            // Update label with name and badge
-            label.innerHTML = `${displayName} <span class="job-badge ${isHW ? 'hardware' : 'software'}">${isHW ? 'HW' : 'SW'}</span>`;
+            // Update label with category, name, and badge
+            label.innerHTML = `<span>${category} - ${displayName}</span> <span class="job-badge ${isHW ? 'hardware' : 'software'}">${isHW ? 'HW' : 'SW'}</span>`;
 
             // Update selected state in menu
             document.querySelectorAll('#preset-dropdown-menu .preset-dropdown-item').forEach(item => {
@@ -4042,6 +4068,7 @@
         // Select quality
         function selectQuality(quality) {
             selectedQuality = quality;
+            localStorage.setItem('shrinkray_quality', quality);
 
             // Update trigger display
             const label = document.querySelector('#quality-dropdown .preset-dropdown-label');
