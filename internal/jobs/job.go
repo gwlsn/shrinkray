@@ -57,8 +57,9 @@ type Job struct {
 	VMafScore   float64 `json:"vmaf_score,omitempty"`    // Final VMAF score achieved
 	SelectedCRF int     `json:"selected_crf,omitempty"`  // CRF/CQ/QP chosen by analysis
 	QualityMod  float64 `json:"quality_mod,omitempty"`   // Bitrate modifier for VideoToolbox (0.0-1.0)
-	SkipReason  string  `json:"skip_reason,omitempty"`   // Reason for skip status
-	CreatedAt   time.Time `json:"created_at"`
+	SkipReason         string `json:"skip_reason,omitempty"`          // Reason for skip status
+	SmartShrinkQuality string `json:"smartshrink_quality,omitempty"` // Quality tier: acceptable, good, excellent
+	CreatedAt          time.Time `json:"created_at"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
 }

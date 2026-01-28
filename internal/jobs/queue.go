@@ -126,7 +126,7 @@ func (q *Queue) persistDelete(id string) {
 }
 
 // Add adds a new job to the queue
-func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult) (*Job, error) {
+func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult, smartShrinkQuality string) (*Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -151,26 +151,27 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	}
 
 	job := &Job{
-		ID:         generateID(),
-		InputPath:  inputPath,
-		PresetID:   presetID,
-		Encoder:    encoder,
-		IsHardware: isHardware,
-		Status:     status,
-		Error:      skipReason,
-		SkipReason: skipReason, // Also set SkipReason for consistency
-		InputSize:  probe.Size,
-		Duration:   probe.Duration.Milliseconds(),
-		Bitrate:    probe.Bitrate,
-		Width:      probe.Width,
-		Height:     probe.Height,
-		FrameRate:  probe.FrameRate,
-		VideoCodec: probe.VideoCodec,
-		Profile:    probe.Profile,
-		BitDepth:      probe.BitDepth,
-		IsHDR:         probe.IsHDR,
-		ColorTransfer: probe.ColorTransfer,
-		CreatedAt:     time.Now(),
+		ID:                 generateID(),
+		InputPath:          inputPath,
+		PresetID:           presetID,
+		Encoder:            encoder,
+		IsHardware:         isHardware,
+		Status:             status,
+		Error:              skipReason,
+		SkipReason:         skipReason,
+		SmartShrinkQuality: smartShrinkQuality,
+		InputSize:          probe.Size,
+		Duration:           probe.Duration.Milliseconds(),
+		Bitrate:            probe.Bitrate,
+		Width:              probe.Width,
+		Height:             probe.Height,
+		FrameRate:          probe.FrameRate,
+		VideoCodec:         probe.VideoCodec,
+		Profile:            probe.Profile,
+		BitDepth:           probe.BitDepth,
+		IsHDR:              probe.IsHDR,
+		ColorTransfer:      probe.ColorTransfer,
+		CreatedAt:          time.Now(),
 	}
 
 	q.jobs[job.ID] = job
@@ -191,7 +192,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 }
 
 // AddMultiple adds multiple jobs at once with batched persistence and SSE
-func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*Job, error) {
+func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string, smartShrinkQuality string) ([]*Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -224,26 +225,27 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		}
 
 		job := &Job{
-			ID:         generateID(),
-			InputPath:  probe.Path,
-			PresetID:   presetID,
-			Encoder:    encoder,
-			IsHardware: isHardware,
-			Status:     status,
-			Error:      skipReason,
-			SkipReason: skipReason, // Also set SkipReason for consistency
-			InputSize:  probe.Size,
-			Duration:   probe.Duration.Milliseconds(),
-			Bitrate:    probe.Bitrate,
-			Width:      probe.Width,
-			Height:     probe.Height,
-			FrameRate:  probe.FrameRate,
-			VideoCodec: probe.VideoCodec,
-			Profile:    probe.Profile,
-			BitDepth:      probe.BitDepth,
-			IsHDR:         probe.IsHDR,
-			ColorTransfer: probe.ColorTransfer,
-			CreatedAt:     time.Now(),
+			ID:                 generateID(),
+			InputPath:          probe.Path,
+			PresetID:           presetID,
+			Encoder:            encoder,
+			IsHardware:         isHardware,
+			Status:             status,
+			Error:              skipReason,
+			SkipReason:         skipReason,
+			SmartShrinkQuality: smartShrinkQuality,
+			InputSize:          probe.Size,
+			Duration:           probe.Duration.Milliseconds(),
+			Bitrate:            probe.Bitrate,
+			Width:              probe.Width,
+			Height:             probe.Height,
+			FrameRate:          probe.FrameRate,
+			VideoCodec:         probe.VideoCodec,
+			Profile:            probe.Profile,
+			BitDepth:           probe.BitDepth,
+			IsHDR:              probe.IsHDR,
+			ColorTransfer:      probe.ColorTransfer,
+			CreatedAt:          time.Now(),
 		}
 
 		q.jobs[job.ID] = job
