@@ -355,7 +355,7 @@ func runComprehensiveTest(t *testing.T, testdataDir, filename, presetID string,
 	}
 
 	// Add job to queue
-	job, err := queue.Add(dstPath, presetID, probe)
+	job, err := queue.Add(dstPath, presetID, probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
@@ -608,11 +608,11 @@ func TestBuildPresetArgsComprehensive(t *testing.T) {
 				}
 
 				// Test hardware decode
-				inputArgsHW, outputArgsHW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, false, "mkv", nil)
+				inputArgsHW, outputArgsHW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, 0, false, "mkv", nil)
 				t.Logf("HW decode: input=%v output=%v", inputArgsHW, outputArgsHW)
 
 				// Test software decode
-				inputArgsSW, outputArgsSW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, true, "mkv", nil)
+				inputArgsSW, outputArgsSW := ffmpeg.BuildPresetArgs(preset, 5000000, 1920, 1080, 0, 0, 0, true, "mkv", nil)
 				t.Logf("SW decode: input=%v output=%v", inputArgsSW, outputArgsSW)
 
 				// Verify encoder is in output args

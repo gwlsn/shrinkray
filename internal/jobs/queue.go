@@ -126,7 +126,7 @@ func (q *Queue) persistDelete(id string) {
 }
 
 // Add adds a new job to the queue
-func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult) (*Job, error) {
+func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult, smartShrinkQuality string) (*Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -151,24 +151,27 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 	}
 
 	job := &Job{
-		ID:         generateID(),
-		InputPath:  inputPath,
-		PresetID:   presetID,
-		Encoder:    encoder,
-		IsHardware: isHardware,
-		Status:     status,
-		Error:      skipReason,
-		InputSize:  probe.Size,
-		Duration:   probe.Duration.Milliseconds(),
-		Bitrate:    probe.Bitrate,
-		Width:      probe.Width,
-		Height:     probe.Height,
-		FrameRate:  probe.FrameRate,
-		VideoCodec: probe.VideoCodec,
-		Profile:    probe.Profile,
-		BitDepth:   probe.BitDepth,
-		IsHDR:      probe.IsHDR,
-		CreatedAt:  time.Now(),
+		ID:                 generateID(),
+		InputPath:          inputPath,
+		PresetID:           presetID,
+		Encoder:            encoder,
+		IsHardware:         isHardware,
+		Status:             status,
+		Error:              skipReason,
+		SkipReason:         skipReason,
+		SmartShrinkQuality: smartShrinkQuality,
+		InputSize:          probe.Size,
+		Duration:           probe.Duration.Milliseconds(),
+		Bitrate:            probe.Bitrate,
+		Width:              probe.Width,
+		Height:             probe.Height,
+		FrameRate:          probe.FrameRate,
+		VideoCodec:         probe.VideoCodec,
+		Profile:            probe.Profile,
+		BitDepth:           probe.BitDepth,
+		IsHDR:              probe.IsHDR,
+		ColorTransfer:      probe.ColorTransfer,
+		CreatedAt:          time.Now(),
 	}
 
 	q.jobs[job.ID] = job
@@ -189,7 +192,7 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 }
 
 // AddMultiple adds multiple jobs at once with batched persistence and SSE
-func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*Job, error) {
+func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string, smartShrinkQuality string) ([]*Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -222,24 +225,27 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string) ([]*J
 		}
 
 		job := &Job{
-			ID:         generateID(),
-			InputPath:  probe.Path,
-			PresetID:   presetID,
-			Encoder:    encoder,
-			IsHardware: isHardware,
-			Status:     status,
-			Error:      skipReason,
-			InputSize:  probe.Size,
-			Duration:   probe.Duration.Milliseconds(),
-			Bitrate:    probe.Bitrate,
-			Width:      probe.Width,
-			Height:     probe.Height,
-			FrameRate:  probe.FrameRate,
-			VideoCodec: probe.VideoCodec,
-			Profile:    probe.Profile,
-			BitDepth:   probe.BitDepth,
-			IsHDR:      probe.IsHDR,
-			CreatedAt:  time.Now(),
+			ID:                 generateID(),
+			InputPath:          probe.Path,
+			PresetID:           presetID,
+			Encoder:            encoder,
+			IsHardware:         isHardware,
+			Status:             status,
+			Error:              skipReason,
+			SkipReason:         skipReason,
+			SmartShrinkQuality: smartShrinkQuality,
+			InputSize:          probe.Size,
+			Duration:           probe.Duration.Milliseconds(),
+			Bitrate:            probe.Bitrate,
+			Width:              probe.Width,
+			Height:             probe.Height,
+			FrameRate:          probe.FrameRate,
+			VideoCodec:         probe.VideoCodec,
+			Profile:            probe.Profile,
+			BitDepth:           probe.BitDepth,
+			IsHDR:              probe.IsHDR,
+			ColorTransfer:      probe.ColorTransfer,
+			CreatedAt:          time.Now(),
 		}
 
 		q.jobs[job.ID] = job
@@ -394,6 +400,91 @@ func (q *Queue) FailJob(id string, errMsg string) error {
 
 	q.persist(job)
 	q.broadcast(JobEvent{Type: "failed", Job: job.Copy()})
+
+	return nil
+}
+
+// SkipJob marks a running job as skipped with the given reason.
+// Used when SmartShrink analysis determines file cannot be improved.
+func (q *Queue) SkipJob(id, reason string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, exists := q.jobs[id]
+	if !exists {
+		return fmt.Errorf("job %s not found", id)
+	}
+
+	// Only running jobs can be skipped (during analysis phase)
+	if job.Status != StatusRunning {
+		return fmt.Errorf("job %s is not running (status: %s)", id, job.Status)
+	}
+
+	job.Status = StatusSkipped
+	job.SkipReason = reason
+	job.Error = reason // Also set Error for backwards compatibility with UI
+	job.CompletedAt = time.Now()
+
+	// Clear running state fields
+	job.Progress = 0
+	job.Speed = 0
+	job.ETA = ""
+	job.TempPath = ""
+	job.Phase = PhaseNone
+
+	// Use persist helper (handles nil store)
+	q.persist(job)
+
+	q.broadcast(JobEvent{Type: "skipped", Job: job.Copy()})
+
+	return nil
+}
+
+// UpdateJobPhase updates the phase of a running SmartShrink job.
+// Broadcasts a progress event to notify UI of phase change.
+func (q *Queue) UpdateJobPhase(id string, phase Phase) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		return fmt.Errorf("job not found: %s", id)
+	}
+
+	// Only running jobs can have their phase updated
+	if job.Status != StatusRunning {
+		return fmt.Errorf("job %s is not running (status: %s)", id, job.Status)
+	}
+
+	job.Phase = phase
+
+	q.persist(job)
+
+	q.broadcast(JobEvent{Type: "progress", Job: job.Copy()})
+
+	return nil
+}
+
+// UpdateJobVMAFResult stores the VMAF analysis results on a job.
+func (q *Queue) UpdateJobVMAFResult(id string, vmafScore float64, selectedCRF int, qualityMod float64) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, ok := q.jobs[id]
+	if !ok {
+		return fmt.Errorf("job not found: %s", id)
+	}
+
+	// Only running jobs can have VMAF results updated
+	if job.Status != StatusRunning {
+		return fmt.Errorf("job %s is not running (status: %s)", id, job.Status)
+	}
+
+	job.VMafScore = vmafScore
+	job.SelectedCRF = selectedCRF
+	job.QualityMod = qualityMod
+
+	q.persist(job)
 
 	return nil
 }
@@ -635,6 +726,11 @@ func checkSkipReason(probe *ffmpeg.ProbeResult, preset *ffmpeg.Preset, allowSame
 			return fmt.Sprintf("File is already %dp or smaller", preset.MaxHeight)
 		}
 		return "" // Needs downscaling, proceed regardless of codec
+	}
+
+	// SmartShrink presets skip the same-codec check (VMAF analysis will determine if skip is needed)
+	if preset.SkipsCodecCheck {
+		return "" // Proceed to VMAF analysis
 	}
 
 	// For compression presets (no downscaling), check codec

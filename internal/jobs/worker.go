@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/util"
 )
@@ -53,11 +55,41 @@ type WorkerPool struct {
 	// Pause state - when true, workers won't pick up new jobs
 	paused   bool
 	pausedMu sync.RWMutex
+
+	// Dynamic semaphore for VMAF analysis - matches worker count
+	analysisMu    sync.Mutex
+	analysisCount int // Currently running analyses
+	analysisLimit int // Max concurrent analyses (= worker count)
+}
+
+// SmartShrink quality thresholds (hardcoded for simplicity)
+const (
+	vmafAcceptable = 85.0
+	vmafGood       = 90.0
+	vmafExcellent  = 94.0
+)
+
+// getSmartShrinkThreshold returns the VMAF threshold for a quality tier
+func getSmartShrinkThreshold(quality string) float64 {
+	switch quality {
+	case "acceptable":
+		return vmafAcceptable
+	case "excellent":
+		return vmafExcellent
+	default:
+		return vmafGood
+	}
 }
 
 // NewWorkerPool creates a new worker pool
 func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator) *WorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Ensure analysis limit is at least 1 to prevent infinite wait
+	analysisLimit := cfg.Workers
+	if analysisLimit < 1 {
+		analysisLimit = 1
+	}
 
 	pool := &WorkerPool{
 		workers:         make([]*Worker, 0, cfg.Workers),
@@ -67,6 +99,7 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 		nextWorkerID:    0,
 		ctx:             ctx,
 		cancel:          cancel,
+		analysisLimit:   analysisLimit, // Allow concurrent analysis matching worker count
 	}
 
 	// Create workers
@@ -220,6 +253,11 @@ func (p *WorkerPool) Resize(n int) {
 
 	// Update config
 	p.cfg.Workers = n
+
+	// Update analysis limit (waiting workers will see new limit on next poll)
+	p.analysisMu.Lock()
+	p.analysisLimit = n
+	p.analysisMu.Unlock()
 }
 
 // WorkerCount returns the current number of workers
@@ -421,6 +459,69 @@ func (w *Worker) processJob(job *Job) {
 
 	logger.Info("Job started", "job_id", job.ID, "file", job.InputPath, "preset", job.PresetID)
 
+	// Initialize quality settings (may be overridden by SmartShrink analysis)
+	qualityHEVC := w.cfg.QualityHEVC
+	qualityAV1 := w.cfg.QualityAV1
+	var qualityMod float64
+
+	// Check if this is a SmartShrink preset
+	if preset.IsSmartShrink {
+		var shouldSkip bool
+		var skipReason string
+		var selectedCRF int
+		var vmafScore float64
+		var err error
+		shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, err = w.pool.runSmartShrinkAnalysis(jobCtx, job, preset)
+		if err != nil {
+			// Check if context was cancelled (user cancel or shutdown)
+			if jobCtx.Err() != nil {
+				// Job will be handled appropriately:
+				// - User cancel: jobCtx cancelled but w.ctx still active
+				// - Shutdown: w.ctx also cancelled, job left as running for restart
+				if w.ctx.Err() == nil {
+					logger.Info("Job cancelled during analysis", "job_id", job.ID)
+					_ = w.queue.CancelJob(job.ID)
+				} else {
+					logger.Info("Job interrupted by shutdown during analysis", "job_id", job.ID)
+				}
+				return
+			}
+			logger.Error("SmartShrink analysis failed", "job_id", job.ID, "error", err.Error())
+			_ = w.queue.FailJob(job.ID, err.Error())
+			return
+		}
+
+		if shouldSkip {
+			logger.Info("Job skipped by SmartShrink", "job_id", job.ID, "reason", skipReason)
+			_ = w.queue.SkipJob(job.ID, skipReason)
+			return
+		}
+
+		// Store VMAF results
+		_ = w.queue.UpdateJobVMAFResult(job.ID, vmafScore, selectedCRF, qualityMod)
+
+		// Update phase to encoding
+		_ = w.queue.UpdateJobPhase(job.ID, PhaseEncoding)
+
+		// Set quality overrides for transcode
+		if selectedCRF > 0 {
+			qualityHEVC = selectedCRF
+			qualityAV1 = selectedCRF
+		}
+		if qualityMod > 0 {
+			logger.Info("SmartShrink selected quality modifier",
+				"job_id", job.ID,
+				"quality_mod", qualityMod,
+			)
+		}
+
+		logger.Info("SmartShrink analysis complete",
+			"job_id", job.ID,
+			"vmaf_score", vmafScore,
+			"selected_crf", selectedCRF,
+		)
+	}
+
 	// Create progress channel
 	progressCh := make(chan ffmpeg.Progress, 10)
 
@@ -463,7 +564,7 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
 
 	if err != nil {
 		// Check if it was cancelled
@@ -497,7 +598,7 @@ func (w *Worker) processJob(job *Job) {
 			}()
 
 			// Retry with software decode
-			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, w.cfg.QualityHEVC, w.cfg.QualityAV1, totalFrames, retryProgressCh, true, w.cfg.OutputFormat, tonemapParams)
+			result, err = w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, retryProgressCh, true, w.cfg.OutputFormat, tonemapParams)
 
 			if err != nil {
 				// Check if cancelled during retry
@@ -533,10 +634,10 @@ func (w *Worker) processJob(job *Job) {
 
 	// Check if transcoded file is larger than original
 	if result.OutputSize >= job.InputSize && !w.cfg.KeepLargerFiles {
-		// Delete the temp file and fail the job
+		// Delete the temp file and skip the job (not fail - this is expected behavior)
 		os.Remove(tempPath)
 		logger.Warn("Job skipped - output larger than input", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("Transcoded file (%s) is larger than original (%s). File skipped.",
+		_ = w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
 			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize)))
 		return
 	} else if result.OutputSize >= job.InputSize {
@@ -607,4 +708,108 @@ func (w *Worker) CancelAndStop() {
 func shouldRetryWithSoftwareDecode(encoder ffmpeg.HWAccel) bool {
 	// Software encoder has no hardware decode to fall back from
 	return encoder != ffmpeg.HWAccelNone
+}
+
+// runSmartShrinkAnalysis performs VMAF analysis and returns the optimal quality settings.
+// Returns (shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, error)
+func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, preset *ffmpeg.Preset) (bool, string, int, float64, float64, error) {
+	// Acquire analysis slot (limited to worker count for parallel analysis)
+	for {
+		wp.analysisMu.Lock()
+		if wp.analysisCount < wp.analysisLimit {
+			wp.analysisCount++
+			wp.analysisMu.Unlock()
+			break
+		}
+		wp.analysisMu.Unlock()
+
+		// At limit, wait with context check
+		select {
+		case <-ctx.Done():
+			return false, "", 0, 0, 0, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+			// Retry
+		}
+	}
+
+	defer func() {
+		wp.analysisMu.Lock()
+		wp.analysisCount--
+		wp.analysisMu.Unlock()
+	}()
+
+	// Update phase
+	_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+
+	// Check HDR without tonemap
+	if job.IsHDR && !wp.cfg.TonemapHDR {
+		return true, "HDR requires tonemapping for SmartShrink", 0, 0, 0, nil
+	}
+
+	// Check HDR detected via fallback (missing color_transfer metadata)
+	// Tonemapping requires proper transfer function (smpte2084, arib-std-b67, etc.)
+	if job.IsHDR && wp.cfg.TonemapHDR && job.ColorTransfer == "" {
+		return true, "HDR tonemapping requires color transfer metadata (poorly-tagged HDR)", 0, 0, 0, nil
+	}
+
+	// Check video duration
+	duration := time.Duration(job.Duration) * time.Millisecond
+	if duration < 5*time.Second {
+		return true, "Video too short for analysis", 0, 0, 0, nil
+	}
+
+	// Get quality range for this encoder
+	qRange := ffmpeg.GetQualityRange(preset.Encoder, preset.Codec)
+
+	// Get temp directory for analysis
+	tempDir := wp.cfg.GetTempDir(job.InputPath)
+
+	// Get threshold from job's quality tier
+	threshold := getSmartShrinkThreshold(job.SmartShrinkQuality)
+
+	// Create analyzer
+	analyzer := vmaf.NewAnalyzer(wp.cfg.FFmpegPath, tempDir)
+
+	// Set up tonemapping for HDR content with tonemapping enabled.
+	var encodeTonemapParams *ffmpeg.TonemapParams
+	if job.IsHDR && wp.cfg.TonemapHDR {
+		analyzer.WithTonemap(true, wp.cfg.TonemapAlgorithm)
+	}
+
+	// Create encode callback
+	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
+		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
+			preset, job.Width, job.Height,
+			quality, modifier,
+			true, // Force software decode for FFV1 samples
+			encodeTonemapParams,
+		)
+
+		outputPath := samplePath + ".encoded.mkv"
+
+		args := make([]string, 0, len(inputArgs)+len(outputArgs)+4)
+		args = append(args, inputArgs...)
+		args = append(args, "-i", samplePath)
+		args = append(args, outputArgs...)
+		args = append(args, "-y", outputPath)
+
+		cmd := exec.CommandContext(ctx, wp.cfg.FFmpegPath, args...)
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+
+		return outputPath, nil
+	}
+
+	// Run analysis with threshold
+	result, err := analyzer.Analyze(ctx, job.InputPath, duration, job.Height, qRange, threshold, encodeSample)
+	if err != nil {
+		return false, "", 0, 0, 0, fmt.Errorf("VMAF analysis failed: %w", err)
+	}
+
+	if result.ShouldSkip {
+		return true, result.SkipReason, 0, 0, 0, nil
+	}
+
+	return false, "", result.OptimalCRF, result.QualityMod, result.VMafScore, nil
 }

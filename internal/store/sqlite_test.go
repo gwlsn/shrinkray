@@ -1,11 +1,13 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/jobs"
+	_ "modernc.org/sqlite"
 )
 
 func createTestJob(id string) *jobs.Job {
@@ -733,5 +735,266 @@ func TestSQLiteStore_WALMode(t *testing.T) {
 
 	if mode != "wal" {
 		t.Errorf("expected WAL mode, got %s", mode)
+	}
+}
+
+func TestSaveJobSmartShrinkFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	job := &jobs.Job{
+		ID:          "test-smartshrink",
+		InputPath:   "/test/video.mkv",
+		PresetID:    "smartshrink-hevc",
+		Encoder:     "libx265",
+		Status:      jobs.StatusComplete,
+		Phase:       jobs.PhaseEncoding,
+		VMafScore:   94.5,
+		SelectedCRF: 26,
+		QualityMod:  0.35,
+		SkipReason:  "",
+		CreatedAt:   time.Now(),
+	}
+
+	err = store.SaveJob(job)
+	if err != nil {
+		t.Fatalf("SaveJob failed: %v", err)
+	}
+
+	loaded, _, err := store.GetAllJobs()
+	if err != nil {
+		t.Fatalf("GetAllJobs failed: %v", err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(loaded))
+	}
+
+	if loaded[0].Phase != jobs.PhaseEncoding {
+		t.Errorf("Phase mismatch: got %q, want %q", loaded[0].Phase, jobs.PhaseEncoding)
+	}
+	if loaded[0].VMafScore != 94.5 {
+		t.Errorf("VMafScore mismatch: got %f, want 94.5", loaded[0].VMafScore)
+	}
+	if loaded[0].SelectedCRF != 26 {
+		t.Errorf("SelectedCRF mismatch: got %d, want 26", loaded[0].SelectedCRF)
+	}
+	if loaded[0].QualityMod != 0.35 {
+		t.Errorf("QualityMod mismatch: got %f, want 0.35", loaded[0].QualityMod)
+	}
+	if loaded[0].SkipReason != "" {
+		t.Errorf("SkipReason mismatch: got %q, want empty string", loaded[0].SkipReason)
+	}
+}
+
+func TestSaveJobSmartShrinkFieldsWithSkipReason(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	job := &jobs.Job{
+		ID:          "test-smartshrink-skip",
+		InputPath:   "/test/video.mkv",
+		PresetID:    "smartshrink-hevc",
+		Encoder:     "libx265",
+		Status:      jobs.StatusSkipped,
+		Phase:       jobs.PhaseAnalyzing,
+		VMafScore:   0,
+		SelectedCRF: 0,
+		QualityMod:  0,
+		SkipReason:  "no CRF meets VMAF target",
+		CreatedAt:   time.Now(),
+	}
+
+	err = store.SaveJob(job)
+	if err != nil {
+		t.Fatalf("SaveJob failed: %v", err)
+	}
+
+	// Test via GetJob (single job retrieval)
+	loaded, err := store.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob failed: %v", err)
+	}
+
+	if loaded.Phase != jobs.PhaseAnalyzing {
+		t.Errorf("Phase mismatch: got %q, want %q", loaded.Phase, jobs.PhaseAnalyzing)
+	}
+	if loaded.SkipReason != "no CRF meets VMAF target" {
+		t.Errorf("SkipReason mismatch: got %q, want %q", loaded.SkipReason, "no CRF meets VMAF target")
+	}
+}
+
+func TestMigrationV4ToV5(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Create a v4 database manually (without SmartShrink fields)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test DB: %v", err)
+	}
+
+	// Create v4 schema (complete schema without SmartShrink columns: phase, vmaf_score, selected_crf, quality_mod, skip_reason)
+	_, err = db.Exec(`
+		CREATE TABLE jobs (
+			id TEXT PRIMARY KEY,
+			input_path TEXT NOT NULL,
+			output_path TEXT,
+			temp_path TEXT,
+			preset_id TEXT NOT NULL,
+			encoder TEXT NOT NULL,
+			is_hardware INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			progress REAL NOT NULL DEFAULT 0,
+			speed REAL NOT NULL DEFAULT 0,
+			eta TEXT,
+			error TEXT,
+			input_size INTEGER NOT NULL DEFAULT 0,
+			output_size INTEGER,
+			space_saved INTEGER,
+			duration_ms INTEGER,
+			bitrate INTEGER,
+			width INTEGER,
+			height INTEGER,
+			frame_rate REAL,
+			video_codec TEXT,
+			profile TEXT,
+			bit_depth INTEGER,
+			is_hdr INTEGER DEFAULT 0,
+			transcode_secs INTEGER,
+			created_at TEXT NOT NULL,
+			started_at TEXT,
+			completed_at TEXT
+		);
+		CREATE TABLE job_order (
+			position INTEGER PRIMARY KEY AUTOINCREMENT,
+			job_id TEXT NOT NULL UNIQUE
+		);
+		CREATE TABLE schema_version (
+			version INTEGER NOT NULL,
+			applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE stats_metadata (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO schema_version (version) VALUES (4);
+		INSERT INTO stats_metadata (key, value) VALUES ('session_saved', '0'), ('lifetime_saved', '0');
+		INSERT INTO jobs (id, input_path, preset_id, encoder, status, created_at)
+			VALUES ('test-job', '/test.mkv', 'compress-hevc', 'libx265', 'complete', datetime('now'));
+		INSERT INTO job_order (job_id) VALUES ('test-job');
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create v4 schema: %v", err)
+	}
+	db.Close()
+
+	// Open with store (should auto-migrate to v5)
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open store: %v", err)
+	}
+	defer store.Close()
+
+	// Verify new columns exist and have defaults
+	allJobs, _, err := store.GetAllJobs()
+	if err != nil {
+		t.Fatalf("GetAllJobs failed: %v", err)
+	}
+
+	if len(allJobs) != 1 {
+		t.Fatalf("Expected 1 job, got %d", len(allJobs))
+	}
+
+	// New fields should have zero values
+	if allJobs[0].Phase != "" {
+		t.Errorf("Expected empty phase, got %q", allJobs[0].Phase)
+	}
+	if allJobs[0].VMafScore != 0 {
+		t.Errorf("Expected 0 vmaf_score, got %f", allJobs[0].VMafScore)
+	}
+	if allJobs[0].SelectedCRF != 0 {
+		t.Errorf("Expected 0 selected_crf, got %d", allJobs[0].SelectedCRF)
+	}
+	if allJobs[0].QualityMod != 0 {
+		t.Errorf("Expected 0 quality_mod, got %f", allJobs[0].QualityMod)
+	}
+	if allJobs[0].SkipReason != "" {
+		t.Errorf("Expected empty skip_reason, got %q", allJobs[0].SkipReason)
+	}
+}
+
+func TestSaveJobColorTransferAndSmartShrinkQuality(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	job := &jobs.Job{
+		ID:                  "test-hdr-smartshrink",
+		InputPath:           "/test/hdr_video.mkv",
+		PresetID:            "smartshrink-hevc",
+		Encoder:             "hevc_qsv",
+		Status:              jobs.StatusComplete,
+		Phase:               jobs.PhaseEncoding,
+		IsHDR:               true,
+		ColorTransfer:       "smpte2084",
+		SmartShrinkQuality:  "excellent",
+		VMafScore:           96.5,
+		SelectedCRF:         22,
+		CreatedAt:           time.Now(),
+	}
+
+	err = store.SaveJob(job)
+	if err != nil {
+		t.Fatalf("SaveJob failed: %v", err)
+	}
+
+	// Test via GetJob
+	loaded, err := store.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob failed: %v", err)
+	}
+
+	if loaded.ColorTransfer != "smpte2084" {
+		t.Errorf("ColorTransfer mismatch: got %q, want %q", loaded.ColorTransfer, "smpte2084")
+	}
+	if loaded.SmartShrinkQuality != "excellent" {
+		t.Errorf("SmartShrinkQuality mismatch: got %q, want %q", loaded.SmartShrinkQuality, "excellent")
+	}
+	if !loaded.IsHDR {
+		t.Errorf("IsHDR mismatch: got %v, want true", loaded.IsHDR)
+	}
+
+	// Test via GetAllJobs
+	allJobs, _, err := store.GetAllJobs()
+	if err != nil {
+		t.Fatalf("GetAllJobs failed: %v", err)
+	}
+	if len(allJobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(allJobs))
+	}
+	if allJobs[0].ColorTransfer != "smpte2084" {
+		t.Errorf("ColorTransfer via GetAllJobs mismatch: got %q, want %q", allJobs[0].ColorTransfer, "smpte2084")
+	}
+	if allJobs[0].SmartShrinkQuality != "excellent" {
+		t.Errorf("SmartShrinkQuality via GetAllJobs mismatch: got %q, want %q", allJobs[0].SmartShrinkQuality, "excellent")
 	}
 }

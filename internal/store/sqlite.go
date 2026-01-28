@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 4
+const schemaVersion = 6
 
 const schema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -41,7 +41,14 @@ CREATE TABLE IF NOT EXISTS jobs (
 	profile TEXT,
 	bit_depth INTEGER,
 	is_hdr INTEGER DEFAULT 0,
+	color_transfer TEXT DEFAULT '',
 	transcode_secs INTEGER,
+	phase TEXT DEFAULT '',
+	vmaf_score REAL DEFAULT 0,
+	selected_crf INTEGER DEFAULT 0,
+	quality_mod REAL DEFAULT 0,
+	skip_reason TEXT DEFAULT '',
+	smartshrink_quality TEXT DEFAULT '',
 	created_at TEXT NOT NULL,
 	started_at TEXT,
 	completed_at TEXT
@@ -176,6 +183,35 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 				return nil, fmt.Errorf("add is_hdr column: %w", err)
 			}
 		}
+		if version < 5 {
+			// Migrate v4 -> v5: Add SmartShrink fields
+			migrations := []string{
+				`ALTER TABLE jobs ADD COLUMN phase TEXT DEFAULT ''`,
+				`ALTER TABLE jobs ADD COLUMN vmaf_score REAL DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN selected_crf INTEGER DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN quality_mod REAL DEFAULT 0`,
+				`ALTER TABLE jobs ADD COLUMN skip_reason TEXT DEFAULT ''`,
+			}
+			for _, m := range migrations {
+				if _, err := db.Exec(m); err != nil {
+					db.Close()
+					return nil, fmt.Errorf("migration v4->v5 failed: %w", err)
+				}
+			}
+		}
+		if version < 6 {
+			// Migrate v5 -> v6: Add color_transfer and smartshrink_quality for HDR/SmartShrink persistence
+			migrations := []string{
+				`ALTER TABLE jobs ADD COLUMN color_transfer TEXT DEFAULT ''`,
+				`ALTER TABLE jobs ADD COLUMN smartshrink_quality TEXT DEFAULT ''`,
+			}
+			for _, m := range migrations {
+				if _, err := db.Exec(m); err != nil {
+					db.Close()
+					return nil, fmt.Errorf("migration v5->v6 failed: %w", err)
+				}
+			}
+		}
 		// Update version
 		_, err = db.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion)
 		if err != nil {
@@ -201,8 +237,9 @@ func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
 			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
 			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, transcode_secs, created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
+			smartshrink_quality, created_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
 		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
@@ -210,8 +247,9 @@ func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
 		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
 		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
 		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-		boolToInt(job.IsHDR), nullInt64(job.TranscodeTime),
-		formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
+		boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
+		string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
+		nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
 	)
 	return err
 }
@@ -229,7 +267,8 @@ func (s *SQLiteStore) getJobLocked(id string) (*jobs.Job, error) {
 		SELECT id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
 			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, transcode_secs, created_at, started_at, completed_at
+			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
+			smartshrink_quality, created_at, started_at, completed_at
 		FROM jobs WHERE id = ?
 	`, id)
 
@@ -262,8 +301,9 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 			status, progress, speed, eta, error, input_size, output_size, space_saved,
 			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, transcode_secs, created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
+			smartshrink_quality, created_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -278,8 +318,9 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 			job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
 			nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
 			nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-			boolToInt(job.IsHDR), nullInt64(job.TranscodeTime),
-			formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
+			boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
+			string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
+			nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
 		)
 		if err != nil {
 			return err
@@ -299,7 +340,8 @@ func (s *SQLiteStore) GetAllJobs() ([]*jobs.Job, []string, error) {
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
 			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.transcode_secs, j.created_at, j.started_at, j.completed_at
+			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
+			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		ORDER BY o.position ASC, j.created_at ASC
@@ -333,7 +375,8 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
 			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.transcode_secs, j.created_at, j.started_at, j.completed_at
+			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
+			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = ?
@@ -365,7 +408,8 @@ func (s *SQLiteStore) GetNextPendingJob() (*jobs.Job, error) {
 		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
 			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
 			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.transcode_secs, j.created_at, j.started_at, j.completed_at
+			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
+			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = 'pending'
@@ -560,10 +604,13 @@ func scanJob(row rowScanner) (*jobs.Job, error) {
 	var job jobs.Job
 	var outputPath, tempPath, eta, errStr sql.NullString
 	var videoCodec, profile sql.NullString
+	var colorTransfer sql.NullString
+	var phase, skipReason sql.NullString
+	var smartShrinkQuality sql.NullString
 	var outputSize, spaceSaved, duration, bitrate, transcodeTime sql.NullInt64
-	var width, height, bitDepth sql.NullInt64
+	var width, height, bitDepth, selectedCRF sql.NullInt64
 	var isHDR sql.NullInt64
-	var frameRate sql.NullFloat64
+	var frameRate, vmafScore, qualityMod sql.NullFloat64
 	var isHardware int
 	var status string
 	var createdAt, startedAt, completedAt sql.NullString
@@ -575,7 +622,9 @@ func scanJob(row rowScanner) (*jobs.Job, error) {
 		&job.InputSize, &outputSize, &spaceSaved,
 		&duration, &bitrate, &width, &height, &frameRate,
 		&videoCodec, &profile, &bitDepth,
-		&isHDR, &transcodeTime, &createdAt, &startedAt, &completedAt,
+		&isHDR, &colorTransfer, &transcodeTime,
+		&phase, &vmafScore, &selectedCRF, &qualityMod, &skipReason,
+		&smartShrinkQuality, &createdAt, &startedAt, &completedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -598,7 +647,14 @@ func scanJob(row rowScanner) (*jobs.Job, error) {
 	job.Profile = profile.String
 	job.BitDepth = int(bitDepth.Int64)
 	job.IsHDR = isHDR.Int64 != 0
+	job.ColorTransfer = colorTransfer.String
 	job.TranscodeTime = transcodeTime.Int64
+	job.Phase = jobs.Phase(phase.String)
+	job.VMafScore = vmafScore.Float64
+	job.SelectedCRF = int(selectedCRF.Int64)
+	job.QualityMod = qualityMod.Float64
+	job.SkipReason = skipReason.String
+	job.SmartShrinkQuality = smartShrinkQuality.String
 	job.CreatedAt = parseTime(createdAt.String)
 	job.StartedAt = parseTime(startedAt.String)
 	job.CompletedAt = parseTime(completedAt.String)

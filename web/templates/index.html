@@ -656,6 +656,14 @@
             flex-shrink: 0;
         }
 
+        .smartshrink-hint {
+            padding: 8px 20px;
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border);
+        }
+
         .preset-select {
             padding: 10px 14px;
             border: 1px solid var(--border);
@@ -676,6 +684,126 @@
         .preset-select:focus {
             outline: none;
             border-color: var(--accent);
+        }
+
+        /* Custom Preset Dropdown */
+        .preset-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .preset-dropdown-trigger {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            font-family: var(--font-sans);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            min-width: 230px;
+            transition: border-color var(--transition-fast);
+        }
+
+        .preset-dropdown-trigger:hover {
+            border-color: var(--border-hover);
+        }
+
+        .preset-dropdown-trigger:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .preset-dropdown-label {
+            flex: 1;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .preset-dropdown-chevron {
+            width: 12px;
+            height: 12px;
+            opacity: 0.5;
+            transition: transform var(--transition-fast);
+        }
+
+        .preset-dropdown.open .preset-dropdown-chevron {
+            transform: rotate(180deg);
+        }
+
+        .preset-dropdown-menu {
+            position: fixed;
+            min-width: 200px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-4px);
+            transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+        }
+
+        .preset-dropdown.open-upward .preset-dropdown-menu {
+            transform: translateY(4px);
+        }
+
+        .preset-dropdown.open.open-upward .preset-dropdown-menu {
+            transform: translateY(0);
+        }
+
+        .preset-dropdown.open .preset-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .preset-dropdown-section {
+            padding: 8px 0;
+        }
+
+        .preset-dropdown-section:not(:last-child) {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .preset-dropdown-section-label {
+            padding: 4px 12px 6px;
+            font-size: 0.625rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+        }
+
+        .preset-dropdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.1s ease, color 0.1s ease;
+        }
+
+        .preset-dropdown-item:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .preset-dropdown-item.selected {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .preset-dropdown-item .job-badge {
+            margin-left: 8px;
         }
 
         .btn {
@@ -810,6 +938,14 @@
         .queue-menu-dropdown.open {
             opacity: 1;
             visibility: visible;
+            transform: translateY(0);
+        }
+
+        .queue-menu-dropdown.open-upward {
+            transform: translateY(4px);
+        }
+
+        .queue-menu-dropdown.open.open-upward {
             transform: translateY(0);
         }
 
@@ -960,6 +1096,11 @@
             color: var(--purple);
         }
 
+        .job-badge.analyzing {
+            background: var(--warning-light);
+            color: var(--warning);
+        }
+
         .job-badge.hardware {
             background: var(--success-light);
             color: var(--success);
@@ -995,6 +1136,12 @@
 
         .progress-fill.initializing {
             background: linear-gradient(90deg, #DDD6FE 0%, #A78BFA 50%, #DDD6FE 100%);
+            background-size: 200% 100%;
+            animation: shimmer 2s ease-in-out infinite;
+        }
+
+        .progress-fill.analyzing {
+            background: linear-gradient(90deg, #FEF3C7 0%, #F59E0B 50%, #FEF3C7 100%);
             background-size: 200% 100%;
             animation: shimmer 2s ease-in-out infinite;
         }
@@ -1037,6 +1184,49 @@
             color: var(--warning);
             font-size: 0.8125rem;
             margin-top: 8px;
+        }
+
+        .job-details-toggle {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            user-select: none;
+        }
+
+        .job-details-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .job-details-toggle .toggle-icon {
+            font-size: 0.625rem;
+            transition: transform var(--transition-fast);
+        }
+
+        .smartshrink-details {
+            margin-top: 8px;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 0.8125rem;
+        }
+
+        .smartshrink-detail {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+
+        .smartshrink-label {
+            color: var(--text-secondary);
+        }
+
+        .smartshrink-value {
+            color: var(--text-primary);
+            font-weight: 500;
         }
 
         .job-actions {
@@ -1496,6 +1686,19 @@
                 width: 100%;
                 min-width: 0;
             }
+
+            .preset-dropdown {
+                width: 100%;
+            }
+
+            .preset-dropdown-trigger {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .preset-dropdown-menu {
+                width: 100%;
+            }
         }
 
         /* Loading State */
@@ -1703,12 +1906,36 @@
                         </li>
                     </ul>
                     <div class="actions-bar">
-                        <select class="preset-select" id="preset-select" onchange="onPresetChange()">
-                            <option value="compress-hevc">Compress (HEVC)</option>
-                        </select>
+                        <div class="preset-dropdown" id="preset-dropdown">
+                            <button class="preset-dropdown-trigger" onclick="togglePresetDropdown(event)">
+                                <span class="preset-dropdown-label">Loading...</span>
+                                <svg class="preset-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="preset-dropdown-menu" id="preset-dropdown-menu">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+                        <div class="preset-dropdown" id="quality-dropdown" style="display: none;">
+                            <button class="preset-dropdown-trigger" onclick="toggleQualityDropdown(event)">
+                                <span class="preset-dropdown-label">Good</span>
+                                <svg class="preset-dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="preset-dropdown-menu" id="quality-dropdown-menu">
+                                <div class="preset-dropdown-item" data-quality="acceptable" onclick="selectQuality('acceptable')">Acceptable</div>
+                                <div class="preset-dropdown-item selected" data-quality="good" onclick="selectQuality('good')">Good</div>
+                                <div class="preset-dropdown-item" data-quality="excellent" onclick="selectQuality('excellent')">Excellent</div>
+                            </div>
+                        </div>
                         <button class="btn btn-primary" onclick="startJobs()" id="start-btn" disabled>Start Transcode</button>
                         <span class="selection-count" id="selection-summary"></span>
                         <span class="schedule-status" id="schedule-status"></span>
+                    </div>
+                    <div class="smartshrink-hint" id="smartshrink-hint" style="display: none;">
+                        Analyzes your video to find the best compression for your chosen quality level. Takes longer than standard encoding.
                     </div>
                 </div>
             </div>
@@ -2014,6 +2241,11 @@
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
         let eventSource = null;
 
+        // Preset dropdown state
+        let allPresets = [];
+        let selectedPresetId = null;
+        let selectedQuality = 'good';
+
         function formatBytes(bytes) {
             if (bytes === 0) return '0';
             if (bytes < 0) return '0';
@@ -2030,6 +2262,23 @@
             if (h > 0) return `${h}h ${m}m`;
             if (m > 0) return `${m}m ${s}s`;
             return `${s}s`;
+        }
+
+        function toggleJobDetails(jobId) {
+            const details = document.getElementById('smartshrink-details-' + jobId);
+            const toggle = document.querySelector(`.job-details-toggle[data-job-id="${jobId}"]`);
+            if (!details || !toggle) return;
+
+            const icon = toggle.querySelector('.toggle-icon');
+            if (expandedJobDetails.has(jobId)) {
+                expandedJobDetails.delete(jobId);
+                details.style.display = 'none';
+                if (icon) icon.textContent = '▶';
+            } else {
+                expandedJobDetails.add(jobId);
+                details.style.display = 'block';
+                if (icon) icon.textContent = '▼';
+            }
         }
 
         async function browse(path = '') {
@@ -2267,16 +2516,14 @@
             }
         }
 
-        function onPresetChange() {
-            // Preset changed - no action needed since estimation is removed
-        }
-
         async function startJobs() {
             if (selectedPaths.size === 0) return;
 
             const banner = document.getElementById('processing-banner');
             try {
-                const preset = document.getElementById('preset-select').value;
+                const preset = selectedPresetId;
+                const smartshrinkQuality = preset.startsWith('smartshrink-') ? selectedQuality : '';
+
                 // Sum up total files: for folders use their file_count, for files use 1
                 let totalFiles = 0;
                 for (const count of selectedFileCounts.values()) {
@@ -2294,7 +2541,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         paths: Array.from(selectedPaths),
-                        preset_id: preset
+                        preset_id: preset,
+                        smartshrink_quality: smartshrinkQuality
                     })
                 });
                 const data = await resp.json();
@@ -2472,13 +2720,16 @@
         // Helper to render a single job's HTML
         function renderJobHTML(job) {
             const filename = job.input_path.split('/').pop();
-            const isInitializing = job.status === 'running' && job.progress === 0 && job.speed === 0;
-            const statusClass = isInitializing ? 'initializing' : job.status;
-            const statusLabel = isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1);
+            const isAnalyzing = job.status === 'running' && job.phase === 'analyzing';
+            const isInitializing = job.status === 'running' && !isAnalyzing && job.progress === 0 && job.speed === 0;
+            const statusClass = isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : job.status);
+            const statusLabel = isAnalyzing ? 'Analyzing' : (isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1));
 
             let detailsHtml = '';
             if (job.status === 'running') {
-                if (isInitializing) {
+                if (isAnalyzing) {
+                    detailsHtml = '<span class="job-detail">Finding optimal quality...</span>';
+                } else if (isInitializing) {
                     detailsHtml = '<span class="job-detail">Starting encoder...</span>';
                 } else {
                     detailsHtml = `
@@ -2510,11 +2761,22 @@
                     ${job.status === 'running' ? `
                         <div class="job-progress">
                             <div class="progress-bar">
-                                <div class="progress-fill ${isInitializing ? 'initializing' : ''}" style="width: ${isInitializing ? 100 : job.progress}%"></div>
+                                <div class="progress-fill ${isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : '')}" style="width: ${(isAnalyzing || isInitializing) ? 100 : job.progress}%"></div>
                             </div>
                         </div>
                     ` : ''}
                     <div class="job-details">${detailsHtml}</div>
+                    ${job.status === 'complete' && job.vmaf_score > 0 ? `
+                        <div class="job-details-toggle" data-job-id="${job.id}" onclick="toggleJobDetails('${job.id}')">
+                            <span class="toggle-icon">${expandedJobDetails.has(job.id) ? '▼' : '▶'}</span> SmartShrink Details
+                        </div>
+                        <div class="smartshrink-details" id="smartshrink-details-${job.id}" style="display: ${expandedJobDetails.has(job.id) ? 'block' : 'none'};">
+                            ${job.smartshrink_quality ? `<div class="smartshrink-detail"><span class="smartshrink-label">Quality Tier:</span> <span class="smartshrink-value">${job.smartshrink_quality}</span></div>` : ''}
+                            <div class="smartshrink-detail"><span class="smartshrink-label">VMAF Score:</span> <span class="smartshrink-value">${job.vmaf_score.toFixed(1)}</span></div>
+                            ${job.selected_crf > 0 ? `<div class="smartshrink-detail"><span class="smartshrink-label">CRF:</span> <span class="smartshrink-value">${job.selected_crf}</span></div>` : ''}
+                            ${job.quality_mod > 0 ? `<div class="smartshrink-detail"><span class="smartshrink-label">Bitrate:</span> <span class="smartshrink-value">${(job.quality_mod * 100).toFixed(0)}%</span></div>` : ''}
+                        </div>
+                    ` : ''}
                     ${job.status === 'failed' ? `<div class="job-error">${job.error}</div>` : ''}
                     ${job.status === 'skipped' ? `<div class="job-warning">${job.error}</div>` : ''}
                     ${job.status === 'pending' || job.status === 'running' ? `
@@ -2532,15 +2794,40 @@
         }
 
         // Incremental DOM update functions (avoid full rebuilds)
-        function updateJobProgress(jobId, progress, speed, eta) {
+        function updateJobProgress(jobId, progress, speed, eta, phase) {
             const el = document.querySelector(`.job-item[data-job-id="${jobId}"]`);
             if (!el) return;
+
+            // Get current job state
+            const job = allSortedJobs.find(j => j.id === jobId);
+            const wasAnalyzing = job && job.phase === 'analyzing';
+            const isAnalyzing = phase === 'analyzing';
+
+            // If phase changed (entering or leaving analyzing), do a full re-render
+            if (wasAnalyzing !== isAnalyzing) {
+                if (job) {
+                    job.progress = progress;
+                    job.speed = speed;
+                    job.eta = eta;
+                    job.phase = phase;
+                }
+                const temp = document.createElement('div');
+                temp.innerHTML = renderJobHTML(job || { id: jobId, status: 'running', progress, speed, eta, phase });
+                el.replaceWith(temp.firstElementChild);
+                return;
+            }
+
+            // If analyzing, don't update progress further - keep the analyzing state
+            if (isAnalyzing) {
+                return;
+            }
 
             // Update progress bar
             const progressFill = el.querySelector('.progress-fill');
             if (progressFill) {
                 progressFill.style.width = progress + '%';
                 progressFill.classList.remove('initializing');
+                progressFill.classList.remove('analyzing');
             }
 
             // Update status badge if transitioning from initializing to running
@@ -2563,11 +2850,11 @@
             }
 
             // Update in allSortedJobs array for consistency
-            const job = allSortedJobs.find(j => j.id === jobId);
             if (job) {
                 job.progress = progress;
                 job.speed = speed;
                 job.eta = eta;
+                job.phase = phase;
             }
         }
 
@@ -2756,6 +3043,7 @@
         let allSortedJobs = [];
         let displayedJobCount = 0;
         let queueFilter = 'all'; // 'all', 'running', 'pending', 'failed', 'skipped', 'complete', 'cancelled'
+        const expandedJobDetails = new Set(); // Track which jobs have expanded details
 
         // Sort state
         let queueSortBy = 'default'; // 'default', 'filename', 'input_size', 'output_size', 'space_saved'
@@ -2769,10 +3057,33 @@
             const isOpen = dropdown.classList.contains('open');
 
             if (!isOpen) {
-                // Position the dropdown below the trigger button
+                // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
-                dropdown.style.top = (rect.bottom + 6) + 'px';
+                const menuHeight = dropdown.scrollHeight || 350;
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
                 dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    dropdown.style.maxHeight = availableSpace + 'px';
+                    dropdown.style.overflowY = 'auto';
+                } else {
+                    dropdown.style.maxHeight = '';
+                    dropdown.style.overflowY = '';
+                }
+
+                if (openUpward) {
+                    dropdown.style.top = 'auto';
+                    dropdown.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    dropdown.style.top = (rect.bottom + 6) + 'px';
+                    dropdown.style.bottom = 'auto';
+                }
             }
 
             dropdown.classList.toggle('open');
@@ -2781,6 +3092,7 @@
         function closeQueueMenu() {
             const dropdown = document.getElementById('queue-menu-dropdown');
             dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
         }
 
         function selectFilter(filter) {
@@ -3223,7 +3535,7 @@
                     updateStats(data.stats);
                 } else if (data.type === 'progress') {
                     // Incremental: update just progress bar (no DOM rebuild)
-                    updateJobProgress(data.job.id, data.job.progress, data.job.speed, data.job.eta);
+                    updateJobProgress(data.job.id, data.job.progress, data.job.speed, data.job.eta, data.job.phase);
                 } else if (data.type === 'started' || data.type === 'complete' ||
                            data.type === 'failed' || data.type === 'cancelled' ||
                            data.type === 'requeued' || data.type === 'skipped') {
@@ -3261,6 +3573,8 @@
                         el.remove();
                         displayedJobCount--;
                     }
+                    // Clean up expanded details state
+                    expandedJobDetails.delete(data.job.id);
                     scheduleStatsRefresh();
                 }
                 // No catch-all scheduleRefresh() - only refresh when truly needed
@@ -3498,15 +3812,287 @@
 
         async function loadPresets() {
             try {
-                const presets = await fetch('/api/presets').then(r => r.json());
-                const select = document.getElementById('preset-select');
-                select.innerHTML = presets.map(p =>
-                    `<option value="${p.id}">${p.name}</option>`
-                ).join('');
+                allPresets = await fetch('/api/presets').then(r => r.json());
+                buildPresetDropdown();
+
+                // Restore saved preset or use first as default
+                const savedPreset = localStorage.getItem('shrinkray_preset');
+                const savedQuality = localStorage.getItem('shrinkray_quality');
+
+                if (allPresets.length > 0) {
+                    // Use saved preset if it exists in current presets, otherwise first
+                    const presetToSelect = savedPreset && allPresets.find(p => p.id === savedPreset)
+                        ? savedPreset
+                        : allPresets[0].id;
+                    selectPreset(presetToSelect);
+                }
+
+                // Restore saved quality
+                if (savedQuality && ['acceptable', 'good', 'excellent'].includes(savedQuality)) {
+                    selectQuality(savedQuality);
+                }
             } catch (err) {
                 console.error('Load presets error:', err);
             }
         }
+
+        // Group presets by category
+        function groupPresets(presets) {
+            const groups = {
+                smartshrink: [],
+                compress: [],
+                downscale: []
+            };
+
+            for (const preset of presets) {
+                if (preset.id.startsWith('smartshrink-')) {
+                    groups.smartshrink.push(preset);
+                } else if (preset.id === '1080p' || preset.id === '720p') {
+                    groups.downscale.push(preset);
+                } else {
+                    groups.compress.push(preset);
+                }
+            }
+
+            return groups;
+        }
+
+        // Clean display name (remove [HW]/[SW] suffix and category prefix)
+        function getPresetDisplayName(preset) {
+            return preset.name
+                .replace(' [HW]', '')
+                .replace(' [SW]', '')
+                .replace('Compress (', '')
+                .replace('SmartShrink (', '')
+                .replace(')', '')
+                .replace('Downscale to ', '');
+        }
+
+        // Check if hardware encoder
+        function isHardwarePreset(preset) {
+            return preset.name.includes('[HW]');
+        }
+
+        // Get category name for preset (used in trigger display)
+        function getPresetCategory(preset) {
+            if (preset.id.startsWith('smartshrink-')) {
+                return 'SmartShrink';
+            } else if (preset.id === '1080p' || preset.id === '720p') {
+                return 'Downscale';
+            } else {
+                return 'Compress';
+            }
+        }
+
+        // Build preset dropdown HTML
+        function buildPresetDropdown() {
+            const groups = groupPresets(allPresets);
+            const menu = document.getElementById('preset-dropdown-menu');
+
+            let sectionsHtml = '';
+
+            // SmartShrink section first (if available)
+            if (groups.smartshrink.length > 0) {
+                sectionsHtml += buildPresetSection('SMARTSHRINK', groups.smartshrink);
+            }
+
+            // Compress section
+            if (groups.compress.length > 0) {
+                sectionsHtml += buildPresetSection('COMPRESS', groups.compress);
+            }
+
+            // Downscale section
+            if (groups.downscale.length > 0) {
+                sectionsHtml += buildPresetSection('DOWNSCALE', groups.downscale);
+            }
+
+            menu.innerHTML = sectionsHtml;
+        }
+
+        function buildPresetSection(label, presets) {
+            const items = presets.map(p => {
+                const displayName = getPresetDisplayName(p);
+                const isHW = isHardwarePreset(p);
+                const badgeClass = isHW ? 'hardware' : 'software';
+                const badgeText = isHW ? 'HW' : 'SW';
+                return `<div class="preset-dropdown-item" data-preset="${p.id}" onclick="selectPreset('${p.id}')">
+                    <span>${displayName}</span>
+                    <span class="job-badge ${badgeClass}">${badgeText}</span>
+                </div>`;
+            }).join('');
+
+            return `<div class="preset-dropdown-section">
+                <div class="preset-dropdown-section-label">${label}</div>
+                ${items}
+            </div>`;
+        }
+
+        // Toggle preset dropdown
+        function togglePresetDropdown(event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const dropdown = document.getElementById('preset-dropdown');
+            const menu = document.getElementById('preset-dropdown-menu');
+            const isOpen = dropdown.classList.contains('open');
+
+            // Close other dropdowns
+            closeQualityDropdown();
+
+            if (!isOpen) {
+                // Position the dropdown - check if we need to open upward
+                const rect = trigger.getBoundingClientRect();
+                const menuHeight = menu.scrollHeight || 300; // Estimate if not yet rendered
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
+                menu.style.left = rect.left + 'px';
+
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    menu.style.maxHeight = availableSpace + 'px';
+                    menu.style.overflowY = 'auto';
+                } else {
+                    menu.style.maxHeight = '';
+                    menu.style.overflowY = '';
+                }
+
+                if (openUpward) {
+                    menu.style.top = 'auto';
+                    menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    menu.style.top = (rect.bottom + 6) + 'px';
+                    menu.style.bottom = 'auto';
+                }
+            }
+
+            dropdown.classList.toggle('open');
+        }
+
+        // Close preset dropdown
+        function closePresetDropdown() {
+            const dropdown = document.getElementById('preset-dropdown');
+            dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
+        }
+
+        // Select a preset
+        function selectPreset(presetId) {
+            selectedPresetId = presetId;
+            localStorage.setItem('shrinkray_preset', presetId);
+            const preset = allPresets.find(p => p.id === presetId);
+            if (!preset) return;
+
+            // Update trigger display
+            const trigger = document.querySelector('#preset-dropdown .preset-dropdown-trigger');
+            const label = trigger.querySelector('.preset-dropdown-label');
+
+            // Get display name, category, and badge info
+            const displayName = getPresetDisplayName(preset);
+            const category = getPresetCategory(preset);
+            const isHW = isHardwarePreset(preset);
+
+            // Update label with category, name, and badge
+            label.innerHTML = `<span>${category} - ${displayName}</span> <span class="job-badge ${isHW ? 'hardware' : 'software'}">${isHW ? 'HW' : 'SW'}</span>`;
+
+            // Update selected state in menu
+            document.querySelectorAll('#preset-dropdown-menu .preset-dropdown-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.preset === presetId);
+            });
+
+            // Show/hide quality dropdown and hint for SmartShrink
+            const qualityDropdown = document.getElementById('quality-dropdown');
+            const hint = document.getElementById('smartshrink-hint');
+            const isSmartShrink = presetId.startsWith('smartshrink-');
+
+            qualityDropdown.style.display = isSmartShrink ? 'inline-block' : 'none';
+            hint.style.display = isSmartShrink ? 'block' : 'none';
+
+            // Close dropdown
+            closePresetDropdown();
+        }
+
+        // Toggle quality dropdown
+        function toggleQualityDropdown(event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const dropdown = document.getElementById('quality-dropdown');
+            const menu = document.getElementById('quality-dropdown-menu');
+            const isOpen = dropdown.classList.contains('open');
+
+            // Close other dropdowns
+            closePresetDropdown();
+
+            if (!isOpen) {
+                // Position the dropdown - check if we need to open upward
+                const rect = trigger.getBoundingClientRect();
+                const menuHeight = menu.scrollHeight || 200;
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                dropdown.classList.toggle('open-upward', openUpward);
+                menu.style.left = rect.left + 'px';
+
+                // Determine available space and apply max-height if needed
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    menu.style.maxHeight = availableSpace + 'px';
+                    menu.style.overflowY = 'auto';
+                } else {
+                    menu.style.maxHeight = '';
+                    menu.style.overflowY = '';
+                }
+
+                if (openUpward) {
+                    menu.style.top = 'auto';
+                    menu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    menu.style.top = (rect.bottom + 6) + 'px';
+                    menu.style.bottom = 'auto';
+                }
+            }
+
+            dropdown.classList.toggle('open');
+        }
+
+        // Close quality dropdown
+        function closeQualityDropdown() {
+            const dropdown = document.getElementById('quality-dropdown');
+            dropdown.classList.remove('open');
+            dropdown.classList.remove('open-upward');
+        }
+
+        // Select quality
+        function selectQuality(quality) {
+            selectedQuality = quality;
+            localStorage.setItem('shrinkray_quality', quality);
+
+            // Update trigger display
+            const label = document.querySelector('#quality-dropdown .preset-dropdown-label');
+            const displayNames = { acceptable: 'Acceptable', good: 'Good', excellent: 'Excellent' };
+            label.textContent = displayNames[quality] || quality;
+
+            // Update selected state in menu
+            document.querySelectorAll('#quality-dropdown-menu .preset-dropdown-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.quality === quality);
+            });
+
+            // Close dropdown
+            closeQualityDropdown();
+        }
+
+        // Close dropdowns on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#preset-dropdown')) {
+                closePresetDropdown();
+            }
+            if (!e.target.closest('#quality-dropdown')) {
+                closeQualityDropdown();
+            }
+        });
 
         // Keyboard shortcut for settings
         document.addEventListener('keydown', (e) => {

@@ -15,6 +15,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/store"
@@ -120,6 +121,12 @@ func main() {
 
 	// Detect available hardware encoders
 	ffmpeg.DetectEncoders(cfg.FFmpegPath)
+
+	// Detect VMAF availability (must be BEFORE preset init for SmartShrink presets)
+	// Logging deferred until after splash screen
+	vmaf.DetectVMAF(cfg.FFmpegPath)
+
+	// Initialize presets (depends on encoder AND VMAF detection)
 	ffmpeg.InitPresets()
 
 	// Display detected encoders
@@ -168,6 +175,11 @@ func main() {
 	fmt.Printf("  Logging started (level: %s)\n", cfg.LogLevel)
 	fmt.Println("─────────────────────────────────────────────────────────────")
 	logger.Info("Shrinkray started", "version", shrinkray.Version, "encoder", best.Name, "workers", cfg.Workers, "port", *port)
+	if vmaf.IsAvailable() {
+		logger.Info("VMAF support detected", "models", vmaf.GetModels())
+	} else {
+		logger.Info("VMAF not available - SmartShrink presets will be hidden")
+	}
 
 	// Set up graceful shutdown
 	server := &http.Server{

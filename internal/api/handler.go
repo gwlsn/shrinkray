@@ -12,6 +12,7 @@ import (
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
+	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
 	"github.com/gwlsn/shrinkray/internal/pushover"
@@ -123,15 +124,18 @@ func (h *Handler) Encoders(w http.ResponseWriter, r *http.Request) {
 	best := ffmpeg.GetBestEncoder()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"encoders": encoders,
-		"best":     best,
+		"encoders":       encoders,
+		"best":           best,
+		"vmaf_available": vmaf.IsAvailable(),
+		"vmaf_models":    vmaf.GetModels(),
 	})
 }
 
 // CreateJobsRequest is the request body for creating jobs
 type CreateJobsRequest struct {
-	Paths    []string `json:"paths"`
-	PresetID string   `json:"preset_id"`
+	Paths              []string `json:"paths"`
+	PresetID           string   `json:"preset_id"`
+	SmartShrinkQuality string   `json:"smartshrink_quality,omitempty"`
 }
 
 // CreateJobs handles POST /api/jobs
@@ -152,6 +156,18 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 	if preset == nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown preset: %s", req.PresetID))
 		return
+	}
+
+	// Validate SmartShrink quality if provided
+	smartShrinkQuality := req.SmartShrinkQuality
+	if smartShrinkQuality != "" {
+		switch smartShrinkQuality {
+		case "acceptable", "good", "excellent":
+			// Valid
+		default:
+			writeError(w, http.StatusBadRequest, "smartshrink_quality must be 'acceptable', 'good', or 'excellent'")
+			return
+		}
 	}
 
 	// Respond immediately - jobs will be added in background and appear via SSE
@@ -192,7 +208,7 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Add jobs to queue - SSE will notify frontend of new jobs
-		_, _ = h.queue.AddMultiple(probes, req.PresetID)
+		_, _ = h.queue.AddMultiple(probes, req.PresetID, smartShrinkQuality)
 	}()
 }
 
@@ -325,19 +341,19 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 // UpdateConfigRequest is the request body for updating config
 type UpdateConfigRequest struct {
-	OriginalHandling  *string `json:"original_handling,omitempty"`
-	Workers           *int    `json:"workers,omitempty"`
-	PushoverUserKey   *string `json:"pushover_user_key,omitempty"`
-	PushoverAppToken  *string `json:"pushover_app_token,omitempty"`
-	NotifyOnComplete  *bool   `json:"notify_on_complete,omitempty"`
-	QualityHEVC       *int    `json:"quality_hevc,omitempty"`
-	QualityAV1        *int    `json:"quality_av1,omitempty"`
-	ScheduleEnabled   *bool   `json:"schedule_enabled,omitempty"`
-	ScheduleStartHour *int    `json:"schedule_start_hour,omitempty"`
-	ScheduleEndHour   *int    `json:"schedule_end_hour,omitempty"`
-	OutputFormat      *string `json:"output_format,omitempty"`
-	TonemapHDR        *bool   `json:"tonemap_hdr,omitempty"`
-	TonemapAlgorithm  *string `json:"tonemap_algorithm,omitempty"`
+	OriginalHandling   *string `json:"original_handling,omitempty"`
+	Workers            *int    `json:"workers,omitempty"`
+	PushoverUserKey    *string `json:"pushover_user_key,omitempty"`
+	PushoverAppToken   *string `json:"pushover_app_token,omitempty"`
+	NotifyOnComplete   *bool   `json:"notify_on_complete,omitempty"`
+	QualityHEVC        *int    `json:"quality_hevc,omitempty"`
+	QualityAV1         *int    `json:"quality_av1,omitempty"`
+	ScheduleEnabled    *bool   `json:"schedule_enabled,omitempty"`
+	ScheduleStartHour  *int    `json:"schedule_start_hour,omitempty"`
+	ScheduleEndHour    *int    `json:"schedule_end_hour,omitempty"`
+	OutputFormat     *string `json:"output_format,omitempty"`
+	TonemapHDR       *bool   `json:"tonemap_hdr,omitempty"`
+	TonemapAlgorithm *string `json:"tonemap_algorithm,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -520,8 +536,8 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add new job with same preset
-	newJob, err := h.queue.Add(job.InputPath, job.PresetID, probe)
+	// Add new job with same preset and quality tier
+	newJob, err := h.queue.Add(job.InputPath, job.PresetID, probe, job.SmartShrinkQuality)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create job: %v", err))
 		return
