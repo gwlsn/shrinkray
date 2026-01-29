@@ -19,6 +19,14 @@ type Preset struct {
 	SkipsCodecCheck bool    `json:"skips_codec_check"` // Bypass same-codec skip
 }
 
+// WithEncoder returns a copy of the preset with a different encoder.
+// Used for encoder fallback - preserves all other preset settings.
+func (p *Preset) WithEncoder(encoder HWAccel) *Preset {
+	copy := *p
+	copy.Encoder = encoder
+	return &copy
+}
+
 // encoderSettings defines FFmpeg settings for each encoder
 type encoderSettings struct {
 	encoder     string   // FFmpeg encoder name

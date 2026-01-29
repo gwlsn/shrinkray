@@ -568,6 +568,59 @@ func TestBuildPresetArgsHDRFilters(t *testing.T) {
 	}
 }
 
+func TestPreset_WithEncoder(t *testing.T) {
+	original := &Preset{
+		ID:              "test-preset",
+		Name:            "Test Preset",
+		Description:     "A test preset for unit testing",
+		Encoder:         HWAccelNVENC,
+		Codec:           CodecHEVC,
+		MaxHeight:       1080,
+		IsSmartShrink:   true,
+		SkipsCodecCheck: true,
+	}
+
+	modified := original.WithEncoder(HWAccelVAAPI)
+
+	// Encoder should be changed
+	if modified.Encoder != HWAccelVAAPI {
+		t.Errorf("Encoder: got %v, want %v", modified.Encoder, HWAccelVAAPI)
+	}
+
+	// All other fields should be preserved
+	if modified.ID != original.ID {
+		t.Errorf("ID not preserved: got %v, want %v", modified.ID, original.ID)
+	}
+	if modified.Name != original.Name {
+		t.Errorf("Name not preserved: got %v, want %v", modified.Name, original.Name)
+	}
+	if modified.Description != original.Description {
+		t.Errorf("Description not preserved: got %v, want %v", modified.Description, original.Description)
+	}
+	if modified.Codec != original.Codec {
+		t.Errorf("Codec not preserved: got %v, want %v", modified.Codec, original.Codec)
+	}
+	if modified.MaxHeight != original.MaxHeight {
+		t.Errorf("MaxHeight not preserved: got %v, want %v", modified.MaxHeight, original.MaxHeight)
+	}
+	if modified.IsSmartShrink != original.IsSmartShrink {
+		t.Errorf("IsSmartShrink not preserved: got %v, want %v", modified.IsSmartShrink, original.IsSmartShrink)
+	}
+	if modified.SkipsCodecCheck != original.SkipsCodecCheck {
+		t.Errorf("SkipsCodecCheck not preserved: got %v, want %v", modified.SkipsCodecCheck, original.SkipsCodecCheck)
+	}
+
+	// Original should be unchanged
+	if original.Encoder != HWAccelNVENC {
+		t.Errorf("Original was modified: Encoder is now %v", original.Encoder)
+	}
+
+	// Should return a new pointer, not the same object
+	if modified == original {
+		t.Error("WithEncoder should return a new Preset, not modify in place")
+	}
+}
+
 // TestBuildTonemapFilter tests the software tonemap filter builder
 func TestBuildTonemapFilter(t *testing.T) {
 	algorithms := []string{"hable", "bt2390", "reinhard", "mobius"}
