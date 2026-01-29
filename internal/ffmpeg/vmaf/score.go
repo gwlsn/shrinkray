@@ -60,7 +60,9 @@ func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string,
 		"-f", "null", "-",
 	}
 
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
+	// Run with low CPU priority so VMAF analysis yields to other processes
+	niceArgs := append([]string{"-n", "19", ffmpegPath}, args...)
+	cmd := exec.CommandContext(ctx, "nice", niceArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Error("VMAF scoring failed", "error", err, "stderr", lastLines(string(output), 5))
