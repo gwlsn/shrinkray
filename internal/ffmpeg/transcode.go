@@ -92,6 +92,14 @@ func (t *Transcoder) Transcode(
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
 
+	// Ensure progress channel is closed exactly once, regardless of exit path.
+	// Early returns (before scanner goroutine starts) would otherwise leak
+	// the consumer goroutine that's waiting on range progressCh.
+	closeProgress := sync.OnceFunc(func() {
+		close(progressCh)
+	})
+	defer closeProgress()
+
 	// Get input file size
 	inputInfo, err := os.Stat(inputPath)
 	if err != nil {
@@ -171,7 +179,7 @@ func (t *Transcoder) Transcode(
 
 	// Parse progress from stdout
 	go func() {
-		defer close(progressCh)
+		defer closeProgress()
 		scanner := bufio.NewScanner(stdout)
 		var currentProgress Progress
 

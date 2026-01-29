@@ -276,6 +276,45 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 	t.Logf("Keep mode: original→%s, final=%s", oldPath, finalPath)
 }
 
+func TestTranscode_ClosesChannelOnEarlyError(t *testing.T) {
+	transcoder := NewTranscoder("ffmpeg")
+	progressCh := make(chan Progress, 10)
+
+	// Call with nonexistent file to trigger early os.Stat error
+	ctx := context.Background()
+	_, err := transcoder.Transcode(
+		ctx,
+		"/nonexistent/path/to/file.mp4",
+		"/tmp/out.mkv",
+		&Preset{Encoder: HWAccelNone, Codec: CodecHEVC},
+		time.Minute,
+		0,
+		1920, 1080,
+		0, 0, 0,
+		1000,
+		progressCh,
+		false,
+		"mkv",
+		nil,
+	)
+
+	// Should error
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+
+	// Channel should be closed (not leak the consumer goroutine)
+	select {
+	case _, open := <-progressCh:
+		if open {
+			t.Error("channel should be closed after early error")
+		}
+		// Good - channel is closed
+	case <-time.After(100 * time.Millisecond):
+		t.Error("channel was not closed - goroutine would leak")
+	}
+}
+
 func TestFrameBasedSpeedAndETA(t *testing.T) {
 	// Simulate: 1000 frame video, 100 seconds duration
 	// After 10 seconds wall time, 200 frames encoded (20%)
