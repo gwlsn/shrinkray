@@ -820,9 +820,9 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 
 		// Limit threads for consistent CPU usage (~50% per analysis)
 		numThreads := vmaf.GetThreadCount()
+		threadStr := fmt.Sprintf("%d", numThreads)
 		args := make([]string, 0, len(inputArgs)+len(outputArgs)+8)
-		args = append(args, "-threads", fmt.Sprintf("%d", numThreads))
-		args = append(args, "-filter_threads", fmt.Sprintf("%d", numThreads))
+		args = append(args, "-threads", threadStr, "-filter_threads", threadStr)
 		args = append(args, inputArgs...)
 		args = append(args, "-i", samplePath)
 		args = append(args, outputArgs...)
