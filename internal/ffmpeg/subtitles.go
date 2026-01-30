@@ -20,15 +20,15 @@ var mkvCompatibleCodecs = map[string]bool{
 }
 
 // IsMKVCompatible returns true if the subtitle codec can be muxed to MKV.
-// Normalizes to lowercase for safety (matching isHEVCCodec/isAV1Codec pattern).
+// Normalizes to lowercase and trims whitespace for safety.
 // Unknown codecs return false for safety (better to drop than fail transcode).
 func IsMKVCompatible(codecName string) bool {
-	return mkvCompatibleCodecs[strings.ToLower(codecName)]
+	return mkvCompatibleCodecs[strings.ToLower(strings.TrimSpace(codecName))]
 }
 
 // FilterMKVCompatible partitions subtitle streams into compatible and incompatible.
-// Returns indices of compatible streams (for -map 0:N arguments) and codec names
-// of dropped streams (for logging warnings to the user).
+// Returns indices of compatible streams (for -map 0:N arguments) and unique codec names
+// of dropped streams (for logging warnings to the user, de-duplicated to avoid log spam).
 //
 // IMPORTANT: Return value semantics for worker logic:
 //   - nil input → nil output (no subtitle streams exist)
@@ -42,12 +42,17 @@ func FilterMKVCompatible(streams []SubtitleStream) (compatibleIndices []int, dro
 
 	// Pre-allocate to ensure we return empty slice, not nil, when all are incompatible
 	compatibleIndices = make([]int, 0, len(streams))
+	seenCodecs := make(map[string]bool)
 
 	for _, s := range streams {
 		if IsMKVCompatible(s.CodecName) {
 			compatibleIndices = append(compatibleIndices, s.Index)
 		} else {
-			droppedCodecs = append(droppedCodecs, s.CodecName)
+			// De-duplicate dropped codecs for cleaner log output
+			if !seenCodecs[s.CodecName] {
+				seenCodecs[s.CodecName] = true
+				droppedCodecs = append(droppedCodecs, s.CodecName)
+			}
 		}
 	}
 	return compatibleIndices, droppedCodecs

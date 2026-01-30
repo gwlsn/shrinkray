@@ -34,6 +34,17 @@ func TestIsMKVCompatible(t *testing.T) {
 		// Unknown codecs (treat as incompatible for safety)
 		{"unknown_codec", false},
 		{"", false},
+
+		// Case-insensitive matching
+		{"SRT", true},
+		{"SUBRIP", true},
+		{"AsS", true},
+		{"MOV_TEXT", false},
+
+		// Whitespace handling
+		{" subrip ", true},
+		{" mov_text ", false},
+		{"  ass  ", true},
 	}
 
 	for _, tt := range tests {
@@ -93,6 +104,24 @@ func TestFilterMKVCompatible(t *testing.T) {
 			wantNilIndices:   false,
 			wantDroppedCount: 2,
 		},
+		{
+			name:             "empty input returns empty slice not nil",
+			streams:          []SubtitleStream{},
+			wantIndices:      []int{},
+			wantNilIndices:   false, // non-nil input → non-nil output
+			wantDroppedCount: 0,
+		},
+		{
+			name: "duplicate incompatible codecs are deduplicated",
+			streams: []SubtitleStream{
+				{Index: 2, CodecName: "mov_text"},
+				{Index: 3, CodecName: "mov_text"},
+				{Index: 4, CodecName: "mov_text"},
+			},
+			wantIndices:      []int{},
+			wantNilIndices:   false,
+			wantDroppedCount: 1, // Only one "mov_text" in dropped list
+		},
 	}
 
 	for _, tt := range tests {
@@ -122,5 +151,30 @@ func TestFilterMKVCompatible(t *testing.T) {
 				t.Errorf("got %d dropped, want %d: %v", len(dropped), tt.wantDroppedCount, dropped)
 			}
 		})
+	}
+}
+
+func TestFilterMKVCompatible_DroppedCodecContents(t *testing.T) {
+	// Test that dropped codecs contain expected values in order
+	streams := []SubtitleStream{
+		{Index: 2, CodecName: "mov_text"},
+		{Index: 3, CodecName: "subrip"},
+		{Index: 4, CodecName: "eia_608"},
+		{Index: 5, CodecName: "mov_text"}, // Duplicate - should be deduplicated
+	}
+
+	_, dropped := FilterMKVCompatible(streams)
+
+	// Should have exactly 2 unique dropped codecs
+	if len(dropped) != 2 {
+		t.Fatalf("expected 2 dropped codecs, got %d: %v", len(dropped), dropped)
+	}
+
+	// Check order is preserved (first occurrence order)
+	if dropped[0] != "mov_text" {
+		t.Errorf("dropped[0] = %q, want %q", dropped[0], "mov_text")
+	}
+	if dropped[1] != "eia_608" {
+		t.Errorf("dropped[1] = %q, want %q", dropped[1], "eia_608")
 	}
 }
