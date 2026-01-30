@@ -558,7 +558,7 @@ func (w *Worker) attemptTranscode(
 	return w.transcoder.Transcode(jobCtx, job.InputPath, tempPath,
 		preset, duration, job.Bitrate, job.Width, job.Height,
 		qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh,
-		softwareDecode, w.cfg.OutputFormat, tonemapParams)
+		softwareDecode, w.cfg.OutputFormat, tonemapParams, nil)
 }
 
 // processJob handles a single transcoding job
@@ -711,7 +711,7 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams)
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams, nil)
 
 	// Recovery strategies for hardware encoder failures
 	if err != nil && jobCtx.Err() != context.Canceled && preset.Encoder != ffmpeg.HWAccelNone {
