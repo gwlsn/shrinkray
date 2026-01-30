@@ -25,3 +25,30 @@ var mkvCompatibleCodecs = map[string]bool{
 func IsMKVCompatible(codecName string) bool {
 	return mkvCompatibleCodecs[strings.ToLower(codecName)]
 }
+
+// FilterMKVCompatible partitions subtitle streams into compatible and incompatible.
+// Returns indices of compatible streams (for -map 0:N arguments) and codec names
+// of dropped streams (for logging warnings to the user).
+//
+// IMPORTANT: Return value semantics for worker logic:
+//   - nil input → nil output (no subtitle streams exist)
+//   - non-nil input → non-nil output (possibly empty slice if all incompatible)
+//
+// The worker uses nil to mean "map all" and empty slice to mean "map none".
+func FilterMKVCompatible(streams []SubtitleStream) (compatibleIndices []int, droppedCodecs []string) {
+	if streams == nil {
+		return nil, nil
+	}
+
+	// Pre-allocate to ensure we return empty slice, not nil, when all are incompatible
+	compatibleIndices = make([]int, 0, len(streams))
+
+	for _, s := range streams {
+		if IsMKVCompatible(s.CodecName) {
+			compatibleIndices = append(compatibleIndices, s.Index)
+		} else {
+			droppedCodecs = append(droppedCodecs, s.CodecName)
+		}
+	}
+	return compatibleIndices, droppedCodecs
+}
