@@ -1,9 +1,21 @@
 package vmaf
 
 import (
+	"context"
 	"testing"
 	"time"
 )
+
+func TestExtractSamplesSignatureNoTonemap(t *testing.T) {
+	// Verify the new signature without tonemap parameter compiles
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Should compile without tonemap parameter (6 args, not 7)
+	_, err := ExtractSamples(ctx, "ffmpeg", "input.mkv", "/tmp", 60*time.Second, []float64{0.5})
+	// Error expected due to cancelled context
+	_ = err
+}
 
 func TestSamplePositions(t *testing.T) {
 	tests := []struct {

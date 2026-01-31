@@ -50,13 +50,11 @@ func SamplePositions(videoDuration time.Duration) []float64 {
 // SampleDuration is the fixed duration for each sample (5 seconds)
 const SampleDuration = 5
 
-// ExtractSamples extracts video samples at specified positions
-// Uses fixed 5-second sample duration for consistent VMAF measurement.
-// When tonemap is provided and enabled, samples are tonemapped from HDR to SDR
-// so that VMAF comparison is done in the same color space as the encoded output.
+// ExtractSamples extracts video samples at specified positions using stream copy.
+// This is fast (remux only, no decode/encode) but results in keyframe-aligned cuts.
+// Tonemapping is NOT applied here - it's handled during VMAF scoring instead.
 func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
-	videoDuration time.Duration, positions []float64,
-	tonemap *TonemapConfig) ([]*Sample, error) {
+	videoDuration time.Duration, positions []float64) ([]*Sample, error) {
 
 	samples := make([]*Sample, 0, len(positions))
 
@@ -73,52 +71,22 @@ func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
 
 		samplePath := filepath.Join(tempDir, fmt.Sprintf("sample_%d.mkv", i))
 
-		// Build FFmpeg args for sample extraction
-		// Limit threads to match VMAF scoring for consistent CPU usage
-		numThreads := GetThreadCount()
+		// Stream copy extraction - fast, keyframe-aligned
 		args := []string{
-			"-threads", fmt.Sprintf("%d", numThreads),
-			"-filter_threads", fmt.Sprintf("%d", numThreads),
 			"-ss", fmt.Sprintf("%.3f", startTime.Seconds()),
 			"-i", inputPath,
 			"-t", fmt.Sprintf("%d", SampleDuration),
-		}
-
-		// Apply tonemapping filter if enabled (for HDR content)
-		// This ensures reference samples match the color space of encoded output
-		if tonemap != nil && tonemap.Enabled {
-			algorithm := tonemap.Algorithm
-			if algorithm == "" {
-				algorithm = "hable"
-			}
-			// HDR to SDR tonemapping pipeline:
-			// 1. Convert to linear light with nominal peak luminance
-			// 2. Convert to float for precision
-			// 3. Convert primaries to bt709
-			// 4. Apply tonemap algorithm
-			// 5. Set bt709 transfer and matrix
-			// 6. Output as 8-bit yuv420p for SDR
-			tonemapFilter := fmt.Sprintf(
-				"zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=%s:desat=0:peak=100,zscale=t=bt709:m=bt709,format=yuv420p",
-				algorithm,
-			)
-			args = append(args, "-vf", tonemapFilter)
-		}
-
-		// Extract as lossless FFV1 for accurate VMAF comparison
-		args = append(args,
-			"-c:v", "ffv1",
-			"-an", "-sn", // No audio or subtitles
+			"-c:v", "copy",
+			"-an", "-sn",
 			"-y",
 			samplePath,
-		)
+		}
 
 		// Run with low CPU priority so VMAF analysis yields to other processes
 		niceArgs := append([]string{"-n", "19", ffmpegPath}, args...)
 		cmd := exec.CommandContext(ctx, "nice", niceArgs...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			// Log full output for debugging, return truncated error
 			logger.Error("FFmpeg sample extraction failed", "sample", i, "error", err, "stderr", lastLines(string(output), 5))
 			// Clean up any created samples
 			for _, s := range samples {

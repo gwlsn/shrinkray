@@ -65,10 +65,11 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 		"samples", len(positions),
 		"threshold", threshold)
 
-	// Extract reference samples
+	// Extract reference samples using stream copy (fast, no tonemap)
+	// Tonemapping for HDR content is handled during VMAF scoring instead
 	extractStart := time.Now()
 	referenceSamples, err := ExtractSamples(ctx, a.FFmpegPath, inputPath, analysisDir,
-		videoDuration, positions, a.Tonemap)
+		videoDuration, positions)
 	if err != nil {
 		return nil, fmt.Errorf("extracting samples: %w", err)
 	}
