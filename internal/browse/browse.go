@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
@@ -178,23 +179,43 @@ func (b *Browser) countVideos(dirPath string) (count int, totalSize int64) {
 	return count, totalSize
 }
 
-// getProbeResult returns a cached or fresh probe result
+// getProbeResult returns a cached or fresh probe result.
+// Validates cached entries using inode + size signature to detect file replacement.
+// We use inode + size instead of mtime because mtime is deliberately preserved
+// after transcoding (via os.Chtimes).
 func (b *Browser) getProbeResult(ctx context.Context, path string) *ffmpeg.ProbeResult {
 	// Check cache
 	b.cacheMu.RLock()
-	if result, ok := b.cache[path]; ok {
-		b.cacheMu.RUnlock()
-		return result
-	}
+	cached, ok := b.cache[path]
 	b.cacheMu.RUnlock()
 
-	// Probe the file
+	if ok {
+		// Validate cached signature against current file
+		if info, err := os.Stat(path); err == nil {
+			currentSize := info.Size()
+			var currentInode uint64
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				currentInode = stat.Ino
+			}
+
+			// Signature match = cache hit
+			if cached.Inode == currentInode && cached.Size == currentSize {
+				return cached
+			}
+
+			// Signature mismatch = invalidate and re-probe
+			b.cacheMu.Lock()
+			delete(b.cache, path)
+			b.cacheMu.Unlock()
+		}
+	}
+
+	// Cache miss or invalidated: probe and cache
 	result, err := b.prober.Probe(ctx, path)
 	if err != nil {
 		return nil
 	}
 
-	// Cache the result
 	b.cacheMu.Lock()
 	b.cache[path] = result
 	b.cacheMu.Unlock()

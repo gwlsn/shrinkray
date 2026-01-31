@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -21,6 +23,7 @@ type SubtitleStream struct {
 type ProbeResult struct {
 	Path        string        `json:"path"`
 	Size        int64         `json:"size"`
+	Inode       uint64        `json:"-"` // Cache validation signature (not serialized to API)
 	Duration    time.Duration `json:"duration"`
 	Format      string        `json:"format"`
 	VideoCodec  string        `json:"video_codec"`
@@ -156,6 +159,16 @@ func (p *Prober) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 			if result.AudioCodec == "" { // Take first audio stream
 				result.AudioCodec = stream.CodecName
 			}
+		}
+	}
+
+	// Capture inode for cache validation (detects file replacement)
+	// We use inode + size instead of mtime because mtime is deliberately
+	// preserved after transcoding (via os.Chtimes)
+	if info, err := os.Stat(path); err == nil {
+		result.Size = info.Size() // Use stat size (more reliable than ffprobe)
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			result.Inode = stat.Ino
 		}
 	}
 

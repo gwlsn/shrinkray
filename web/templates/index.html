@@ -473,6 +473,40 @@
             flex-shrink: 0;
         }
 
+        .breadcrumb-refresh {
+            margin-left: auto;
+            flex-shrink: 0;
+            background: none;
+            border: none;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color var(--transition-fast), background var(--transition-fast);
+        }
+
+        .breadcrumb-refresh:hover {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+
+        .breadcrumb-refresh svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .breadcrumb-refresh.refreshing svg {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         .breadcrumb a {
             color: var(--accent);
             text-decoration: none;
@@ -2369,6 +2403,14 @@
                     }
                 }
 
+                // Add refresh button at the end of breadcrumb
+                crumbs += `<button class="breadcrumb-refresh" onclick="refreshBrowser()" title="Refresh file list">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                </button>`;
                 breadcrumb.innerHTML = crumbs;
 
                 // Update file list
@@ -2440,6 +2482,23 @@
 
             } catch (err) {
                 console.error('Browse error:', err);
+            }
+        }
+
+        // Refresh browser by clearing cache and re-browsing current path
+        async function refreshBrowser() {
+            const btn = document.querySelector('.breadcrumb-refresh');
+            if (btn) btn.classList.add('refreshing');
+
+            try {
+                // Clear the backend probe cache
+                await fetch('/api/cache/clear', { method: 'POST' });
+                // Re-browse current path to get fresh data
+                await browse(currentPath);
+            } catch (err) {
+                console.error('Refresh error:', err);
+            } finally {
+                if (btn) btn.classList.remove('refreshing');
             }
         }
 
