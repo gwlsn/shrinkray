@@ -75,9 +75,9 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 	logger.Info("Sample extraction complete", "duration", time.Since(extractStart).String())
 	defer CleanupSamples(referenceSamples)
 
-	// Run binary search
+	// Run binary search with tonemap config
 	searchStart := time.Now()
-	result, err := BinarySearch(ctx, a.FFmpegPath, referenceSamples, qRange, threshold, height, encodeSample)
+	result, err := BinarySearch(ctx, a.FFmpegPath, referenceSamples, qRange, threshold, height, a.Tonemap, encodeSample)
 	searchDuration := time.Since(searchStart)
 	if err != nil {
 		return nil, fmt.Errorf("binary search: %w", err)

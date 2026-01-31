@@ -114,17 +114,33 @@ func TestBinarySearchSelectsCorrectFunction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Immediately cancel to prevent actual encoding
 
-	// CRF mode
+	// CRF mode - nil tonemap (SDR)
 	crfRange := QualityRange{Min: 18, Max: 35, UsesBitrate: false}
 
 	// This should fail fast due to cancelled context, but validates routing
-	_, err := BinarySearch(ctx, "ffmpeg", nil, crfRange, 93.0, 1080, nil)
+	_, err := BinarySearch(ctx, "ffmpeg", nil, crfRange, 93.0, 1080, nil, nil)
 	// Error is expected due to nil samples/encoder
 	_ = err
 
-	// Bitrate mode
+	// Bitrate mode - nil tonemap (SDR)
 	bitrateRange := QualityRange{UsesBitrate: true, MinMod: 0.05, MaxMod: 0.80}
-	_, err = BinarySearch(ctx, "ffmpeg", nil, bitrateRange, 93.0, 1080, nil)
+	_, err = BinarySearch(ctx, "ffmpeg", nil, bitrateRange, 93.0, 1080, nil, nil)
 	// Error is expected due to nil samples/encoder
+	_ = err
+}
+
+func TestBinarySearchSignatureAcceptsTonemap(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	qRange := QualityRange{Min: 18, Max: 35}
+
+	// SDR case - nil tonemap
+	_, err := BinarySearch(ctx, "ffmpeg", nil, qRange, 93.0, 1080, nil, nil)
+	_ = err
+
+	// HDR case - with tonemap
+	tonemap := &TonemapConfig{Enabled: true, Algorithm: "hable"}
+	_, err = BinarySearch(ctx, "ffmpeg", nil, qRange, 93.0, 1080, tonemap, nil)
 	_ = err
 }

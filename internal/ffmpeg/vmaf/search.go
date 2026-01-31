@@ -29,18 +29,19 @@ type SearchResult struct {
 // and returns the path to the encoded file
 type EncodeSampleFunc func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error)
 
-// BinarySearch finds the optimal quality setting via binary search
+// BinarySearch finds the optimal quality setting via binary search.
+// When tonemap is provided and enabled, scoring uses HDR-aware comparison.
 func BinarySearch(ctx context.Context, ffmpegPath string, referenceSamples []*Sample,
-	qRange QualityRange, threshold float64, height int, encodeSample EncodeSampleFunc) (*SearchResult, error) {
+	qRange QualityRange, threshold float64, height int, tonemap *TonemapConfig, encodeSample EncodeSampleFunc) (*SearchResult, error) {
 
 	if qRange.UsesBitrate {
-		return binarySearchBitrate(ctx, ffmpegPath, referenceSamples, qRange, threshold, height, encodeSample)
+		return binarySearchBitrate(ctx, ffmpegPath, referenceSamples, qRange, threshold, height, tonemap, encodeSample)
 	}
-	return binarySearchCRF(ctx, ffmpegPath, referenceSamples, qRange, threshold, height, encodeSample)
+	return binarySearchCRF(ctx, ffmpegPath, referenceSamples, qRange, threshold, height, tonemap, encodeSample)
 }
 
 func binarySearchCRF(ctx context.Context, ffmpegPath string, referenceSamples []*Sample,
-	qRange QualityRange, threshold float64, height int, encodeSample EncodeSampleFunc) (*SearchResult, error) {
+	qRange QualityRange, threshold float64, height int, tonemap *TonemapConfig, encodeSample EncodeSampleFunc) (*SearchResult, error) {
 
 	low := qRange.Min  // Best quality
 	high := qRange.Max // Most compression
@@ -66,9 +67,9 @@ func binarySearchCRF(ctx context.Context, ffmpegPath string, referenceSamples []
 		}
 		encodeDuration := time.Since(encodeStart)
 
-		// Score samples
+		// Score samples with tonemap config
 		scoreStart := time.Now()
-		minScore, err := ScoreSamples(ctx, ffmpegPath, referenceSamples, distortedSamples, height)
+		minScore, err := ScoreSamples(ctx, ffmpegPath, referenceSamples, distortedSamples, height, tonemap)
 		scoreDuration := time.Since(scoreStart)
 
 		// Cleanup encoded samples
@@ -110,7 +111,7 @@ func binarySearchCRF(ctx context.Context, ffmpegPath string, referenceSamples []
 }
 
 func binarySearchBitrate(ctx context.Context, ffmpegPath string, referenceSamples []*Sample,
-	qRange QualityRange, threshold float64, height int, encodeSample EncodeSampleFunc) (*SearchResult, error) {
+	qRange QualityRange, threshold float64, height int, tonemap *TonemapConfig, encodeSample EncodeSampleFunc) (*SearchResult, error) {
 
 	// For bitrate modifier: higher = better quality, lower = more compression
 	low := qRange.MinMod  // Most compression (e.g., 0.05)
@@ -136,8 +137,8 @@ func binarySearchBitrate(ctx context.Context, ffmpegPath string, referenceSample
 			distortedSamples = append(distortedSamples, &Sample{Path: distPath})
 		}
 
-		// Score samples
-		minScore, err := ScoreSamples(ctx, ffmpegPath, referenceSamples, distortedSamples, height)
+		// Score samples with tonemap config
+		minScore, err := ScoreSamples(ctx, ffmpegPath, referenceSamples, distortedSamples, height, tonemap)
 
 		// Cleanup encoded samples
 		CleanupSamples(distortedSamples)

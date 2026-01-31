@@ -1,6 +1,7 @@
 package vmaf
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -103,6 +104,43 @@ func TestBuildHDRScoringFilterAlgorithms(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScoreSignatureAcceptsTonemap(t *testing.T) {
+	// This test verifies the function signature compiles with tonemap param
+	// Actual scoring requires FFmpeg, tested in integration tests
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately to avoid actual FFmpeg call
+
+	// SDR case - nil tonemap
+	_, err := Score(ctx, "ffmpeg", "ref.mkv", "dist.mkv", 1080, nil)
+	// Error expected due to cancelled context or missing files
+	_ = err
+
+	// HDR case - with tonemap config
+	tonemap := &TonemapConfig{Enabled: true, Algorithm: "hable"}
+	_, err = Score(ctx, "ffmpeg", "ref.mkv", "dist.mkv", 1080, tonemap)
+	// Error expected due to cancelled context or missing files
+	_ = err
+}
+
+func TestScoreSamplesSignatureAcceptsTonemap(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Verify signature compiles with tonemap param
+	refSamples := []*Sample{{Path: "ref.mkv"}}
+	distSamples := []*Sample{{Path: "dist.mkv"}}
+
+	// SDR case
+	_, err := ScoreSamples(ctx, "ffmpeg", refSamples, distSamples, 1080, nil)
+	_ = err
+
+	// HDR case
+	tonemap := &TonemapConfig{Enabled: true, Algorithm: "hable"}
+	_, err = ScoreSamples(ctx, "ffmpeg", refSamples, distSamples, 1080, tonemap)
+	_ = err
 }
 
 func TestTrimmedMean(t *testing.T) {
