@@ -13,6 +13,15 @@ import (
 	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
+// buildSDRScoringFilter creates a filtergraph for SDR VMAF comparison.
+// Both legs are normalized to yuv420p before libvmaf.
+func buildSDRScoringFilter(model string, threads int) string {
+	return fmt.Sprintf(
+		"[0:v]format=yuv420p[dist];[1:v]format=yuv420p[ref];"+
+			"[dist][ref]libvmaf=model=version=%s:n_threads=%d:log_fmt=json:log_path=/dev/stdout",
+		model, threads)
+}
+
 // SetMaxConcurrentAnalyses configures the concurrent analysis limit and returns the clamped value.
 // Thread count per analysis is fixed at ~50% CPU (numCPU/2) regardless of this setting.
 // Multiple concurrent analyses can stack to use more total CPU.

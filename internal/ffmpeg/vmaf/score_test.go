@@ -1,8 +1,38 @@
 package vmaf
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestBuildSDRScoringFilter(t *testing.T) {
+	filter := buildSDRScoringFilter("vmaf_v0.6.1", 4)
+
+	// Should have format conversion on both legs
+	if !strings.Contains(filter, "[0:v]format=yuv420p[dist]") {
+		t.Error("missing distorted leg format conversion")
+	}
+	if !strings.Contains(filter, "[1:v]format=yuv420p[ref]") {
+		t.Error("missing reference leg format conversion")
+	}
+
+	// Should have libvmaf with correct params
+	if !strings.Contains(filter, "[dist][ref]libvmaf=") {
+		t.Error("missing libvmaf filter")
+	}
+	if !strings.Contains(filter, "model=version=vmaf_v0.6.1") {
+		t.Error("missing model version")
+	}
+	if !strings.Contains(filter, "n_threads=4") {
+		t.Error("missing thread count")
+	}
+	if !strings.Contains(filter, "log_fmt=json") {
+		t.Error("missing json log format")
+	}
+	if !strings.Contains(filter, "log_path=/dev/stdout") {
+		t.Error("missing stdout log path")
+	}
+}
 
 func TestTrimmedMean(t *testing.T) {
 	tests := []struct {
