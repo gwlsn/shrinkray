@@ -57,6 +57,20 @@ Open `http://localhost:8080` in your browser.
 - **Database**: `/config/shrinkray.db` (SQLite)
 - **Temp files**: Same directory as source (configurable via `temp_path`)
 
+### Can I run Shrinkray in Docker on Mac?
+
+Yes, the Docker image supports Apple Silicon (M1/M2/M3/M4). However, Docker containers run Linux and cannot access macOS VideoToolbox, so encoding uses software (CPU) only.
+
+**For hardware-accelerated encoding on Mac**, run natively:
+
+```bash
+brew install ffmpeg
+go build -o shrinkray ./cmd/shrinkray
+./shrinkray -media /path/to/media
+```
+
+Docker is still useful if you prefer containerization and don't mind slower software encoding.
+
 ---
 
 ## Configuration
