@@ -459,22 +459,28 @@
             gap: 8px;
         }
 
+        .breadcrumb-bar {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            gap: 12px;
+        }
+
         .breadcrumb {
             display: flex;
             align-items: center;
             gap: 4px;
             font-size: 0.875rem;
             color: var(--text-secondary);
-            padding: 12px 20px;
-            background: var(--bg-tertiary);
-            border-bottom: 1px solid var(--border);
             overflow: hidden;
             white-space: nowrap;
-            flex-shrink: 0;
+            flex: 1;
         }
 
         .breadcrumb-refresh {
-            margin-left: auto;
             flex-shrink: 0;
             background: none;
             border: none;
@@ -1920,11 +1926,20 @@
         <main class="main">
             <div class="browser-panel">
                 <div class="panel">
-                    <div class="breadcrumb" id="breadcrumb">
-                        <div class="loading">
-                            <div class="spinner"></div>
-                            Loading...
+                    <div class="breadcrumb-bar">
+                        <div class="breadcrumb" id="breadcrumb">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                                Loading...
+                            </div>
                         </div>
+                        <button class="breadcrumb-refresh" id="refresh-btn" onclick="refreshBrowser()" title="Refresh file list">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <polyline points="1 20 1 14 7 14"></polyline>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                            </svg>
+                        </button>
                     </div>
                     <div class="file-list-header hidden" id="file-list-header">
                         <label>
@@ -2403,14 +2418,6 @@
                     }
                 }
 
-                // Add refresh button at the end of breadcrumb
-                crumbs += `<button class="breadcrumb-refresh" onclick="refreshBrowser()" title="Refresh file list">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="23 4 23 10 17 10"></polyline>
-                        <polyline points="1 20 1 14 7 14"></polyline>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                    </svg>
-                </button>`;
                 breadcrumb.innerHTML = crumbs;
 
                 // Update file list
@@ -2487,33 +2494,16 @@
 
         // Refresh browser by clearing cache and re-browsing current path
         async function refreshBrowser() {
-            const btn = document.querySelector('.breadcrumb-refresh');
+            const btn = document.getElementById('refresh-btn');
             if (btn) btn.classList.add('refreshing');
-
-            // Yield a frame so browser can paint the animation before work starts
-            await new Promise(requestAnimationFrame);
-
-            const startTime = Date.now();
 
             try {
                 await fetch('/api/cache/clear', { method: 'POST' });
                 await browse(currentPath);
-
-                // browse() replaces the button, so re-add the class to the new button
-                const newBtn = document.querySelector('.breadcrumb-refresh');
-                if (newBtn) newBtn.classList.add('refreshing');
-
-                // Ensure animation runs for at least 600ms total so it's visible
-                const elapsed = Date.now() - startTime;
-                const remaining = Math.max(0, 600 - elapsed);
-                if (remaining > 0) {
-                    await new Promise(resolve => setTimeout(resolve, remaining));
-                }
             } catch (err) {
                 console.error('Refresh error:', err);
             } finally {
-                const finalBtn = document.querySelector('.breadcrumb-refresh');
-                if (finalBtn) finalBtn.classList.remove('refreshing');
+                if (btn) btn.classList.remove('refreshing');
             }
         }
 
