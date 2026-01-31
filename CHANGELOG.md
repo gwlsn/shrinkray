@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.5] - 2026-01-31
+
+### Added
+- **Multi-arch Docker builds** — Release images now include `linux/amd64` and `linux/arm64` architectures
+- **Manual Docker build trigger** — Workflow dispatch option for on-demand builds
+- **Browser refresh button** — Refresh current directory to detect file changes without full page reload
+
+### Changed
+- Documentation updated with FAQ for Mac users regarding Docker vs native builds and VideoToolbox availability
+- Removed slow integration tests that required real encoding hardware
+- Refactored dead code and consolidated DRY violations across job handling and config modules
+
+### Fixed
+- **Probe cache invalidation** — Cache now validates using inode+size to detect when files are replaced; refresh button clears cache and reprobes changed files
+- **Refresh button animation** — Button performs smooth single rotation instead of barely-visible twitch
+
 ## [2.0.4] - 2026-01-30
 
 ### Fixed
