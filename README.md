@@ -121,7 +121,9 @@ Shrinkray automatically detects and uses the best available hardware encoder. No
 | **NVIDIA (NVENC)** | GTX 1050+ / RTX series | `--runtime=nvidia --gpus all` |
 | **Intel (Quick Sync)** | 6th gen+ CPU or Arc GPU | `--device /dev/dri:/dev/dri` |
 | **AMD (VAAPI)** | Polaris+ GPU on Linux | `--device /dev/dri:/dev/dri` |
-| **Apple (VideoToolbox)** | Any Mac (M1+) | Native (no Docker needed) |
+| **Apple (VideoToolbox)** | Any Mac (M1+) | Native or Docker* |
+
+> **\*Mac users:** The Docker image works on Apple Silicon, but containers run Linux and cannot access macOS VideoToolbox. For hardware-accelerated encoding, run Shrinkray natively ([Building from Source](#building-from-source)). Docker is convenient if you prefer containerization over GPU encoding speed.
 
 ### Unraid GPU Passthrough
 
