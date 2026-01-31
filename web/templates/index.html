@@ -2497,9 +2497,18 @@
             const btn = document.getElementById('refresh-btn');
             if (btn) btn.classList.add('refreshing');
 
+            const startTime = Date.now();
+
             try {
                 await fetch('/api/cache/clear', { method: 'POST' });
                 await browse(currentPath);
+
+                // Ensure animation runs for at least 600ms so it's visible
+                const elapsed = Date.now() - startTime;
+                const remaining = Math.max(0, 600 - elapsed);
+                if (remaining > 0) {
+                    await new Promise(resolve => setTimeout(resolve, remaining));
+                }
             } catch (err) {
                 console.error('Refresh error:', err);
             } finally {
