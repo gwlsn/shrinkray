@@ -8,6 +8,16 @@ import (
 	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
+const (
+	// minModRange is the minimum modifier range worth searching.
+	// Below 5% bitrate difference, quality changes are imperceptible.
+	minModRange = 0.05
+
+	// maxSearchIters caps binary search iterations to prevent
+	// thrashing near the boundary due to sampling noise.
+	maxSearchIters = 6
+)
+
 // QualityRange defines the search bounds for an encoder
 type QualityRange struct {
 	Min         int     // Minimum quality value (best quality)
@@ -51,7 +61,7 @@ func binarySearchCRF(ctx context.Context, ffmpegPath string, referenceSamples []
 	var found bool
 	iterations := 0
 
-	for low <= high {
+	for low <= high && iterations < maxSearchIters {
 		iterations++
 		mid := (low + high) / 2
 
@@ -123,7 +133,7 @@ func binarySearchBitrate(ctx context.Context, ffmpegPath string, referenceSample
 	iterations := 0
 
 	// Binary search with float precision (ensure at least one iteration)
-	for high-low > 0.02 || !found {
+	for (high-low > minModRange || !found) && iterations < maxSearchIters {
 		iterations++
 		mid := (low + high) / 2
 
@@ -161,11 +171,6 @@ func binarySearchBitrate(ctx context.Context, ffmpegPath string, referenceSample
 		} else {
 			// Quality too low, try less compression (higher modifier)
 			low = mid
-		}
-
-		// Break after first iteration if range is already narrow
-		if high-low <= 0.02 {
-			break
 		}
 	}
 
