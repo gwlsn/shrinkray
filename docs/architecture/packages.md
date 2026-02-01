@@ -67,7 +67,7 @@ VMAF quality analysis for SmartShrink presets:
 | `vmaf.go` | Package interface, QualityRange struct |
 | `detect.go` | VMAF model detection, availability checking |
 | `sample.go` | Sample extraction at fixed positions |
-| `score.go` | VMAF scoring with trimmed mean |
+| `score.go` | VMAF scoring with sample averaging |
 | `search.go` | Binary search for optimal CRF/bitrate |
 | `analyze.go` | Main analysis orchestration |
 

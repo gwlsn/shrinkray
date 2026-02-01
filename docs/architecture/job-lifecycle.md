@@ -143,9 +143,9 @@ sequenceDiagram
 ```
 
 The VMAF analysis phase:
-1. Extracts 5 samples at fixed positions (10%, 30%, 50%, 70%, 90%)
+1. Extracts 3 samples at fixed positions (25%, 50%, 75%)
 2. Uses binary search to find optimal CRF/bitrate meeting the quality threshold
-3. Scores use trimmed mean (drops highest/lowest) for stability
+3. Scores are averaged across all samples
 4. Analysis runs in parallel (limited by worker count)
 
 ## Skip logic

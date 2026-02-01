@@ -24,8 +24,8 @@ func TestSamplePositions(t *testing.T) {
 		want     []float64
 	}{
 		{"very short", 10 * time.Second, []float64{0.5}},
-		{"short video", 25 * time.Second, []float64{0.10, 0.30, 0.50, 0.70, 0.90}},
-		{"normal video", 60 * time.Second, []float64{0.10, 0.30, 0.50, 0.70, 0.90}},
+		{"short video", 45 * time.Second, []float64{0.5}},
+		{"normal video", 120 * time.Second, []float64{0.25, 0.50, 0.75}},
 	}
 
 	for _, tt := range tests {
@@ -52,9 +52,9 @@ func TestSamplePositionsEdgeCases(t *testing.T) {
 	}{
 		{"zero duration", 0, []float64{0.5}},
 		{"negative duration", -5 * time.Second, []float64{0.5}},
-		{"exactly 14s", 14 * time.Second, []float64{0.5}},
-		{"exactly 15s", 15 * time.Second, []float64{0.10, 0.30, 0.50, 0.70, 0.90}},
-		{"very long video", 3600 * time.Second, []float64{0.10, 0.30, 0.50, 0.70, 0.90}},
+		{"exactly 59s", 59 * time.Second, []float64{0.5}},
+		{"exactly 60s", 60 * time.Second, []float64{0.25, 0.50, 0.75}},
+		{"very long video", 3600 * time.Second, []float64{0.25, 0.50, 0.75}},
 	}
 
 	for _, tt := range tests {

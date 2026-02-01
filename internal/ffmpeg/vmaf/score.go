@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -148,34 +147,19 @@ func parseVMAFScore(output string) (float64, error) {
 	return 0, fmt.Errorf("could not parse VMAF score from output")
 }
 
-// trimmedMean calculates the trimmed mean of VMAF scores.
-// Drops the highest and lowest scores, averages the rest.
-// For 1-2 scores, returns simple average. For 3 scores, returns median.
-func trimmedMean(scores []float64) float64 {
+// averageScores returns the mean of VMAF scores.
+func averageScores(scores []float64) float64 {
 	if len(scores) == 0 {
 		return 0
 	}
-	if len(scores) == 1 {
-		return scores[0]
-	}
-	if len(scores) == 2 {
-		return (scores[0] + scores[1]) / 2
-	}
-
-	// Sort a copy to avoid modifying original
-	sorted := make([]float64, len(scores))
-	copy(sorted, scores)
-	sort.Float64s(sorted)
-
-	// Drop lowest and highest, average the rest
 	sum := 0.0
-	for i := 1; i < len(sorted)-1; i++ {
-		sum += sorted[i]
+	for _, s := range scores {
+		sum += s
 	}
-	return sum / float64(len(sorted)-2)
+	return sum / float64(len(scores))
 }
 
-// ScoreSamples calculates VMAF for multiple sample pairs and returns the trimmed mean.
+// ScoreSamples calculates VMAF for multiple sample pairs and returns the average.
 // When tonemap is provided and enabled, references are tonemapped from HDR to SDR.
 func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, distortedSamples []*Sample, height int, tonemap *TonemapConfig) (float64, error) {
 	if len(referenceSamples) != len(distortedSamples) {
@@ -193,7 +177,7 @@ func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, dist
 		scores = append(scores, score)
 	}
 
-	result := trimmedMean(scores)
-	logger.Info("VMAF trimmed mean", "scores", scores, "result", result)
+	result := averageScores(scores)
+	logger.Info("VMAF score", "scores", scores, "average", result)
 	return result, nil
 }

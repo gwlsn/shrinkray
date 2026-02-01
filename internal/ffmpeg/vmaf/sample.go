@@ -28,8 +28,10 @@ type Sample struct {
 	Duration time.Duration // Sample duration
 }
 
-// SamplePositions returns the 5 fixed positions to sample
-// Positions: 10%, 30%, 50%, 70%, 90% of video duration
+// SamplePositions returns the 3 fixed positions to sample.
+// Positions: 25%, 50%, 75% of video duration.
+// Using 3 longer samples (20s each) provides better representation than 5 short ones,
+// matching the approach used by ab-av1.
 func SamplePositions(videoDuration time.Duration) []float64 {
 	seconds := videoDuration.Seconds()
 
@@ -38,17 +40,18 @@ func SamplePositions(videoDuration time.Duration) []float64 {
 		return []float64{0.5}
 	}
 
-	// Very short videos (<15s): single sample at 50%
-	if seconds < 15 {
+	// Very short videos (<60s): single sample at 50%
+	if seconds < 60 {
 		return []float64{0.5}
 	}
 
-	// All other videos: 5 samples at fixed positions
-	return []float64{0.10, 0.30, 0.50, 0.70, 0.90}
+	// All other videos: 3 samples at fixed positions
+	return []float64{0.25, 0.50, 0.75}
 }
 
-// SampleDuration is the fixed duration for each sample (5 seconds)
-const SampleDuration = 5
+// SampleDuration is the fixed duration for each sample (20 seconds).
+// Longer samples provide more representative quality measurement.
+const SampleDuration = 20
 
 // ExtractSamples extracts video samples at specified positions using stream copy.
 // This is fast (remux only, no decode/encode) but results in keyframe-aligned cuts.
