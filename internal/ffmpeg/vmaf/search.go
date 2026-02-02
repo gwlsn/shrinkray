@@ -14,15 +14,9 @@ const (
 	// Below 5% bitrate difference, quality changes are imperceptible.
 	minModRange = 0.05
 
-	// maxSearchIters caps search iterations (excluding initial bound probes)
-	// to prevent thrashing near the boundary due to sampling noise.
-	maxSearchIters = 4
-
-	// Tolerance settings for early termination.
-	// Search stops when bounds are tight AND best score is within tolerance above threshold.
-	// This prevents over-searching when we've found a "good enough" result.
-	baseTolerance = 0.5
-	toleranceStep = 0.5
+	// maxSearchIters caps search iterations to prevent thrashing near the
+	// boundary due to sampling noise.
+	maxSearchIters = 6
 )
 
 // QualityRange defines the search bounds for an encoder
@@ -184,257 +178,412 @@ func (s *sampleScorer) scoreModifier(mod float64) (float64, error) {
 	return score, nil
 }
 
-// interpolatedSearchCRF finds optimal CRF using interpolated search.
+// crfAttempt stores a CRF value and its VMAF score for interpolation
+type crfAttempt struct {
+	crf   int
+	score float64
+}
+
+// interpolatedSearchCRF finds optimal CRF using ab-av1 style interpolated search.
+// Algorithm: Start with midpoint, track all attempts, use interpolation to converge.
 // For CRF: lower value = better quality, higher value = more compression.
 func interpolatedSearchCRF(s *sampleScorer, qRange QualityRange, threshold float64) (*SearchResult, error) {
-	// betterCRF gives quality >= threshold, worseCRF gives quality < threshold
-	betterCRF := qRange.Min
-	worseCRF := qRange.Max
+	minCRF := qRange.Min
+	maxCRF := qRange.Max
 
-	// Establish bounds by testing extremes
-	betterScore, err := s.scoreCRF(betterCRF)
-	if err != nil {
-		return nil, err
-	}
-	if betterScore < threshold {
-		// Even best quality fails threshold
-		return nil, nil
-	}
+	// Track all attempts for interpolation (ab-av1 style)
+	attempts := make([]crfAttempt, 0, maxSearchIters+2)
 
-	worseScore, err := s.scoreCRF(worseCRF)
-	if err != nil {
-		return nil, err
-	}
-	if worseScore >= threshold {
-		// Even max compression meets threshold - use it
-		return &SearchResult{
-			Quality:    worseCRF,
-			VMafScore:  worseScore,
-			Iterations: s.testCount,
-		}, nil
-	}
+	// Start with midpoint - don't test both bounds first
+	crf := (minCRF + maxCRF) / 2
 
-	// Interpolated search loop
-	// searchIter counts iterations within this loop (not including bound probes)
-	searchIter := 0
-	for searchIter < maxSearchIters {
-		searchIter++
-
-		// Check if bounds are adjacent - can't search further
-		if worseCRF-betterCRF <= 1 {
-			break
-		}
-
-		// Calculate next CRF to try
-		var nextCRF int
-		if searchIter == 1 {
-			// First search iteration: bias 80% toward compression for better bracketing
-			nextCRF = betterCRF + int(0.8*float64(worseCRF-betterCRF))
-		} else {
-			// Subsequent iterations: linear interpolation
-			nextCRF = interpolateInt(betterCRF, betterScore, worseCRF, worseScore, threshold)
-		}
-
-		// Clamp to interior to guarantee progress
-		nextCRF = clampInterior(nextCRF, betterCRF, worseCRF)
-		if nextCRF <= betterCRF || nextCRF >= worseCRF {
-			break // Can't make progress
-		}
-
-		nextScore, err := s.scoreCRF(nextCRF)
+	for run := 1; run <= maxSearchIters+2; run++ {
+		score, err := s.scoreCRF(crf)
 		if err != nil {
 			return nil, err
 		}
+		attempts = append(attempts, crfAttempt{crf: crf, score: score})
 
-		// Update bounds based on result
-		if nextScore >= threshold {
-			betterCRF = nextCRF
-			betterScore = nextScore
+		if score >= threshold {
+			// Good: score meets threshold
+			// Check early termination: within tolerance of threshold
+			tolerance := 0.5 + float64(run-1)*0.5
+			if score < threshold+tolerance {
+				return &SearchResult{
+					Quality:    crf,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			}
+
+			// Find upper bound: attempt with crf > current crf (more compression, lower quality)
+			upperBound := findUpperBound(attempts, crf)
+
+			if upperBound != nil && upperBound.crf == crf+1 {
+				// Adjacent - can't improve further
+				return &SearchResult{
+					Quality:    crf,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			}
+
+			if upperBound != nil {
+				// Interpolate between current (good) and upper (bad)
+				crf = vmafLerpCRF(threshold, upperBound.crf, upperBound.score, crf, score)
+			} else if run == 1 && crf+1 < maxCRF {
+				// First iteration, no upper bound yet: 40/60 cut toward compression
+				// This is the ab-av1 "cut_on_iter2" optimization
+				crf = int(math.Round(float64(crf)*0.4 + float64(maxCRF)*0.6))
+			} else if crf == maxCRF {
+				// Already at max compression and it's good - we're done
+				return &SearchResult{
+					Quality:    crf,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			} else {
+				// No upper bound, go to max
+				crf = maxCRF
+			}
 		} else {
-			worseCRF = nextCRF
-			worseScore = nextScore
+			// Not good enough: score below threshold
+			if crf == minCRF {
+				// Even best quality fails - impossible
+				return nil, nil
+			}
+
+			// Find lower bound: attempt with crf < current crf (less compression, higher quality)
+			lowerBound := findLowerBound(attempts, crf)
+
+			if lowerBound != nil && lowerBound.crf+1 == crf {
+				// Adjacent - lower bound is the best we can do
+				if lowerBound.score >= threshold {
+					return &SearchResult{
+						Quality:    lowerBound.crf,
+						VMafScore:  lowerBound.score,
+						Iterations: s.testCount,
+					}, nil
+				}
+				// Both adjacent points fail - impossible
+				return nil, nil
+			}
+
+			if lowerBound != nil {
+				// Interpolate between lower (good) and current (bad)
+				crf = vmafLerpCRF(threshold, crf, score, lowerBound.crf, lowerBound.score)
+			} else if run == 1 && crf > minCRF+1 {
+				// First iteration, no lower bound yet: 40/60 cut toward quality
+				crf = int(math.Round(float64(crf)*0.4 + float64(minCRF)*0.6))
+			} else {
+				// No lower bound, go to min
+				crf = minCRF
+			}
 		}
 
-		// Early termination: if bounds are tight and we have a good result
-		if shouldTerminateCRF(worseCRF-betterCRF, betterScore, threshold, searchIter) {
-			break
+		// Clamp to valid range
+		if crf < minCRF {
+			crf = minCRF
+		}
+		if crf > maxCRF {
+			crf = maxCRF
+		}
+
+		// Skip if we've already tested this CRF
+		if hasAttempt(attempts, crf) {
+			// Find best result that meets threshold
+			best := findBestAttempt(attempts, threshold)
+			if best != nil {
+				return &SearchResult{
+					Quality:    best.crf,
+					VMafScore:  best.score,
+					Iterations: s.testCount,
+				}, nil
+			}
+			return nil, nil
 		}
 	}
 
-	return &SearchResult{
-		Quality:    betterCRF,
-		VMafScore:  betterScore,
-		Iterations: s.testCount,
-	}, nil
+	// Return best result that meets threshold
+	best := findBestAttempt(attempts, threshold)
+	if best != nil {
+		return &SearchResult{
+			Quality:    best.crf,
+			VMafScore:  best.score,
+			Iterations: s.testCount,
+		}, nil
+	}
+	return nil, nil
 }
 
-// interpolatedSearchBitrate finds optimal bitrate modifier using interpolated search.
+// findUpperBound finds the attempt with the smallest CRF greater than the given CRF
+func findUpperBound(attempts []crfAttempt, crf int) *crfAttempt {
+	var best *crfAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.crf > crf && (best == nil || a.crf < best.crf) {
+			best = a
+		}
+	}
+	return best
+}
+
+// findLowerBound finds the attempt with the largest CRF less than the given CRF
+func findLowerBound(attempts []crfAttempt, crf int) *crfAttempt {
+	var best *crfAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.crf < crf && (best == nil || a.crf > best.crf) {
+			best = a
+		}
+	}
+	return best
+}
+
+// hasAttempt checks if a CRF value has already been tested
+func hasAttempt(attempts []crfAttempt, crf int) bool {
+	for _, a := range attempts {
+		if a.crf == crf {
+			return true
+		}
+	}
+	return false
+}
+
+// findBestAttempt finds the attempt with highest CRF (most compression) that meets threshold
+func findBestAttempt(attempts []crfAttempt, threshold float64) *crfAttempt {
+	var best *crfAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.score >= threshold && (best == nil || a.crf > best.crf) {
+			best = a
+		}
+	}
+	return best
+}
+
+// vmafLerpCRF interpolates to find CRF that should produce the threshold score.
+// worseCRF has score < threshold, betterCRF has score >= threshold.
+// Returns a CRF clamped to strictly between the two inputs.
+func vmafLerpCRF(threshold float64, worseCRF int, worseScore float64, betterCRF int, betterScore float64) int {
+	scoreDiff := betterScore - worseScore
+	if scoreDiff <= 0 {
+		return (worseCRF + betterCRF) / 2
+	}
+
+	// Linear interpolation: where does threshold fall proportionally?
+	factor := (threshold - worseScore) / scoreDiff
+	crfDiff := worseCRF - betterCRF
+	lerp := float64(worseCRF) - float64(crfDiff)*factor
+
+	// Clamp to strictly between bounds to guarantee progress
+	result := int(math.Round(lerp))
+	if result <= betterCRF {
+		result = betterCRF + 1
+	}
+	if result >= worseCRF {
+		result = worseCRF - 1
+	}
+	return result
+}
+
+// modAttempt stores a modifier value and its VMAF score for interpolation
+type modAttempt struct {
+	mod   float64
+	score float64
+}
+
+// interpolatedSearchBitrate finds optimal bitrate modifier using ab-av1 style interpolated search.
+// Algorithm: Start with midpoint, track all attempts, use interpolation to converge.
 // For bitrate modifier: higher value = better quality, lower value = more compression.
 func interpolatedSearchBitrate(s *sampleScorer, qRange QualityRange, threshold float64) (*SearchResult, error) {
-	// betterMod gives quality >= threshold, worseMod gives quality < threshold
-	// Note: higher modifier = better quality (opposite of CRF)
-	betterMod := qRange.MaxMod
-	worseMod := qRange.MinMod
+	minMod := qRange.MinMod // Most compression
+	maxMod := qRange.MaxMod // Best quality
 
-	// Establish bounds by testing extremes
-	betterScore, err := s.scoreModifier(betterMod)
-	if err != nil {
-		return nil, err
-	}
-	if betterScore < threshold {
-		// Even best quality fails threshold
-		return nil, nil
-	}
+	// Track all attempts for interpolation
+	attempts := make([]modAttempt, 0, maxSearchIters+2)
 
-	worseScore, err := s.scoreModifier(worseMod)
-	if err != nil {
-		return nil, err
-	}
-	if worseScore >= threshold {
-		// Even max compression meets threshold - use it
-		return &SearchResult{
-			Modifier:   worseMod,
-			VMafScore:  worseScore,
-			Iterations: s.testCount,
-		}, nil
-	}
+	// Start with midpoint
+	mod := (minMod + maxMod) / 2
 
-	// Interpolated search loop
-	searchIter := 0
-	for searchIter < maxSearchIters {
-		searchIter++
-
-		// Check if bounds are too close - can't search further
-		if betterMod-worseMod <= minModRange {
-			break
-		}
-
-		// Calculate next modifier to try
-		var nextMod float64
-		if searchIter == 1 {
-			// First search iteration: bias 80% toward compression for better bracketing
-			nextMod = betterMod - 0.8*(betterMod-worseMod)
-		} else {
-			// Subsequent iterations: linear interpolation
-			nextMod = interpolateFloat(betterMod, betterScore, worseMod, worseScore, threshold)
-		}
-
-		// Clamp to interior to guarantee progress
-		nextMod = clampInteriorFloat(nextMod, worseMod, betterMod)
-		if nextMod <= worseMod+minModRange/2 || nextMod >= betterMod-minModRange/2 {
-			break // Can't make progress
-		}
-
-		nextScore, err := s.scoreModifier(nextMod)
+	for run := 1; run <= maxSearchIters+2; run++ {
+		score, err := s.scoreModifier(mod)
 		if err != nil {
 			return nil, err
 		}
+		attempts = append(attempts, modAttempt{mod: mod, score: score})
 
-		// Update bounds based on result
-		if nextScore >= threshold {
-			betterMod = nextMod
-			betterScore = nextScore
+		if score >= threshold {
+			// Good: score meets threshold
+			tolerance := 0.5 + float64(run-1)*0.5
+			if score < threshold+tolerance {
+				return &SearchResult{
+					Modifier:   mod,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			}
+
+			// Find lower bound: attempt with mod < current mod (more compression)
+			lowerBound := findModLowerBound(attempts, mod)
+
+			if lowerBound != nil && math.Abs(lowerBound.mod-mod) <= minModRange {
+				// Adjacent - can't improve further
+				return &SearchResult{
+					Modifier:   mod,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			}
+
+			if lowerBound != nil {
+				// Interpolate between current (good) and lower (bad)
+				mod = vmafLerpMod(threshold, lowerBound.mod, lowerBound.score, mod, score)
+			} else if run == 1 && mod-minModRange > minMod {
+				// First iteration: 40/60 cut toward compression (lower modifier)
+				mod = mod*0.4 + minMod*0.6
+			} else if math.Abs(mod-minMod) <= minModRange {
+				// Already at min and it's good
+				return &SearchResult{
+					Modifier:   mod,
+					VMafScore:  score,
+					Iterations: s.testCount,
+				}, nil
+			} else {
+				mod = minMod
+			}
 		} else {
-			worseMod = nextMod
-			worseScore = nextScore
+			// Not good enough
+			if math.Abs(mod-maxMod) <= minModRange {
+				// Even best quality fails
+				return nil, nil
+			}
+
+			// Find upper bound: attempt with mod > current mod (better quality)
+			upperBound := findModUpperBound(attempts, mod)
+
+			if upperBound != nil && math.Abs(upperBound.mod-mod) <= minModRange {
+				// Adjacent
+				if upperBound.score >= threshold {
+					return &SearchResult{
+						Modifier:   upperBound.mod,
+						VMafScore:  upperBound.score,
+						Iterations: s.testCount,
+					}, nil
+				}
+				return nil, nil
+			}
+
+			if upperBound != nil {
+				// Interpolate between current (bad) and upper (good)
+				mod = vmafLerpMod(threshold, mod, score, upperBound.mod, upperBound.score)
+			} else if run == 1 && mod+minModRange < maxMod {
+				// First iteration: 40/60 cut toward quality (higher modifier)
+				mod = mod*0.4 + maxMod*0.6
+			} else {
+				mod = maxMod
+			}
 		}
 
-		// Early termination: if bounds are tight and we have a good result
-		if shouldTerminateBitrate(betterMod-worseMod, betterScore, threshold, searchIter) {
-			break
+		// Clamp to valid range
+		if mod < minMod {
+			mod = minMod
+		}
+		if mod > maxMod {
+			mod = maxMod
+		}
+
+		// Skip if already tested (within tolerance)
+		if hasModAttempt(attempts, mod) {
+			best := findBestModAttempt(attempts, threshold)
+			if best != nil {
+				return &SearchResult{
+					Modifier:   best.mod,
+					VMafScore:  best.score,
+					Iterations: s.testCount,
+				}, nil
+			}
+			return nil, nil
 		}
 	}
 
-	return &SearchResult{
-		Modifier:   betterMod,
-		VMafScore:  betterScore,
-		Iterations: s.testCount,
-	}, nil
+	best := findBestModAttempt(attempts, threshold)
+	if best != nil {
+		return &SearchResult{
+			Modifier:   best.mod,
+			VMafScore:  best.score,
+			Iterations: s.testCount,
+		}, nil
+	}
+	return nil, nil
 }
 
-// shouldTerminateCRF checks if CRF search should stop early.
-// Only terminates if bounds are tight AND best score is just above threshold (within tolerance).
-// This prevents wasting iterations when we've found a result that's "good enough".
-func shouldTerminateCRF(rangeSize int, bestScore, threshold float64, searchIter int) bool {
-	// Don't terminate early on first iteration - need better bracketing
-	if searchIter < 2 {
-		return false
+// findModUpperBound finds the attempt with the smallest modifier greater than given
+func findModUpperBound(attempts []modAttempt, mod float64) *modAttempt {
+	var best *modAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.mod > mod && (best == nil || a.mod < best.mod) {
+			best = a
+		}
 	}
-
-	// Growing tolerance: more lenient in later iterations
-	tolerance := baseTolerance + float64(searchIter-1)*toleranceStep
-
-	// Terminate if:
-	// 1. Bounds are close (within 3 CRF points)
-	// 2. Best score meets threshold
-	// 3. Best score is not excessively above threshold (within tolerance)
-	//    This ensures we've pushed compression reasonably close to the limit
-	return rangeSize <= 3 && bestScore >= threshold && bestScore-threshold <= tolerance
+	return best
 }
 
-// shouldTerminateBitrate checks if bitrate search should stop early.
-// Same logic as CRF: tight bounds AND score just above threshold.
-func shouldTerminateBitrate(rangeSize float64, bestScore, threshold float64, searchIter int) bool {
-	// Don't terminate early on first iteration
-	if searchIter < 2 {
-		return false
+// findModLowerBound finds the attempt with the largest modifier less than given
+func findModLowerBound(attempts []modAttempt, mod float64) *modAttempt {
+	var best *modAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.mod < mod && (best == nil || a.mod > best.mod) {
+			best = a
+		}
 	}
-
-	tolerance := baseTolerance + float64(searchIter-1)*toleranceStep
-
-	// Terminate if bounds are close and score is within tolerance above threshold
-	return rangeSize <= minModRange*3 && bestScore >= threshold && bestScore-threshold <= tolerance
+	return best
 }
 
-// interpolateInt calculates next CRF using linear interpolation.
-// Returns midpoint if interpolation would fail (non-monotonic data).
-func interpolateInt(betterVal int, betterScore float64, worseVal int, worseScore, threshold float64) int {
-	denom := betterScore - worseScore
-	if denom <= 0 {
-		// Guard against division by zero / non-monotonic noise
-		return (betterVal + worseVal) / 2
+// hasModAttempt checks if a modifier has already been tested (within tolerance)
+func hasModAttempt(attempts []modAttempt, mod float64) bool {
+	for _, a := range attempts {
+		if math.Abs(a.mod-mod) < minModRange/10 {
+			return true
+		}
 	}
-
-	// Linear interpolation: find where threshold falls proportionally
-	f := (threshold - worseScore) / denom
-	result := float64(worseVal) + f*float64(betterVal-worseVal)
-	return int(math.Round(result))
+	return false
 }
 
-// interpolateFloat calculates next modifier using linear interpolation.
-// Returns midpoint if interpolation would fail.
-func interpolateFloat(betterVal, betterScore, worseVal, worseScore, threshold float64) float64 {
-	denom := betterScore - worseScore
-	if denom <= 0 {
-		return (betterVal + worseVal) / 2
+// findBestModAttempt finds the attempt with lowest modifier (most compression) that meets threshold
+func findBestModAttempt(attempts []modAttempt, threshold float64) *modAttempt {
+	var best *modAttempt
+	for i := range attempts {
+		a := &attempts[i]
+		if a.score >= threshold && (best == nil || a.mod < best.mod) {
+			best = a
+		}
 	}
-
-	f := (threshold - worseScore) / denom
-	return worseVal + f*(betterVal-worseVal)
+	return best
 }
 
-// clampInterior clamps an int value to strictly inside (low, high)
-func clampInterior(val, low, high int) int {
-	if val <= low {
-		val = low + 1
+// vmafLerpMod interpolates to find modifier that should produce the threshold score.
+// worseMod has score < threshold (lower modifier), betterMod has score >= threshold (higher modifier).
+func vmafLerpMod(threshold float64, worseMod, worseScore, betterMod, betterScore float64) float64 {
+	scoreDiff := betterScore - worseScore
+	if scoreDiff <= 0 {
+		return (worseMod + betterMod) / 2
 	}
-	if val >= high {
-		val = high - 1
+
+	factor := (threshold - worseScore) / scoreDiff
+	modDiff := betterMod - worseMod
+	lerp := worseMod + modDiff*factor
+
+	// Clamp to interior with small margin
+	margin := minModRange / 2
+	if lerp <= worseMod+margin {
+		lerp = worseMod + margin
 	}
-	return val
+	if lerp >= betterMod-margin {
+		lerp = betterMod - margin
+	}
+	return lerp
 }
 
-// clampInteriorFloat clamps a float value to strictly inside (low, high)
-func clampInteriorFloat(val, low, high float64) float64 {
-	margin := (high - low) * 0.01 // 1% margin
-	if margin < minModRange/2 {
-		margin = minModRange / 2
-	}
-	if val <= low+margin {
-		val = low + margin
-	}
-	if val >= high-margin {
-		val = high - margin
-	}
-	return val
-}
