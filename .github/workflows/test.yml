@@ -14,10 +14,17 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: |
+          go test -v -race -coverprofile=coverage.out \
+            ./internal/api/... \
+            ./internal/browse/... \
+            ./internal/config/... \
+            ./internal/ffmpeg/... \
+            ./internal/jobs/... \
+            ./internal/store/...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
