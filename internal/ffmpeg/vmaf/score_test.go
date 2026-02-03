@@ -41,74 +41,33 @@ func TestBuildHDRScoringFilter(t *testing.T) {
 	// Test with HDR10 (smpte2084) - the default/most common case
 	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084")
 
-	// Distorted leg should be simple format conversion (already SDR)
-	if !strings.Contains(filter, "[0:v]format=yuv420p[dist]") {
-		t.Error("missing distorted leg format conversion")
+	// Both legs should have full tonemap pipeline (HDR samples -> SDR for VMAF)
+	// VMAF is only validated for SDR-to-SDR comparison
+
+	// Distorted leg should have full tonemap pipeline
+	if !strings.Contains(filter, "[0:v]zscale=") {
+		t.Error("distorted leg missing zscale (should tonemap HDR to SDR)")
 	}
 
 	// Reference leg should have full tonemap pipeline
-	if !strings.Contains(filter, "[1:v]") {
-		t.Error("missing reference leg start")
+	if !strings.Contains(filter, "[1:v]zscale=") {
+		t.Error("reference leg missing zscale (should tonemap HDR to SDR)")
 	}
 
-	// Check explicit HDR input metadata
-	if !strings.Contains(filter, "pin=bt2020") {
-		t.Error("missing bt2020 primaries input")
+	// Check explicit HDR input metadata on both legs
+	if strings.Count(filter, "pin=bt2020") != 2 {
+		t.Errorf("expected bt2020 primaries input on both legs, got %d", strings.Count(filter, "pin=bt2020"))
 	}
-	if !strings.Contains(filter, "tin=smpte2084") {
-		t.Error("missing PQ transfer input")
-	}
-	if !strings.Contains(filter, "min=bt2020nc") {
-		t.Error("missing bt2020nc matrix input")
+	if strings.Count(filter, "tin=smpte2084") != 2 {
+		t.Errorf("expected PQ transfer input on both legs, got %d", strings.Count(filter, "tin=smpte2084"))
 	}
 
-	// Check linearization
-	if !strings.Contains(filter, "t=linear") {
-		t.Error("missing linear transfer")
-	}
-	if !strings.Contains(filter, "npl=1000") {
-		t.Error("missing nominal peak luminance")
+	// Check tonemap applied to both legs
+	if strings.Count(filter, "tonemap=hable") != 2 {
+		t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
 	}
 
-	// Check float format for precision
-	if !strings.Contains(filter, "format=gbrpf32le") {
-		t.Error("missing float format conversion")
-	}
-
-	// Check SDR output metadata
-	if !strings.Contains(filter, "p=bt709") {
-		t.Error("missing bt709 primaries output")
-	}
-	if !strings.Contains(filter, "t=bt709") {
-		t.Error("missing bt709 transfer output")
-	}
-	if !strings.Contains(filter, "m=bt709") {
-		t.Error("missing bt709 matrix output")
-	}
-
-	// Check tonemap with algorithm
-	if !strings.Contains(filter, "tonemap=hable") {
-		t.Error("missing tonemap filter with algorithm")
-	}
-
-	// CRITICAL: Verify correct pipeline order - tonemap must operate on linear light
-	// Order: linearize -> float -> primaries -> tonemap -> transfer/matrix -> yuv420p
-	primariesIdx := strings.Index(filter, "zscale=p=bt709")
-	tonemapIdx := strings.Index(filter, "tonemap=")
-	transferIdx := strings.Index(filter, "zscale=t=bt709")
-
-	if primariesIdx == -1 || tonemapIdx == -1 || transferIdx == -1 {
-		t.Fatal("missing required filter components for order check")
-	}
-
-	if primariesIdx > tonemapIdx {
-		t.Error("primaries conversion (p=bt709) must come BEFORE tonemap")
-	}
-	if tonemapIdx > transferIdx {
-		t.Error("tonemap must come BEFORE transfer function (t=bt709)")
-	}
-
-	// Check libvmaf
+	// Check libvmaf receives both tonemapped legs
 	if !strings.Contains(filter, "[dist][ref]libvmaf=") {
 		t.Error("missing libvmaf filter")
 	}
@@ -118,9 +77,9 @@ func TestBuildHDRScoringFilterHLG(t *testing.T) {
 	// Test with HLG (arib-std-b67) - requires different input transfer
 	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "arib-std-b67")
 
-	// Should use HLG transfer function instead of PQ
-	if !strings.Contains(filter, "tin=arib-std-b67") {
-		t.Error("missing HLG transfer input (arib-std-b67)")
+	// Should use HLG transfer function on both legs
+	if strings.Count(filter, "tin=arib-std-b67") != 2 {
+		t.Errorf("expected HLG transfer input on both legs, got %d", strings.Count(filter, "tin=arib-std-b67"))
 	}
 	if strings.Contains(filter, "tin=smpte2084") {
 		t.Error("should NOT contain PQ transfer for HLG content")

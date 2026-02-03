@@ -24,10 +24,12 @@ func buildSDRScoringFilter(model string, threads int) string {
 }
 
 // buildHDRScoringFilter creates a filtergraph for HDR VMAF comparison.
-// The reference leg is tonemapped from HDR to SDR to match the distorted leg.
-// Explicit color metadata ensures correct HDR interpretation.
+// BOTH legs are tonemapped from HDR to SDR because VMAF is only validated for SDR-to-SDR.
+// Reference samples are HDR (stream copy extraction).
+// Distorted samples are HDR (encoded without tonemapping during analysis).
+// The TonemapHDR config setting only affects final transcode, not VMAF analysis.
 //
-// Pipeline order (tonemap requires linear light input):
+// Pipeline order for each leg (tonemap requires linear light input):
 // 1. Linearize from PQ/HLG with explicit HDR metadata (inputTransfer determines tin=)
 // 2. Convert to float format for precision
 // 3. Convert primaries to bt709 (color space, still linear)
@@ -48,19 +50,20 @@ func buildHDRScoringFilter(model string, threads int, algorithm, inputTransfer s
 		inputTransfer = "smpte2084"
 	}
 
-	// Distorted is already SDR (tonemapped during encoding)
-	// Reference is HDR, needs tonemapping before comparison
-	// Score is extracted from FFmpeg's stderr summary line (no JSON logging needed).
+	// HDR to SDR tonemap chain - applied to both legs
+	tonemapChain := "zscale=pin=bt2020:tin=%s:min=bt2020nc:t=linear:npl=1000," +
+		"format=gbrpf32le," +
+		"zscale=p=bt709," +
+		"tonemap=%s:desat=0:peak=100," +
+		"zscale=t=bt709:m=bt709," +
+		"format=yuv420p"
+
+	// Both distorted and reference are HDR, tonemap both to SDR for valid VMAF comparison
 	return fmt.Sprintf(
-		"[0:v]format=yuv420p[dist];"+
-			"[1:v]zscale=pin=bt2020:tin=%s:min=bt2020nc:t=linear:npl=1000,"+
-			"format=gbrpf32le,"+
-			"zscale=p=bt709,"+
-			"tonemap=%s:desat=0:peak=100,"+
-			"zscale=t=bt709:m=bt709,"+
-			"format=yuv420p[ref];"+
+		"[0:v]"+tonemapChain+"[dist];"+
+			"[1:v]"+tonemapChain+"[ref];"+
 			"[dist][ref]libvmaf=model=version=%s:n_threads=%d",
-		inputTransfer, algorithm, model, threads)
+		inputTransfer, algorithm, inputTransfer, algorithm, model, threads)
 }
 
 // MaxScoreWorkers is the maximum number of concurrent VMAF scoring workers.
@@ -106,6 +109,8 @@ func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string,
 	} else {
 		filterComplex = buildSDRScoringFilter(model, threads)
 	}
+
+	logger.Debug("VMAF scoring filter", "filter", filterComplex, "hdr", tonemap != nil && tonemap.Enabled)
 
 	args := []string{
 		"-threads", fmt.Sprintf("%d", threads),
