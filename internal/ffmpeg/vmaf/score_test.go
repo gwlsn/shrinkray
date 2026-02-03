@@ -67,6 +67,28 @@ func TestBuildHDRScoringFilter(t *testing.T) {
 		t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
 	}
 
+	// CRITICAL: Verify correct pipeline order - tonemap must operate on linear light
+	// Order: linearize -> float -> primaries -> tonemap -> transfer/matrix -> yuv420p
+	// Check first leg (distorted) ordering
+	linearIdx := strings.Index(filter, "t=linear")
+	primariesIdx := strings.Index(filter, "zscale=p=bt709")
+	tonemapIdx := strings.Index(filter, "tonemap=")
+	transferIdx := strings.Index(filter, "zscale=t=bt709")
+
+	if linearIdx == -1 || primariesIdx == -1 || tonemapIdx == -1 || transferIdx == -1 {
+		t.Fatal("missing required filter components for order check")
+	}
+
+	if linearIdx > primariesIdx {
+		t.Error("linearization (t=linear) must come BEFORE primaries conversion")
+	}
+	if primariesIdx > tonemapIdx {
+		t.Error("primaries conversion (p=bt709) must come BEFORE tonemap")
+	}
+	if tonemapIdx > transferIdx {
+		t.Error("tonemap must come BEFORE transfer function (t=bt709)")
+	}
+
 	// Check libvmaf receives both tonemapped legs
 	if !strings.Contains(filter, "[dist][ref]libvmaf=") {
 		t.Error("missing libvmaf filter")

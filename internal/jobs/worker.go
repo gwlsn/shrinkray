@@ -879,9 +879,10 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	}()
 
 	// Check HDR detected via fallback (missing color_transfer metadata)
-	// Tonemapping requires proper transfer function (smpte2084, arib-std-b67, etc.)
-	if job.IsHDR && wp.cfg.TonemapHDR && job.ColorTransfer == "" {
-		return true, "HDR tonemapping requires color transfer metadata (poorly-tagged HDR)", 0, 0, 0, nil
+	// VMAF analysis requires proper transfer function for tonemapping (smpte2084, arib-std-b67, etc.)
+	// This guard applies regardless of TonemapHDR since VMAF always tonemaps HDR to SDR
+	if job.IsHDR && job.ColorTransfer == "" {
+		return true, "HDR analysis requires color transfer metadata (poorly-tagged HDR)", 0, 0, 0, nil
 	}
 
 	// Check video duration
