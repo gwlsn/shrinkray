@@ -902,11 +902,11 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	// Create analyzer
 	analyzer := vmaf.NewAnalyzer(wp.cfg.FFmpegPath, tempDir)
 
-	// Set up tonemapping for HDR content with tonemapping enabled.
+	// Configure VMAF scoring to tonemap both legs to SDR.
+	// TonemapHDR setting only affects final transcode, not VMAF analysis.
 	// Pass job.ColorTransfer so the scoring filtergraph uses the correct input transfer
 	// (smpte2084 for HDR10/DV, arib-std-b67 for HLG).
-	var encodeTonemapParams *ffmpeg.TonemapParams
-	if job.IsHDR && wp.cfg.TonemapHDR {
+	if job.IsHDR {
 		analyzer.WithTonemap(true, wp.cfg.TonemapAlgorithm, job.ColorTransfer)
 	}
 
@@ -916,7 +916,6 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 			preset, job.Width, job.Height,
 			quality, modifier,
 			true, // Force software decode for FFV1 samples
-			encodeTonemapParams,
 		)
 
 		outputPath := samplePath + ".encoded.mkv"
