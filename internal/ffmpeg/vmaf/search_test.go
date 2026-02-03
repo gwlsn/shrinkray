@@ -144,3 +144,196 @@ func TestBinarySearchSignatureAcceptsTonemap(t *testing.T) {
 	_, err = BinarySearch(ctx, "ffmpeg", nil, qRange, 93.0, 1080, tonemap, nil)
 	_ = err
 }
+
+// TestVmafLerpCRF tests the CRF interpolation function edge cases
+func TestVmafLerpCRF(t *testing.T) {
+	tests := []struct {
+		name        string
+		threshold   float64
+		worseCRF    int
+		worseScore  float64
+		betterCRF   int
+		betterScore float64
+	}{
+		{
+			name:        "normal interpolation midpoint",
+			threshold:   93.0,
+			worseCRF:    30, // Higher CRF = worse quality
+			worseScore:  88.0,
+			betterCRF:   20, // Lower CRF = better quality
+			betterScore: 98.0,
+		},
+		{
+			name:        "threshold near worse score",
+			threshold:   89.0,
+			worseCRF:    30,
+			worseScore:  88.0,
+			betterCRF:   20,
+			betterScore: 98.0,
+		},
+		{
+			name:        "threshold near better score",
+			threshold:   97.0,
+			worseCRF:    30,
+			worseScore:  88.0,
+			betterCRF:   20,
+			betterScore: 98.0,
+		},
+		{
+			name:        "zero score difference falls back to midpoint",
+			threshold:   93.0,
+			worseCRF:    30,
+			worseScore:  95.0, // Same as better
+			betterCRF:   20,
+			betterScore: 95.0,
+		},
+		{
+			name:        "negative score difference falls back to midpoint",
+			threshold:   93.0,
+			worseCRF:    30,
+			worseScore:  96.0, // Higher than better (anomaly)
+			betterCRF:   20,
+			betterScore: 94.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := vmafLerpCRF(tt.threshold, tt.worseCRF, tt.worseScore, tt.betterCRF, tt.betterScore)
+
+			// Result must be strictly between bounds
+			if result <= tt.betterCRF {
+				t.Errorf("vmafLerpCRF() = %d, want > %d (betterCRF)", result, tt.betterCRF)
+			}
+			if result >= tt.worseCRF {
+				t.Errorf("vmafLerpCRF() = %d, want < %d (worseCRF)", result, tt.worseCRF)
+			}
+		})
+	}
+}
+
+// TestVmafLerpCRFAdjacentValues tests the edge case where CRF values are adjacent.
+// When worseCRF - betterCRF == 1, there is no integer strictly between them.
+// The function clamps to one of the bounds, which the search algorithm handles
+// by detecting adjacency and terminating early.
+func TestVmafLerpCRFAdjacentValues(t *testing.T) {
+	// Adjacent CRF values (26 and 25) - no integer exists strictly between them
+	result := vmafLerpCRF(93.0, 26, 91.0, 25, 95.0)
+
+	// Result must be one of the two bounds (clamped)
+	if result != 25 && result != 26 {
+		t.Errorf("vmafLerpCRF() with adjacent values = %d, want 25 or 26", result)
+	}
+
+	// The search algorithm checks for adjacency before calling interpolation,
+	// so in practice this case is handled by early termination
+}
+
+// TestVmafLerpMod tests the bitrate modifier interpolation function edge cases
+func TestVmafLerpMod(t *testing.T) {
+	tests := []struct {
+		name        string
+		threshold   float64
+		worseMod    float64 // Lower modifier = worse quality
+		worseScore  float64
+		betterMod   float64 // Higher modifier = better quality
+		betterScore float64
+	}{
+		{
+			name:        "normal interpolation midpoint",
+			threshold:   93.0,
+			worseMod:    0.10,
+			worseScore:  88.0,
+			betterMod:   0.50,
+			betterScore: 98.0,
+		},
+		{
+			name:        "threshold near worse score",
+			threshold:   89.0,
+			worseMod:    0.10,
+			worseScore:  88.0,
+			betterMod:   0.50,
+			betterScore: 98.0,
+		},
+		{
+			name:        "threshold near better score",
+			threshold:   97.0,
+			worseMod:    0.10,
+			worseScore:  88.0,
+			betterMod:   0.50,
+			betterScore: 98.0,
+		},
+		{
+			name:        "zero score difference falls back to midpoint",
+			threshold:   93.0,
+			worseMod:    0.10,
+			worseScore:  95.0,
+			betterMod:   0.50,
+			betterScore: 95.0,
+		},
+		{
+			name:        "negative score difference falls back to midpoint",
+			threshold:   93.0,
+			worseMod:    0.10,
+			worseScore:  96.0, // Higher than better (anomaly)
+			betterMod:   0.50,
+			betterScore: 94.0,
+		},
+		{
+			name:        "narrow modifier range",
+			threshold:   93.0,
+			worseMod:    0.20,
+			worseScore:  91.0,
+			betterMod:   0.25,
+			betterScore: 95.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := vmafLerpMod(tt.threshold, tt.worseMod, tt.worseScore, tt.betterMod, tt.betterScore)
+
+			// Result must be strictly between bounds (with margin)
+			margin := minModRange / 2
+			if result <= tt.worseMod+margin/2 {
+				t.Errorf("vmafLerpMod() = %f, want > %f (worseMod + margin)", result, tt.worseMod+margin)
+			}
+			if result >= tt.betterMod-margin/2 {
+				t.Errorf("vmafLerpMod() = %f, want < %f (betterMod - margin)", result, tt.betterMod-margin)
+			}
+		})
+	}
+}
+
+// TestVmafLerpCRFMidpointFallback specifically tests the zero/negative score diff fallback
+func TestVmafLerpCRFMidpointFallback(t *testing.T) {
+	// When scores are equal, should return midpoint
+	result := vmafLerpCRF(93.0, 30, 95.0, 20, 95.0)
+	expected := (30 + 20) / 2 // = 25
+	if result != expected {
+		t.Errorf("zero scoreDiff: vmafLerpCRF() = %d, want %d (midpoint)", result, expected)
+	}
+
+	// When worse has higher score (anomaly), should also return midpoint
+	result = vmafLerpCRF(93.0, 30, 96.0, 20, 94.0)
+	if result != expected {
+		t.Errorf("negative scoreDiff: vmafLerpCRF() = %d, want %d (midpoint)", result, expected)
+	}
+}
+
+// TestVmafLerpModMidpointFallback specifically tests the zero/negative score diff fallback
+func TestVmafLerpModMidpointFallback(t *testing.T) {
+	// When scores are equal, should return midpoint
+	result := vmafLerpMod(93.0, 0.10, 95.0, 0.50, 95.0)
+	expected := (0.10 + 0.50) / 2 // = 0.30
+	tolerance := 0.001
+	if result < expected-tolerance || result > expected+tolerance {
+		t.Errorf("zero scoreDiff: vmafLerpMod() = %f, want %f (midpoint)", result, expected)
+	}
+
+	// When worse has higher score (anomaly), should also return midpoint
+	result = vmafLerpMod(93.0, 0.10, 96.0, 0.50, 94.0)
+	if result < expected-tolerance || result > expected+tolerance {
+		t.Errorf("negative scoreDiff: vmafLerpMod() = %f, want %f (midpoint)", result, expected)
+	}
+}

@@ -60,7 +60,7 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 	}
 	defer os.RemoveAll(analysisDir)
 
-	// Get sample positions (5 fixed positions)
+	// Get sample positions (3 positions at 25%, 50%, 75%)
 	positions := SamplePositions(videoDuration)
 
 	logger.Info("Starting VMAF analysis",

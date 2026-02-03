@@ -185,7 +185,6 @@ func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, dist
 	g, gctx := errgroup.WithContext(ctx)
 
 	for i := range referenceSamples {
-		i := i // capture loop variable
 		g.Go(func() error {
 			score, err := Score(gctx, ffmpegPath, referenceSamples[i].Path, distortedSamples[i].Path, height, threadsPerWorker, tonemap)
 			if err != nil {
