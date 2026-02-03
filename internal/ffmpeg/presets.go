@@ -629,16 +629,16 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 // For VideoToolbox (bitrate-based encoders), modifierOverride sets the bitrate
 // as a fraction of a reference bitrate (e.g., 0.35 = 35% of 10Mbps = 3.5Mbps).
 func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
-	qualityOverride int, modifierOverride float64, softwareDecode bool,
-	tonemap *TonemapParams) (inputArgs []string, outputArgs []string) {
+	qualityOverride int, modifierOverride float64, softwareDecode bool) (inputArgs []string, outputArgs []string) {
 
 	// Get base args from BuildPresetArgs
 	// We pass modifierOverride as qualityMod. For bitrate-based encoders (VideoToolbox),
 	// BuildPresetArgs uses a 10Mbps reference when sourceBitrate=0 and applies the modifier.
 	// When modifierOverride > 0, we also replace -b:v below for explicit control.
 	// Pass nil for subtitleIndices (samples don't use subtitles anyway - we strip them below)
+	// Pass nil for tonemap - samples stay in native format, tonemapping happens in VMAF scoring
 	inputArgs, outputArgs = BuildPresetArgs(preset, 0, sourceWidth, sourceHeight,
-		qualityOverride, qualityOverride, modifierOverride, softwareDecode, "mkv", tonemap, nil)
+		qualityOverride, qualityOverride, modifierOverride, softwareDecode, "mkv", nil, nil)
 
 	// Remove audio/subtitle mapping and replace with video-only
 	filteredArgs := make([]string, 0, len(outputArgs))
