@@ -878,11 +878,6 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		wp.analysisMu.Unlock()
 	}()
 
-	// Check HDR without tonemap
-	if job.IsHDR && !wp.cfg.TonemapHDR {
-		return true, "HDR requires tonemapping for SmartShrink", 0, 0, 0, nil
-	}
-
 	// Check HDR detected via fallback (missing color_transfer metadata)
 	// Tonemapping requires proper transfer function (smpte2084, arib-std-b67, etc.)
 	if job.IsHDR && wp.cfg.TonemapHDR && job.ColorTransfer == "" {
