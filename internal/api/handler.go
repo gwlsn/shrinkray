@@ -103,9 +103,14 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	recursive := r.URL.Query().Get("recursive") == "true"
+	recursive := h.cfg.BrowseRecursive
+
+	if q := r.URL.Query().Get("recursive"); q != "" {
+		recursive = q == "true"
+	}
 
 	result, err := h.browser.Browse(ctx, path, recursive)
+
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -314,27 +319,29 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Return a sanitized config (no sensitive paths exposed)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"version":                 shrinkray.Version,
-		"media_path":              h.cfg.MediaPath,
-		"original_handling":       h.cfg.OriginalHandling,
-		"workers":                 h.cfg.Workers,
-		"has_temp_path":           h.cfg.TempPath != "",
-		"pushover_user_key":       h.cfg.PushoverUserKey,
-		"pushover_app_token":      h.cfg.PushoverAppToken,
-		"pushover_configured":     h.pushover.IsConfigured(),
-		"notify_on_complete":      h.cfg.NotifyOnComplete,
-		"quality_hevc":            h.cfg.QualityHEVC,
-		"quality_av1":             h.cfg.QualityAV1,
-		"default_quality_hevc":    defaultHEVC,
-		"default_quality_av1":     defaultAV1,
-		"schedule_enabled":        h.cfg.ScheduleEnabled,
-		"schedule_start_hour":     h.cfg.ScheduleStartHour,
-		"schedule_end_hour":       h.cfg.ScheduleEndHour,
-		"output_format":           h.cfg.OutputFormat,
-		"tonemap_hdr":             h.cfg.TonemapHDR,
-		"tonemap_algorithm":       h.cfg.TonemapAlgorithm,
-		"max_concurrent_analyses": h.cfg.MaxConcurrentAnalyses,
-		"allow_same_codec":        h.cfg.AllowSameCodec,
+		"version":                  shrinkray.Version,
+		"media_path":               h.cfg.MediaPath,
+		"original_handling":        h.cfg.OriginalHandling,
+		"workers":                  h.cfg.Workers,
+		"has_temp_path":            h.cfg.TempPath != "",
+		"pushover_user_key":        h.cfg.PushoverUserKey,
+		"pushover_app_token":       h.cfg.PushoverAppToken,
+		"pushover_configured":      h.pushover.IsConfigured(),
+		"notify_on_complete":       h.cfg.NotifyOnComplete,
+		"quality_hevc":             h.cfg.QualityHEVC,
+		"quality_av1":              h.cfg.QualityAV1,
+		"default_quality_hevc":     defaultHEVC,
+		"default_quality_av1":      defaultAV1,
+		"schedule_enabled":         h.cfg.ScheduleEnabled,
+		"schedule_start_hour":      h.cfg.ScheduleStartHour,
+		"schedule_end_hour":        h.cfg.ScheduleEndHour,
+		"output_format":            h.cfg.OutputFormat,
+		"tonemap_hdr":              h.cfg.TonemapHDR,
+		"tonemap_algorithm":        h.cfg.TonemapAlgorithm,
+		"max_concurrent_analyses":  h.cfg.MaxConcurrentAnalyses,
+		"allow_same_codec":         h.cfg.AllowSameCodec,
+		"browse_recursive":         h.cfg.BrowseRecursive,
+		"browse_cache_ttl_minutes": h.cfg.BrowseCacheTTLMinutes,
 	})
 }
 
@@ -355,6 +362,8 @@ type UpdateConfigRequest struct {
 	TonemapAlgorithm      *string `json:"tonemap_algorithm,omitempty"`
 	MaxConcurrentAnalyses *int    `json:"max_concurrent_analyses,omitempty"`
 	AllowSameCodec        *bool   `json:"allow_same_codec,omitempty"`
+	BrowseRecursive       *bool   `json:"browse_recursive,omitempty"`
+	BrowseCacheTTLMinutes *int    `json:"browse_cache_ttl_minutes,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -459,6 +468,19 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		h.cfg.MaxConcurrentAnalyses = val
 		// Update the worker pool's analysis limit
 		h.workerPool.SetAnalysisLimit(val)
+	}
+
+	if req.BrowseRecursive != nil {
+		h.cfg.BrowseRecursive = *req.BrowseRecursive
+	}
+
+	if req.BrowseCacheTTLMinutes != nil {
+		if *req.BrowseCacheTTLMinutes < 0 {
+			writeError(w, http.StatusBadRequest, "browse_cache_ttl_minutes must be 0 or greater")
+			return
+		}
+
+		h.cfg.BrowseCacheTTLMinutes = *req.BrowseCacheTTLMinutes
 	}
 
 	// Handle allow same codec (re-encode HEVC→HEVC or AV1→AV1)

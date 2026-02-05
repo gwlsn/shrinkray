@@ -85,28 +85,36 @@ type Config struct {
 	// Default is 1 to avoid high CPU usage on media servers.
 	// Range: 1-3
 	MaxConcurrentAnalyses int `yaml:"max_concurrent_analyses"`
+
+	// BrowseRecursive enables recursive searching and total size/file calculations.
+	BrowseRecursive bool `yaml:"browse_recursive"`
+
+	// BrowseCacheTTLMinutes sets the amount of time in minutes to wait before setting the cache as stale.
+	BrowseCacheTTLMinutes int `yaml:"browse_cache_ttl_minutes"`
 }
 
 // DefaultConfig returns a config with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		MediaPath:         "/media",
-		TempPath:          "", // same directory as source
-		OriginalHandling:  "replace",
-		Workers:           1,
-		FFmpegPath:        "ffmpeg",
-		FFprobePath:       "ffprobe",
-		QueueFile:         "/config/queue.json",
-		QualityHEVC:       0, // 0 = use encoder-specific default
-		QualityAV1:        0, // 0 = use encoder-specific default
-		ScheduleEnabled:   false,
-		ScheduleStartHour: 22, // 10 PM
-		ScheduleEndHour:   6,  // 6 AM
-		LogLevel:          "info",
-		OutputFormat:      "mkv",
+		MediaPath:             "/media",
+		TempPath:              "", // same directory as source
+		OriginalHandling:      "replace",
+		Workers:               1,
+		FFmpegPath:            "ffmpeg",
+		FFprobePath:           "ffprobe",
+		QueueFile:             "/config/queue.json",
+		QualityHEVC:           0, // 0 = use encoder-specific default
+		QualityAV1:            0, // 0 = use encoder-specific default
+		ScheduleEnabled:       false,
+		ScheduleStartHour:     22, // 10 PM
+		ScheduleEndHour:       6,  // 6 AM
+		LogLevel:              "info",
+		OutputFormat:          "mkv",
 		TonemapHDR:            false,   // HDR passthrough by default; enable for SDR conversion (uses CPU)
 		TonemapAlgorithm:      "hable", // Filmic tonemapping, good for movies
 		MaxConcurrentAnalyses: 1,       // Conservative default for media servers
+		BrowseRecursive:       false,
+		BrowseCacheTTLMinutes: 60,
 	}
 }
 
@@ -160,6 +168,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.MaxConcurrentAnalyses > 3 {
 		cfg.MaxConcurrentAnalyses = 3
+	}
+
+	// Validate browse cache ttl minutes isn't negative
+	if cfg.BrowseCacheTTLMinutes < 0 {
+		cfg.BrowseCacheTTLMinutes = 0
 	}
 
 	return cfg, nil
