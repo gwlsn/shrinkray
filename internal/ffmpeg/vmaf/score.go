@@ -121,10 +121,12 @@ func GetEncodingThreads() int {
 }
 
 // Score calculates the VMAF score between reference and distorted videos.
-// When tonemap is provided and enabled, the reference is tonemapped from HDR to SDR.
+// When tonemap is provided and enabled, both legs are tonemapped from HDR to SDR.
+// Content >1080p is downscaled to 1080p before scoring to reduce memory and improve speed.
 // The threads parameter controls parallelism for FFmpeg and libvmaf.
 func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string, height, threads int, tonemap *TonemapConfig) (float64, error) {
-	model := SelectModel(height)
+	scoreH := scoringHeight(height)
+	needsDownscale := scoreH < height || height <= 0
 
 	// Build appropriate filtergraph based on HDR/SDR
 	var filterComplex string
@@ -133,12 +135,18 @@ func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string,
 		if algorithm == "" {
 			algorithm = "hable"
 		}
-		filterComplex = buildHDRScoringFilter(model, threads, algorithm, tonemap.InputTransfer, 1080, false)
+		filterComplex = buildHDRScoringFilter(vmafModel, threads, algorithm, tonemap.InputTransfer, scoreH, needsDownscale)
 	} else {
-		filterComplex = buildSDRScoringFilter(model, threads, 1080, false)
+		filterComplex = buildSDRScoringFilter(vmafModel, threads, scoreH, needsDownscale)
 	}
 
-	logger.Debug("VMAF scoring filter", "filter", filterComplex, "hdr", tonemap != nil && tonemap.Enabled)
+	logger.Debug("VMAF scoring",
+		"inputHeight", height,
+		"scoringHeight", scoreH,
+		"downscale", needsDownscale,
+		"hdr", tonemap != nil && tonemap.Enabled,
+		"model", vmafModel,
+		"filter", filterComplex)
 
 	args := []string{
 		"-threads", fmt.Sprintf("%d", threads),
