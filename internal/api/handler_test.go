@@ -296,3 +296,79 @@ func TestJobStreamEndpoint(t *testing.T) {
 	t.Logf("SSE response: %s", w.Body.String()[:min(200, len(w.Body.String()))])
 }
 
+func TestBrowseRecursiveConfigDefaultAndOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create nested structure
+	tvDir := filepath.Join(tmpDir, "TV Shows", "Test Show", "Season 1")
+	if err := os.MkdirAll(tvDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	for _, name := range []string{"episode1.mkv", "episode2.mkv"} {
+		if err := os.WriteFile(filepath.Join(tvDir, name), []byte("fake"), 0644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	cfg := &config.Config{
+		MediaPath:       tmpDir,
+		FFprobePath:     "ffprobe",
+		BrowseRecursive: true,
+	}
+
+	prober := ffmpeg.NewProber(cfg.FFprobePath)
+	browser := browse.NewBrowser(prober, cfg.MediaPath)
+	queue := jobs.NewQueue()
+	pool := jobs.NewWorkerPool(queue, cfg, nil)
+	handler := NewHandler(browser, queue, pool, cfg, "")
+
+	// Default (no query param) should behave as recursive=true
+	req := httptest.NewRequest("GET", "/api/browse", nil)
+	w := httptest.NewRecorder()
+	handler.Browse(w, req)
+
+	var result browse.BrowseResult
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
+
+	var tvEntry *browse.Entry
+	for _, e := range result.Entries {
+		if e.Name == "TV Shows" {
+			tvEntry = e
+			break
+		}
+	}
+
+	if tvEntry == nil {
+		t.Fatal("TV Shows entry not found")
+	}
+
+	if tvEntry.FileCount != 2 {
+		t.Fatalf("expected recursive count=2, got %d", tvEntry.FileCount)
+	}
+
+	// Explicit override to false should return 0
+	req = httptest.NewRequest("GET", "/api/browse?recursive=false", nil)
+	w = httptest.NewRecorder()
+	handler.Browse(w, req)
+
+	// Reset result so it doesn't cause a false fail in the test
+	result = browse.BrowseResult{}
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
+
+	tvEntry = nil
+	for _, e := range result.Entries {
+		if e.Name == "TV Shows" {
+			tvEntry = e
+			break
+		}
+	}
+
+	if tvEntry == nil {
+		t.Fatal("TV Shows entry not found (override)")
+	}
+
+	if tvEntry.FileCount != 0 {
+		t.Fatalf("expected non-recursive count=0, got %d", tvEntry.FileCount)
+	}
+}

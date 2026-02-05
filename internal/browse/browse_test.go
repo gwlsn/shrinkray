@@ -266,3 +266,79 @@ func TestCountVideosCaches(t *testing.T) {
 		t.Fatalf("expected size3=%d, got %d", expectedSize, size3)
 	}
 }
+
+func TestCountVideosRecursive(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	root := filepath.Join(tmpDir, "Root")
+	sub := filepath.Join(root, "Sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(sub, "a.mkv"), []byte("a"), 0644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "b.mp4"), []byte("bb"), 0644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+
+	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
+
+	countNo, sizeNo := browser.countVideos(root, false)
+	if countNo != 0 || sizeNo != 0 {
+		t.Fatalf("non-recursive should be 0/0, got %d/%d", countNo, sizeNo)
+	}
+
+	countRec, sizeRec := browser.countVideos(root, true)
+	if countRec != 2 {
+		t.Fatalf("recursive should be 2, got %d", countRec)
+	}
+	expectedSize := int64(len("a") + len("bb"))
+	if sizeRec != expectedSize {
+		t.Fatalf("expected size %d, got %d", expectedSize, sizeRec)
+	}
+}
+
+func TestCountVideosTTLStale(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	file1 := filepath.Join(tmpDir, "one.mkv")
+	if err := os.WriteFile(file1, []byte("1234"), 0644); err != nil {
+		t.Fatalf("write file1: %v", err)
+	}
+
+	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
+	browser.SetDirInfoTTLMinutes(1)
+
+	count1, size1 := browser.countVideos(tmpDir, false)
+	if count1 != 1 {
+		t.Fatalf("expected count1=1, got %d", count1)
+	}
+	if size1 != int64(len("1234")) {
+		t.Fatalf("expected size1=%d, got %d", len("1234"), size1)
+	}
+
+	// Add a new file after cache is populated
+	file2 := filepath.Join(tmpDir, "two.mp4")
+	if err := os.WriteFile(file2, []byte("12345678"), 0644); err != nil {
+		t.Fatalf("write file2: %v", err)
+	}
+
+	// Force cache entry to look stale
+	key := dirInfoKey{tmpDir, false}
+	browser.dirInfoCacheMu.Lock()
+	info := browser.dirInfoCache[key]
+	info.computedAt = time.Now().Add(-2 * time.Minute)
+	browser.dirInfoCache[key] = info
+	browser.dirInfoCacheMu.Unlock()
+
+	count2, size2 := browser.countVideos(tmpDir, false)
+	if count2 != 2 {
+		t.Fatalf("expected count2=2, got %d", count2)
+	}
+	expectedSize := int64(len("1234") + len("12345678"))
+	if size2 != expectedSize {
+		t.Fatalf("expected size2=%d, got %d", expectedSize, size2)
+	}
+}
