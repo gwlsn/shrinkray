@@ -49,61 +49,71 @@ func TestBuildSDRScoringFilter(t *testing.T) {
 }
 
 func TestBuildHDRScoringFilter(t *testing.T) {
-	// Test with HDR10 (smpte2084) - the default/most common case
-	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, false)
+	t.Run("native resolution (no downscale)", func(t *testing.T) {
+		filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, false)
 
-	// Both legs should have full tonemap pipeline (HDR samples -> SDR for VMAF)
-	// VMAF is only validated for SDR-to-SDR comparison
+		// Should have setsar=1 on both legs
+		if strings.Count(filter, "setsar=1") != 2 {
+			t.Errorf("expected setsar=1 on both legs, got %d", strings.Count(filter, "setsar=1"))
+		}
 
-	// Distorted leg should have full tonemap pipeline
-	if !strings.Contains(filter, "[0:v]zscale=") {
-		t.Error("distorted leg missing zscale (should tonemap HDR to SDR)")
-	}
+		// Should NOT have w= or h= in any zscale (no downscale)
+		if strings.Contains(filter, "w=-2") || strings.Contains(filter, "h=") {
+			t.Error("should NOT have resize params when not downscaling")
+		}
 
-	// Reference leg should have full tonemap pipeline
-	if !strings.Contains(filter, "[1:v]zscale=") {
-		t.Error("reference leg missing zscale (should tonemap HDR to SDR)")
-	}
+		// Check standard tonemap pipeline on both legs
+		if strings.Count(filter, "pin=bt2020") != 2 {
+			t.Errorf("expected bt2020 primaries on both legs, got %d", strings.Count(filter, "pin=bt2020"))
+		}
+		if strings.Count(filter, "tin=smpte2084") != 2 {
+			t.Errorf("expected PQ transfer on both legs, got %d", strings.Count(filter, "tin=smpte2084"))
+		}
+		if strings.Count(filter, "tonemap=hable") != 2 {
+			t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
+		}
+		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
+			t.Error("missing libvmaf filter")
+		}
+	})
 
-	// Check explicit HDR input metadata on both legs
-	if strings.Count(filter, "pin=bt2020") != 2 {
-		t.Errorf("expected bt2020 primaries input on both legs, got %d", strings.Count(filter, "pin=bt2020"))
-	}
-	if strings.Count(filter, "tin=smpte2084") != 2 {
-		t.Errorf("expected PQ transfer input on both legs, got %d", strings.Count(filter, "tin=smpte2084"))
-	}
+	t.Run("downscale merges with linearization", func(t *testing.T) {
+		filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, true)
 
-	// Check tonemap applied to both legs
-	if strings.Count(filter, "tonemap=hable") != 2 {
-		t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
-	}
+		// Should have setsar=1 on both legs
+		if strings.Count(filter, "setsar=1") != 2 {
+			t.Errorf("expected setsar=1 on both legs, got %d", strings.Count(filter, "setsar=1"))
+		}
 
-	// CRITICAL: Verify correct pipeline order - tonemap must operate on linear light
-	// Order: linearize -> float -> primaries -> tonemap -> transfer/matrix -> yuv420p
-	// Check first leg (distorted) ordering
-	linearIdx := strings.Index(filter, "t=linear")
-	primariesIdx := strings.Index(filter, "zscale=p=bt709")
-	tonemapIdx := strings.Index(filter, "tonemap=")
-	transferIdx := strings.Index(filter, "zscale=t=bt709")
+		// The first zscale should combine resize + linearize
+		if strings.Count(filter, "w=-2:h=1080") != 2 {
+			t.Errorf("expected resize on both legs, got %d", strings.Count(filter, "w=-2:h=1080"))
+		}
 
-	if linearIdx == -1 || primariesIdx == -1 || tonemapIdx == -1 || transferIdx == -1 {
-		t.Fatal("missing required filter components for order check")
-	}
+		// Verify pipeline order: the combined zscale (with w=) must come before
+		// the primaries conversion and tonemap
+		resizeIdx := strings.Index(filter, "w=-2:h=1080")
+		primariesIdx := strings.Index(filter, "zscale=p=bt709")
+		tonemapIdx := strings.Index(filter, "tonemap=")
 
-	if linearIdx > primariesIdx {
-		t.Error("linearization (t=linear) must come BEFORE primaries conversion")
-	}
-	if primariesIdx > tonemapIdx {
-		t.Error("primaries conversion (p=bt709) must come BEFORE tonemap")
-	}
-	if tonemapIdx > transferIdx {
-		t.Error("tonemap must come BEFORE transfer function (t=bt709)")
-	}
+		if resizeIdx == -1 || primariesIdx == -1 || tonemapIdx == -1 {
+			t.Fatal("missing required filter components")
+		}
+		if resizeIdx > primariesIdx {
+			t.Error("resize+linearize must come BEFORE primaries conversion")
+		}
+		if primariesIdx > tonemapIdx {
+			t.Error("primaries conversion must come BEFORE tonemap")
+		}
 
-	// Check libvmaf receives both tonemapped legs
-	if !strings.Contains(filter, "[dist][ref]libvmaf=") {
-		t.Error("missing libvmaf filter")
-	}
+		// Should still have full pipeline
+		if strings.Count(filter, "tonemap=hable") != 2 {
+			t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
+		}
+		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
+			t.Error("missing libvmaf filter")
+		}
+	})
 }
 
 func TestBuildHDRScoringFilterHLG(t *testing.T) {
