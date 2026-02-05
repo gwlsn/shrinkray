@@ -2133,6 +2133,22 @@
                     </div>
                 </div>
                 <div class="setting-group">
+                    <div class="setting-group-title">Browse Stats</div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <div class="setting-name">Recursive folder stats</div>
+                            <div class="setting-desc">Include subfolders when counting videos</div>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle">
+                            <input type="checkbox" id="setting-browse-recursive"
+                                    onchange="browseRecursive = this.checked; updateSetting('browse_recursive', this.checked); browse(currentPath);">
+                            <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="setting-group">
                     <div class="setting-group-title">Schedule</div>
                     <div class="setting-item">
                         <div class="setting-info">
@@ -2321,6 +2337,7 @@
         let selectedFileCounts = new Map();  // Track file count for each selected path (1 for files, N for folders)
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
         let eventSource = null;
+        let browseRecursive = false;
 
         // Preset dropdown state
         let allPresets = [];
@@ -2364,7 +2381,10 @@
 
         async function browse(path = '') {
             try {
-                const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
+                const params = new URLSearchParams();
+                if (path) params.set('path', path)
+                params.set('recursive', browseRecursive ? 'true' : 'false')
+                const url = `/api/browse${params.toString() ? '?' + params.toString() : ''}`;
                 const resp = await fetch(url);
                 const data = await resp.json();
 
@@ -3767,6 +3787,9 @@
                 // Max concurrent analyses (default 1)
                 document.getElementById('setting-max-analyses').value = config.max_concurrent_analyses || 1;
 
+                browseRecursive = config.browse_recursive || false;
+                document.getElementById('setting-browse-recursive').checked = browseRecursive
+
                 updateScheduleStatusDisplay(config.schedule_enabled, config.schedule_start_hour ?? 22, config.schedule_end_hour ?? 6);
             } catch (err) {
                 console.error('Load settings error:', err);
@@ -4226,10 +4249,14 @@
 
         // Initialize
         populateHourDropdowns();
+        // Await load settings so initial browse has the correct settings
+        loadSettings()
+            .catch(err => console.error('Init loadSettings error:', err))
+            .finally(() => browse())
+
         browse();
         loadSortPreference();
         connectSSE();
-        loadSettings();
         loadPresets();
     </script>
 </body>

@@ -63,6 +63,10 @@ type Browser struct {
 	// Cache for dir info on a given directory (dir path -> dir info)
 	dirInfoCacheMu sync.RWMutex
 	dirInfoCache   map[dirInfoKey]dirInfo
+
+	// Time in minutes before a dir info cache entry goes stale. A value of 0 will never go stale.
+	dirInfoTTLMu sync.RWMutex
+	dirInfoTTL   time.Duration
 }
 
 // NewBrowser creates a new Browser with the given prober and media root
@@ -180,7 +184,9 @@ func (b *Browser) Browse(ctx context.Context, path string, recursiveCount bool) 
 func (b *Browser) countVideos(dirPath string, recursive bool) (totalCount int, totalSize int64) {
 	cacheKey := dirInfoKey{dirPath, recursive}
 	if cached, ok := b.getDirInfo(cacheKey); ok {
-		return cached.fileCount, cached.totalSize
+		if !b.isStale(cached) {
+			return cached.fileCount, cached.totalSize
+		}
 	}
 
 	entries, err := os.ReadDir(dirPath)
@@ -340,6 +346,16 @@ func (b *Browser) GetVideoFilesWithProgress(ctx context.Context, paths []string,
 	return results, nil
 }
 
+func (b *Browser) isStale(info dirInfo) bool {
+	ttl := b.getDirInfoTTL()
+
+	if ttl <= 0 { // 0 = never auto refresh
+		return false
+	}
+
+	return time.Since(info.computedAt) > ttl
+}
+
 func (b *Browser) getDirInfo(key dirInfoKey) (dirInfo, bool) {
 	b.dirInfoCacheMu.RLock()
 	v, ok := b.dirInfoCache[key]
@@ -357,6 +373,24 @@ func (b *Browser) setDirInfo(key dirInfoKey, count int, size int64) {
 	}
 
 	b.dirInfoCacheMu.Unlock()
+}
+
+func (b *Browser) getDirInfoTTL() time.Duration {
+	b.dirInfoTTLMu.RLock()
+	ttl := b.dirInfoTTL
+	b.dirInfoTTLMu.RUnlock()
+
+	return ttl
+}
+
+func (b *Browser) SetDirInfoTTLMinutes(minutes int) {
+	if minutes < 0 {
+		minutes = 0
+	}
+
+	b.dirInfoTTLMu.Lock()
+	b.dirInfoTTL = time.Duration(minutes) * time.Minute
+	b.dirInfoTTLMu.Unlock()
 }
 
 // ClearCache clears the probe cache (useful after transcoding completes)

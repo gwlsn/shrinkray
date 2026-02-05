@@ -481,6 +481,7 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.cfg.BrowseCacheTTLMinutes = *req.BrowseCacheTTLMinutes
+		h.browser.SetDirInfoTTLMinutes(*req.BrowseCacheTTLMinutes)
 	}
 
 	// Handle allow same codec (re-encode HEVC→HEVC or AV1→AV1)

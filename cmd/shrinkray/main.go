@@ -156,6 +156,8 @@ func main() {
 	prober := ffmpeg.NewProber(cfg.FFprobePath)
 	browser := browse.NewBrowser(prober, cfg.MediaPath)
 
+	browser.SetDirInfoTTLMinutes(cfg.BrowseCacheTTLMinutes)
+
 	queue, err := jobs.NewQueueWithStore(jobStore)
 	if err != nil {
 		logger.Error("Failed to initialize job queue", "error", err)
