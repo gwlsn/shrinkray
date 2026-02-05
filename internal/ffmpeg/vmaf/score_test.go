@@ -8,38 +8,49 @@ import (
 )
 
 func TestBuildSDRScoringFilter(t *testing.T) {
-	filter := buildSDRScoringFilter("vmaf_v0.6.1", 4)
+	t.Run("native resolution (no downscale)", func(t *testing.T) {
+		filter := buildSDRScoringFilter("vmaf_v0.6.1", 4, 720, false)
 
-	// Should have format conversion on both legs
-	if !strings.Contains(filter, "[0:v]format=yuv420p[dist]") {
-		t.Error("missing distorted leg format conversion")
-	}
-	if !strings.Contains(filter, "[1:v]format=yuv420p[ref]") {
-		t.Error("missing reference leg format conversion")
-	}
+		// Should have setsar + format on both legs, no scale
+		if !strings.Contains(filter, "[0:v]setsar=1,format=yuv420p[dist]") {
+			t.Errorf("wrong distorted leg, got: %s", filter)
+		}
+		if !strings.Contains(filter, "[1:v]setsar=1,format=yuv420p[ref]") {
+			t.Errorf("wrong reference leg, got: %s", filter)
+		}
+		if strings.Contains(filter, "scale=") {
+			t.Error("should NOT have scale filter when not downscaling")
+		}
+		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
+			t.Error("missing libvmaf filter")
+		}
+		if !strings.Contains(filter, "model=version=vmaf_v0.6.1") {
+			t.Error("missing model version")
+		}
+		if !strings.Contains(filter, "n_threads=4") {
+			t.Error("missing thread count")
+		}
+	})
 
-	// Should have libvmaf with correct params
-	if !strings.Contains(filter, "[dist][ref]libvmaf=") {
-		t.Error("missing libvmaf filter")
-	}
-	if !strings.Contains(filter, "model=version=vmaf_v0.6.1") {
-		t.Error("missing model version")
-	}
-	if !strings.Contains(filter, "n_threads=4") {
-		t.Error("missing thread count")
-	}
-	// JSON logging removed - score is parsed from FFmpeg stderr summary line
-	if strings.Contains(filter, "log_fmt=json") {
-		t.Error("unexpected json log format - should be removed")
-	}
-	if strings.Contains(filter, "log_path=") {
-		t.Error("unexpected log_path - should be removed")
-	}
+	t.Run("downscale to 1080p", func(t *testing.T) {
+		filter := buildSDRScoringFilter("vmaf_v0.6.1", 4, 1080, true)
+
+		// Should have setsar + scale + format on both legs
+		if !strings.Contains(filter, "[0:v]setsar=1,scale=-2:1080,format=yuv420p[dist]") {
+			t.Errorf("wrong distorted leg, got: %s", filter)
+		}
+		if !strings.Contains(filter, "[1:v]setsar=1,scale=-2:1080,format=yuv420p[ref]") {
+			t.Errorf("wrong reference leg, got: %s", filter)
+		}
+		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
+			t.Error("missing libvmaf filter")
+		}
+	})
 }
 
 func TestBuildHDRScoringFilter(t *testing.T) {
 	// Test with HDR10 (smpte2084) - the default/most common case
-	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084")
+	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, false)
 
 	// Both legs should have full tonemap pipeline (HDR samples -> SDR for VMAF)
 	// VMAF is only validated for SDR-to-SDR comparison
@@ -97,7 +108,7 @@ func TestBuildHDRScoringFilter(t *testing.T) {
 
 func TestBuildHDRScoringFilterHLG(t *testing.T) {
 	// Test with HLG (arib-std-b67) - requires different input transfer
-	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "arib-std-b67")
+	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "arib-std-b67", 1080, false)
 
 	// Should use HLG transfer function on both legs
 	if strings.Count(filter, "tin=arib-std-b67") != 2 {
@@ -120,7 +131,7 @@ func TestBuildHDRScoringFilterDefaultTransfer(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", tc.inputTransfer)
+			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", tc.inputTransfer, 1080, false)
 			if !strings.Contains(filter, "tin=smpte2084") {
 				t.Errorf("should fallback to smpte2084 for %s input transfer", tc.name)
 			}
@@ -133,7 +144,7 @@ func TestBuildHDRScoringFilterAlgorithms(t *testing.T) {
 
 	for _, algo := range algorithms {
 		t.Run(algo, func(t *testing.T) {
-			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, algo, "smpte2084")
+			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, algo, "smpte2084", 1080, false)
 			expected := fmt.Sprintf("tonemap=%s:", algo)
 			if !strings.Contains(filter, expected) {
 				t.Errorf("expected tonemap algorithm %s, got filter: %s", algo, filter)
