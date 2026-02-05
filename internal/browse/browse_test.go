@@ -50,7 +50,7 @@ func TestBrowser(t *testing.T) {
 	defer cancel()
 
 	// Test browsing root
-	result, err := browser.Browse(ctx, tmpDir)
+	result, err := browser.Browse(ctx, tmpDir, false)
 	if err != nil {
 		t.Fatalf("Browse failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestBrowser(t *testing.T) {
 	t.Logf("Root browse: %d entries", len(result.Entries))
 
 	// Test browsing into TV Shows
-	result, err = browser.Browse(ctx, tvDir)
+	result, err = browser.Browse(ctx, tvDir, false)
 	if err != nil {
 		t.Fatalf("Browse TV Shows failed: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestBrowser(t *testing.T) {
 	t.Logf("TV Shows browse: %d entries", len(result.Entries))
 
 	// Test browsing into Season 1
-	result, err = browser.Browse(ctx, seasonDir)
+	result, err = browser.Browse(ctx, seasonDir, false)
 	if err != nil {
 		t.Fatalf("Browse Season 1 failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestBrowserSecurity(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to browse outside media root
-	result, err := browser.Browse(ctx, "/etc")
+	result, err := browser.Browse(ctx, "/etc", false)
 	if err != nil {
 		t.Fatalf("Browse failed: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestBrowserSecurity(t *testing.T) {
 	}
 
 	// Try path traversal
-	result, err = browser.Browse(ctx, filepath.Join(tmpDir, "..", ".."))
+	result, err = browser.Browse(ctx, filepath.Join(tmpDir, "..", ".."), false)
 	if err != nil {
 		t.Fatalf("Browse failed: %v", err)
 	}
@@ -222,4 +222,47 @@ func TestCaching(t *testing.T) {
 	thirdDuration := time.Since(start)
 
 	t.Logf("Third probe (after cache clear): %v", thirdDuration)
+}
+
+func TestCountVideosCaches(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create first video file
+	video1 := filepath.Join(tmpDir, "one.mkv")
+	if err := os.WriteFile(video1, []byte("1234"), 0644); err != nil {
+		t.Fatalf("failed to write video1: %v", err)
+	}
+
+	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
+
+	count1, size1 := browser.countVideos(tmpDir, false)
+	if count1 != 1 {
+		t.Fatalf("expected count1=1, got %d", count1)
+	}
+	if size1 != int64(len("1234")) {
+		t.Fatalf("expected size1=%d, got %d", len("1234"), size1)
+	}
+
+	// Add another video file after cache is populated
+	video2 := filepath.Join(tmpDir, "two.mp4")
+	if err := os.WriteFile(video2, []byte("12345678"), 0644); err != nil {
+		t.Fatalf("failed to write video2: %v", err)
+	}
+
+	// Should still return cached values (no change)
+	count2, size2 := browser.countVideos(tmpDir, false)
+	if count2 != 1 || size2 != size1 {
+		t.Fatalf("expected cached values (count=1 size=%d), got count=%d size=%d", size1, count2, size2)
+	}
+
+	// Clear cache, then it should pick up the new file
+	browser.ClearCache()
+	count3, size3 := browser.countVideos(tmpDir, false)
+	if count3 != 2 {
+		t.Fatalf("expected count3=2, got %d", count3)
+	}
+	expectedSize := int64(len("1234") + len("12345678"))
+	if size3 != expectedSize {
+		t.Fatalf("expected size3=%d, got %d", expectedSize, size3)
+	}
 }

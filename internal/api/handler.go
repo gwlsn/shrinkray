@@ -103,7 +103,9 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	result, err := h.browser.Browse(ctx, path)
+	recursive := r.URL.Query().Get("recursive") == "true"
+
+	result, err := h.browser.Browse(ctx, path, recursive)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
