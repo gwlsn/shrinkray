@@ -39,6 +39,9 @@ test/integration/
 # Logs
 *.log
 
+# Worktrees
+.worktrees/
+
 # Housekeeping
 ghcr.sh
 CLAUDE.md
