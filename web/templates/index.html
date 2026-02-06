@@ -2200,6 +2200,20 @@
                         <div class="setting-warning">
                             These settings are for advanced users. Don't change them unless you know what you're doing.
                         </div>
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <div class="setting-name">Log Level</div>
+                                <div class="setting-desc">Controls logging verbosity. Use Debug when troubleshooting issues.</div>
+                            </div>
+                            <div class="setting-control">
+                                <select id="setting-log-level" onchange="updateSetting('log_level', this.value)">
+                                    <option value="debug">Debug</option>
+                                    <option value="info">Info</option>
+                                    <option value="warn">Warn</option>
+                                    <option value="error">Error</option>
+                                </select>
+                            </div>
+                        </div>
                         <div class="setting-item setting-item-stacked">
                             <div class="setting-info">
                                 <div class="setting-name">HEVC Quality (CRF)</div>
@@ -3757,6 +3771,9 @@
 
                 // Output format
                 document.getElementById('setting-output-format').value = config.output_format || 'mkv';
+
+                // Log level
+                document.getElementById('setting-log-level').value = config.log_level || 'info';
 
                 // Tonemap HDR (default false - preserves HDR)
                 document.getElementById('setting-tonemap-hdr').checked = config.tonemap_hdr === true;
