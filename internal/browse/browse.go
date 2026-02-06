@@ -19,14 +19,15 @@ type ProgressCallback func(probed, total int)
 
 // Entry represents a file or directory in the browser
 type Entry struct {
-	Name      string              `json:"name"`
-	Path      string              `json:"path"`
-	IsDir     bool                `json:"is_dir"`
-	Size      int64               `json:"size"`
-	ModTime   time.Time           `json:"mod_time"`
-	VideoInfo *ffmpeg.ProbeResult `json:"video_info,omitempty"`
-	FileCount int                 `json:"file_count,omitempty"` // For directories: number of video files
-	TotalSize int64               `json:"total_size,omitempty"` // For directories: total size of video files
+	Name          string              `json:"name"`
+	Path          string              `json:"path"`
+	IsDir         bool                `json:"is_dir"`
+	Size          int64               `json:"size"`
+	ModTime       time.Time           `json:"mod_time"`
+	VideoInfo     *ffmpeg.ProbeResult `json:"video_info,omitempty"`
+	FileCount     int                 `json:"file_count,omitempty"`      // For directories: number of video files
+	TotalSize     int64               `json:"total_size,omitempty"`      // For directories: total size of video files
+	DirInfoStatus string              `json:"dir_info_status,omitempty"` // "fresh", "stale", "pending"
 }
 
 // BrowseResult contains the result of browsing a directory
@@ -67,6 +68,10 @@ type Browser struct {
 	// Time in minutes before a dir info cache entry goes stale. A value of 0 will never go stale.
 	dirInfoTTLMu sync.RWMutex
 	dirInfoTTL   time.Duration
+
+	// Track if a dirinfo is currently refreshing
+	dirInfoRefreshMu  sync.Mutex
+	dirInfoRefreshing map[dirInfoKey]bool
 }
 
 // NewBrowser creates a new Browser with the given prober and media root
@@ -77,10 +82,11 @@ func NewBrowser(prober *ffmpeg.Prober, mediaRoot string) *Browser {
 		absRoot = mediaRoot
 	}
 	return &Browser{
-		prober:       prober,
-		mediaRoot:    absRoot,
-		cache:        make(map[string]*ffmpeg.ProbeResult),
-		dirInfoCache: make(map[dirInfoKey]dirInfo),
+		prober:            prober,
+		mediaRoot:         absRoot,
+		cache:             make(map[string]*ffmpeg.ProbeResult),
+		dirInfoCache:      make(map[dirInfoKey]dirInfo),
+		dirInfoRefreshing: make(map[dirInfoKey]bool),
 	}
 }
 
@@ -142,7 +148,7 @@ func (b *Browser) Browse(ctx context.Context, path string, recursiveCount bool) 
 
 		if e.IsDir() {
 			// For directories, count video files
-			entry.FileCount, entry.TotalSize = b.countVideos(entryPath, recursiveCount)
+			entry.FileCount, entry.TotalSize, entry.DirInfoStatus = b.countVideos(entryPath, recursiveCount)
 		} else if ffmpeg.IsVideoFile(e.Name()) {
 			// For video files, get probe info (with caching)
 			wg.Add(1)
@@ -180,26 +186,20 @@ func (b *Browser) Browse(ctx context.Context, path string, recursiveCount bool) 
 	return result, nil
 }
 
-// countVideos counts video files in a directory
-func (b *Browser) countVideos(dirPath string, recursive bool) (totalCount int, totalSize int64) {
-	cacheKey := dirInfoKey{dirPath, recursive}
-	if cached, ok := b.getDirInfo(cacheKey); ok {
-		if !b.isStale(cached) {
-			return cached.fileCount, cached.totalSize
-		}
-	}
-
+func (b *Browser) computeDirInfo(dirPath string, recursive bool) (totalCount int, totalSize int64, ok bool) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
 
 	for _, e := range entries {
 		if e.IsDir() {
 			if recursive {
-				subCount, subSize := b.countVideos(filepath.Join(dirPath, e.Name()), recursive)
-				totalCount += subCount
-				totalSize += subSize
+				subCount, subSize, ok := b.computeDirInfo(filepath.Join(dirPath, e.Name()), recursive)
+				if ok {
+					totalCount += subCount
+					totalSize += subSize
+				}
 			}
 
 			continue
@@ -213,8 +213,54 @@ func (b *Browser) countVideos(dirPath string, recursive bool) (totalCount int, t
 		}
 	}
 
-	b.setDirInfo(cacheKey, totalCount, totalSize)
-	return totalCount, totalSize
+	return totalCount, totalSize, true
+}
+
+// countVideos counts video files in a directory
+func (b *Browser) countVideos(dirPath string, recursive bool) (totalCount int, totalSize int64, status string) {
+	cacheKey := dirInfoKey{dirPath, recursive}
+
+	if cached, ok := b.getDirInfo(cacheKey); ok {
+		if b.isStale(cached) && recursive {
+			b.refreshDirInfoAsync(cacheKey, dirPath, recursive)
+			return cached.fileCount, cached.totalSize, "stale"
+		}
+
+		return cached.fileCount, cached.totalSize, "fresh"
+	}
+
+	if recursive {
+		b.refreshDirInfoAsync(cacheKey, dirPath, recursive)
+		return 0, 0, "pending"
+	}
+
+	// Non-Recursive
+	if totalCount, totalSize, ok := b.computeDirInfo(dirPath, recursive); ok {
+		b.setDirInfo(cacheKey, totalCount, totalSize)
+	}
+
+	return totalCount, totalSize, "fresh"
+}
+
+func (b *Browser) refreshDirInfoAsync(key dirInfoKey, dirPath string, recursive bool) {
+	b.dirInfoRefreshMu.Lock()
+	if b.dirInfoRefreshing[key] {
+		b.dirInfoRefreshMu.Unlock()
+		return
+	}
+
+	b.dirInfoRefreshing[key] = true
+	b.dirInfoRefreshMu.Unlock()
+
+	go func() {
+		if count, size, ok := b.computeDirInfo(dirPath, recursive); ok {
+			b.setDirInfo(key, count, size)
+		}
+
+		b.dirInfoRefreshMu.Lock()
+		delete(b.dirInfoRefreshing, key)
+		b.dirInfoRefreshMu.Unlock()
+	}()
 }
 
 // getProbeResult returns a cached or fresh probe result.

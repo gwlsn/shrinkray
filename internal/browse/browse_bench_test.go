@@ -41,6 +41,6 @@ func BenchmarkCountVideosRecursiveLarge(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		browser.ClearCache()
-		_, _ = browser.countVideos(root, true)
+		_, _, _ = browser.countVideos(root, true)
 	}
 }

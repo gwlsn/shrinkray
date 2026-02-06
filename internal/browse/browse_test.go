@@ -235,7 +235,7 @@ func TestCountVideosCaches(t *testing.T) {
 
 	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
 
-	count1, size1 := browser.countVideos(tmpDir, false)
+	count1, size1, _ := browser.countVideos(tmpDir, false)
 	if count1 != 1 {
 		t.Fatalf("expected count1=1, got %d", count1)
 	}
@@ -250,14 +250,14 @@ func TestCountVideosCaches(t *testing.T) {
 	}
 
 	// Should still return cached values (no change)
-	count2, size2 := browser.countVideos(tmpDir, false)
+	count2, size2, _ := browser.countVideos(tmpDir, false)
 	if count2 != 1 || size2 != size1 {
 		t.Fatalf("expected cached values (count=1 size=%d), got count=%d size=%d", size1, count2, size2)
 	}
 
 	// Clear cache, then it should pick up the new file
 	browser.ClearCache()
-	count3, size3 := browser.countVideos(tmpDir, false)
+	count3, size3, _ := browser.countVideos(tmpDir, false)
 	if count3 != 2 {
 		t.Fatalf("expected count3=2, got %d", count3)
 	}
@@ -285,12 +285,12 @@ func TestCountVideosRecursive(t *testing.T) {
 
 	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
 
-	countNo, sizeNo := browser.countVideos(root, false)
+	countNo, sizeNo, _ := browser.countVideos(root, false)
 	if countNo != 0 || sizeNo != 0 {
 		t.Fatalf("non-recursive should be 0/0, got %d/%d", countNo, sizeNo)
 	}
 
-	countRec, sizeRec := browser.countVideos(root, true)
+	countRec, sizeRec, _ := browser.countVideos(root, true)
 	if countRec != 2 {
 		t.Fatalf("recursive should be 2, got %d", countRec)
 	}
@@ -311,7 +311,7 @@ func TestCountVideosTTLStale(t *testing.T) {
 	browser := NewBrowser(ffmpeg.NewProber("ffprobe"), tmpDir)
 	browser.SetDirInfoTTLMinutes(1)
 
-	count1, size1 := browser.countVideos(tmpDir, false)
+	count1, size1, _ := browser.countVideos(tmpDir, false)
 	if count1 != 1 {
 		t.Fatalf("expected count1=1, got %d", count1)
 	}
@@ -333,7 +333,7 @@ func TestCountVideosTTLStale(t *testing.T) {
 	browser.dirInfoCache[key] = info
 	browser.dirInfoCacheMu.Unlock()
 
-	count2, size2 := browser.countVideos(tmpDir, false)
+	count2, size2, _ := browser.countVideos(tmpDir, false)
 	if count2 != 2 {
 		t.Fatalf("expected count2=2, got %d", count2)
 	}

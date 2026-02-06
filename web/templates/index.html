@@ -2484,7 +2484,10 @@
                     const fileCount = entry.is_dir ? (entry.file_count || 0) : (isVideo ? 1 : 0);
                     if (entry.is_dir) {
                         const count = entry.file_count || 0;
-                        if (count > 0) {
+                        if (entry.dir_info_status === 'pending' || entry.dir_info_status === 'stale') {
+                            metaHtml = `<span>Calculating...</span>`;
+                        }
+                        else if (count > 0) {
                             const size = formatBytes(entry.total_size || 0);
                             metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
                         }
@@ -2511,6 +2514,15 @@
                         ${entry.is_dir ? '' : `<div class="file-size">${formatBytes(entry.size)}</div>`}
                     </li>`;
                 }).join('');
+
+                const needsRefresh = data.entries.some(e =>
+                    e.is_dir && (e.dir_info_status === 'pending' || e.dir_info_status === 'stale')
+                );
+
+                if (needsRefresh && browseRecursive) {
+                    setTimeout(() => browse(currentPath), 500);
+                }
+
 
             } catch (err) {
                 console.error('Browse error:', err);
