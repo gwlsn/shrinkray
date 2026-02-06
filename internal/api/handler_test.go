@@ -234,6 +234,66 @@ func TestUpdateConfigEndpoint(t *testing.T) {
 	}
 }
 
+func TestUpdateConfigLogLevel(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	// Verify log_level appears in GET response
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	handler.GetConfig(w, req)
+
+	var cfg map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if _, ok := cfg["log_level"]; !ok {
+		t.Fatal("log_level missing from GET /api/config response")
+	}
+
+	// Update log level to debug
+	debugVal := "debug"
+	reqBody := UpdateConfigRequest{
+		LogLevel: &debugVal,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req = httptest.NewRequest("PUT", "/api/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.UpdateConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify it changed in config
+	req = httptest.NewRequest("GET", "/api/config", nil)
+	w = httptest.NewRecorder()
+	handler.GetConfig(w, req)
+
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if cfg["log_level"] != "debug" {
+		t.Errorf("expected log_level 'debug', got %v", cfg["log_level"])
+	}
+}
+
+func TestUpdateConfigLogLevelInvalid(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	badVal := "verbose"
+	reqBody := UpdateConfigRequest{
+		LogLevel: &badVal,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest("PUT", "/api/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.UpdateConfig(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid log level, got %d", w.Code)
+	}
+}
+
 func TestStatsEndpoint(t *testing.T) {
 	handler, _ := setupTestHandler(t)
 

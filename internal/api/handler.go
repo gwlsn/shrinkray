@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -332,6 +333,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"tonemap_hdr":             h.cfg.TonemapHDR,
 		"tonemap_algorithm":       h.cfg.TonemapAlgorithm,
 		"max_concurrent_analyses": h.cfg.MaxConcurrentAnalyses,
+		"log_level":               h.cfg.LogLevel,
 		"allow_same_codec":        h.cfg.AllowSameCodec,
 	})
 }
@@ -352,6 +354,7 @@ type UpdateConfigRequest struct {
 	TonemapHDR            *bool   `json:"tonemap_hdr,omitempty"`
 	TonemapAlgorithm      *string `json:"tonemap_algorithm,omitempty"`
 	MaxConcurrentAnalyses *int    `json:"max_concurrent_analyses,omitempty"`
+	LogLevel              *string `json:"log_level,omitempty"`
 	AllowSameCodec        *bool   `json:"allow_same_codec,omitempty"`
 }
 
@@ -463,6 +466,17 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if req.AllowSameCodec != nil {
 		h.cfg.AllowSameCodec = *req.AllowSameCodec
 		h.queue.SetAllowSameCodec(*req.AllowSameCodec)
+	}
+
+	// Handle log level
+	if req.LogLevel != nil {
+		val := strings.ToLower(*req.LogLevel)
+		if val != "debug" && val != "info" && val != "warn" && val != "error" {
+			writeError(w, http.StatusBadRequest, "log_level must be 'debug', 'info', 'warn', or 'error'")
+			return
+		}
+		h.cfg.LogLevel = val
+		logger.SetLevel(val)
 	}
 
 	// Persist config to disk

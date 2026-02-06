@@ -347,39 +347,40 @@ func (b *Browser) GetVideoFilesWithProgress(ctx context.Context, paths []string,
 	const maxConcurrent = 50
 	sem := make(chan struct{}, maxConcurrent)
 
-	var results []*ffmpeg.ProbeResult
-	var mu sync.Mutex
+	// Pre-allocate indexed slots to preserve original path order after concurrent probing
+	indexed := make([]*ffmpeg.ProbeResult, total)
 	var wg sync.WaitGroup
 	var probed int64
 
-	for _, filePath := range videoPaths {
+	for i, filePath := range videoPaths {
 		wg.Add(1)
-		go func(fp string) {
+		go func(idx int, fp string) {
 			defer wg.Done()
 
 			// Acquire semaphore slot (limits concurrent probes)
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if result := b.getProbeResult(ctx, fp); result != nil {
-				mu.Lock()
-				results = append(results, result)
-				mu.Unlock()
-			}
+			// Write to pre-allocated slot — no mutex needed, each index is unique
+			indexed[idx] = b.getProbeResult(ctx, fp)
+
 			// Report progress after each probe completes
 			current := atomic.AddInt64(&probed, 1)
 			if onProgress != nil {
 				onProgress(int(current), total)
 			}
-		}(filePath)
+		}(i, filePath)
 	}
 
 	wg.Wait()
 
-	// Sort by path for consistent ordering
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Path < results[j].Path
-	})
+	// Compact: remove nil entries (failed probes) while preserving order
+	results := make([]*ffmpeg.ProbeResult, 0, total)
+	for _, r := range indexed {
+		if r != nil {
+			results = append(results, r)
+		}
+	}
 
 	return results, nil
 }

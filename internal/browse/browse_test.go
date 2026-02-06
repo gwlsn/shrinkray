@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,4 +261,76 @@ func TestCaching(t *testing.T) {
 	thirdDuration := time.Since(start)
 
 	t.Logf("Third probe (after cache clear): %v", thirdDuration)
+}
+
+func TestGetVideoFilesWithProgress_PreservesPathOrder(t *testing.T) {
+	// Regression test for issue #86: jobs should be ordered by submission order, not alphabetically.
+	// We submit two directories in reverse-alphabetical order and verify the results
+	// come back with all files from the first directory before files from the second.
+	dir1 := filepath.Join("..", "..", "testdata", "vmaf_samples_backup") // 'v' > 'v' but _backup comes after vmaf_samples alphabetically
+	dir2 := filepath.Join("..", "..", "testdata", "vmaf_samples")
+
+	absDir1, err := filepath.Abs(dir1)
+	if err != nil {
+		t.Fatalf("failed to get abs path: %v", err)
+	}
+	absDir2, err := filepath.Abs(dir2)
+	if err != nil {
+		t.Fatalf("failed to get abs path: %v", err)
+	}
+
+	if _, err := os.Stat(absDir1); os.IsNotExist(err) {
+		t.Skipf("test directory not found: %s", absDir1)
+	}
+	if _, err := os.Stat(absDir2); os.IsNotExist(err) {
+		t.Skipf("test directory not found: %s", absDir2)
+	}
+
+	// Use a parent that covers both directories
+	parentDir := filepath.Dir(absDir1)
+	prober := ffmpeg.NewProber("ffprobe")
+	browser := NewBrowser(prober, parentDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Submit vmaf_samples_backup FIRST, then vmaf_samples
+	// If order is preserved, all _backup files should appear before vmaf_samples files
+	results, err := browser.GetVideoFilesWithProgress(ctx, []string{absDir1, absDir2}, nil)
+	if err != nil {
+		t.Fatalf("GetVideoFilesWithProgress failed: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected video files but got none")
+	}
+
+	// Verify files from both directories are present and in the correct order
+	seenFirstDir := false
+	seenSecondDir := false
+	for i, r := range results {
+		inDir1 := strings.HasPrefix(r.Path, absDir1+string(filepath.Separator))
+		inDir2 := strings.HasPrefix(r.Path, absDir2+string(filepath.Separator))
+
+		if inDir1 {
+			seenFirstDir = true
+		}
+		if inDir2 {
+			seenSecondDir = true
+		}
+
+		// Once we've seen a file from dir2, we should NOT see any more from dir1
+		if seenSecondDir && inDir1 {
+			t.Errorf("order violation at index %d: found dir1 file %q after dir2 files started", i, r.Path)
+		}
+
+		t.Logf("  [%d] %s (dir1=%v dir2=%v)", i, r.Path, inDir1, inDir2)
+	}
+
+	if !seenFirstDir {
+		t.Error("expected files from first directory (vmaf_samples_backup)")
+	}
+	if !seenSecondDir {
+		t.Error("expected files from second directory (vmaf_samples)")
+	}
 }
