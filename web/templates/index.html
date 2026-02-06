@@ -666,6 +666,16 @@
             font-weight: 500;
         }
 
+        .browse-menu-item .sort-arrow {
+            font-size: 0.75rem;
+            opacity: 0.5;
+            transition: opacity 0.1s ease;
+        }
+
+        .browse-menu-item.active .sort-arrow {
+            opacity: 1;
+        }
+
         .file-item {
             display: flex;
             align-items: center;
@@ -2050,6 +2060,12 @@
                         <span id="selection-count"></span>
                         <div class="browse-menu" id="browse-menu">
                             <button class="browse-menu-trigger" onclick="toggleBrowseMenu(event)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="4" y1="6" x2="16" y2="6"/>
+                                    <line x1="4" y1="12" x2="12" y2="12"/>
+                                    <line x1="4" y1="18" x2="8" y2="18"/>
+                                    <polyline points="16 14 19 17 22 14"/>
+                                </svg>
                                 <span id="browse-menu-label">Alphabetical</span>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polyline points="6 9 12 15 18 9"></polyline>
@@ -2058,9 +2074,8 @@
                             <div class="browse-menu-dropdown" id="browse-menu-dropdown">
                                 <div class="browse-menu-section">
                                     <div class="browse-menu-label">Sort</div>
-                                    <div class="browse-menu-item active" data-sort="name" onclick="selectBrowseSort('name')">Alphabetical</div>
-                                    <div class="browse-menu-item" data-sort="size-largest" onclick="selectBrowseSort('size-largest')">Size (largest)</div>
-                                    <div class="browse-menu-item" data-sort="size-smallest" onclick="selectBrowseSort('size-smallest')">Size (smallest)</div>
+                                    <div class="browse-menu-item active" data-sort="name" onclick="selectBrowseSort('name')">Alphabetical <span class="sort-arrow">↓</span></div>
+                                    <div class="browse-menu-item" data-sort="size" onclick="selectBrowseSort('size')">Size <span class="sort-arrow">↓</span></div>
                                 </div>
                             </div>
                         </div>
@@ -2446,7 +2461,8 @@
         let selectedPaths = new Set();
         let selectedFileCounts = new Map();  // Track file count for each selected path (1 for files, N for folders)
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
-        let browseSort = 'name';
+        let browseSortBy = 'name';
+        let browseSortAsc = true;
         let lastBrowseEntries = [];
         let eventSource = null;
 
@@ -2487,20 +2503,24 @@
                     return a.is_dir ? -1 : 1;
                 }
 
-                if (browseSort === 'size-largest' || browseSort === 'size-smallest') {
+                if (browseSortBy === 'size') {
                     const aSize = getBrowseEntrySize(a);
                     const bSize = getBrowseEntrySize(b);
                     if (aSize !== bSize) {
-                        const diff = bSize - aSize;
-                        return browseSort === 'size-smallest' ? -diff : diff;
+                        const diff = aSize - bSize;
+                        return browseSortAsc ? diff : -diff;
                     }
                 }
 
                 const aName = (a.name || '').toLowerCase();
                 const bName = (b.name || '').toLowerCase();
-                if (aName < bName) return -1;
-                if (aName > bName) return 1;
-                return 0;
+                let nameResult = 0;
+                if (aName < bName) nameResult = -1;
+                if (aName > bName) nameResult = 1;
+                if (browseSortBy === 'name') {
+                    return browseSortAsc ? nameResult : -nameResult;
+                }
+                return nameResult;
             });
             return sorted;
         }
@@ -2623,7 +2643,12 @@
         }
 
         function selectBrowseSort(sortBy) {
-            browseSort = sortBy;
+            if (sortBy === browseSortBy) {
+                browseSortAsc = !browseSortAsc;
+            } else {
+                browseSortBy = sortBy;
+                browseSortAsc = sortBy === 'name';
+            }
             updateBrowseMenuDisplay();
             if (lastBrowseEntries && lastBrowseEntries.length > 0) {
                 renderBrowseEntries(sortBrowseEntries(lastBrowseEntries));
@@ -2635,14 +2660,18 @@
             const label = document.getElementById('browse-menu-label');
             const sortLabels = {
                 'name': 'Alphabetical',
-                'size-largest': 'Size (largest)',
-                'size-smallest': 'Size (smallest)'
+                'size': 'Size'
             };
             if (label) {
-                label.textContent = sortLabels[browseSort] || 'Alphabetical';
+                label.textContent = sortLabels[browseSortBy] || 'Alphabetical';
             }
             document.querySelectorAll('.browse-menu-item[data-sort]').forEach(item => {
-                item.classList.toggle('active', item.dataset.sort === browseSort);
+                const isActive = item.dataset.sort === browseSortBy;
+                item.classList.toggle('active', isActive);
+                const arrowSpan = item.querySelector('.sort-arrow');
+                if (arrowSpan) {
+                    arrowSpan.textContent = isActive ? (browseSortAsc ? '↑' : '↓') : '↓';
+                }
             });
         }
 
