@@ -29,9 +29,6 @@ type Config struct {
 	// FFprobePath is the path to ffprobe binary (default: "ffprobe")
 	FFprobePath string `yaml:"ffprobe_path"`
 
-	// QueueFile is where the job queue is persisted (default: config dir + queue.json)
-	QueueFile string `yaml:"queue_file"`
-
 	// PushoverUserKey is the Pushover user key for notifications
 	PushoverUserKey string `yaml:"pushover_user_key"`
 
@@ -96,7 +93,6 @@ func DefaultConfig() *Config {
 		Workers:           1,
 		FFmpegPath:        "ffmpeg",
 		FFprobePath:       "ffprobe",
-		QueueFile:         "/config/queue.json",
 		QualityHEVC:       0, // 0 = use encoder-specific default
 		QualityAV1:        0, // 0 = use encoder-specific default
 		ScheduleEnabled:   false,

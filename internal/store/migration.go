@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	"github.com/gwlsn/shrinkray/internal/logger"
@@ -182,13 +181,6 @@ func GetJSONPath(configDir string) string {
 	return filepath.Join(configDir, "queue.json")
 }
 
-// CleanupDBFiles removes SQLite database files (main, WAL, and SHM).
-func CleanupDBFiles(dbPath string) {
-	os.Remove(dbPath)
-	os.Remove(dbPath + "-wal")
-	os.Remove(dbPath + "-shm")
-}
-
 // InitStore initializes the store, performing migration if necessary.
 // This is the main entry point for store initialization.
 func InitStore(configDir string) (*SQLiteStore, error) {
@@ -224,7 +216,3 @@ func InitStore(configDir string) (*SQLiteStore, error) {
 	return store, nil
 }
 
-// IsDBPath checks if a path looks like a SQLite database path.
-func IsDBPath(path string) bool {
-	return strings.HasSuffix(path, ".db")
-}

@@ -67,29 +67,21 @@ func NewRouter(h *Handler, staticFS embed.FS) *http.ServeMux {
 			w.Write(content)
 		})
 
-		// Serve logo
-		mux.HandleFunc("GET /logo.png", func(w http.ResponseWriter, r *http.Request) {
-			content, err := fs.ReadFile(staticSubFS, "logo.png")
-			if err != nil {
-				http.Error(w, "Not found", http.StatusNotFound)
-				return
+		// Serve static image assets with caching
+		serveStatic := func(subFS fs.FS, name, contentType string) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				content, err := fs.ReadFile(subFS, name)
+				if err != nil {
+					http.Error(w, "Not found", http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", contentType)
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				w.Write(content)
 			}
-			w.Header().Set("Content-Type", "image/png")
-			w.Header().Set("Cache-Control", "public, max-age=86400")
-			w.Write(content)
-		})
-
-		// Serve favicon
-		mux.HandleFunc("GET /favicon.png", func(w http.ResponseWriter, r *http.Request) {
-			content, err := fs.ReadFile(staticSubFS, "favicon.png")
-			if err != nil {
-				http.Error(w, "Not found", http.StatusNotFound)
-				return
-			}
-			w.Header().Set("Content-Type", "image/png")
-			w.Header().Set("Cache-Control", "public, max-age=86400")
-			w.Write(content)
-		})
+		}
+		mux.HandleFunc("GET /logo.png", serveStatic(staticSubFS, "logo.png", "image/png"))
+		mux.HandleFunc("GET /favicon.png", serveStatic(staticSubFS, "favicon.png", "image/png"))
 	}
 
 	return mux

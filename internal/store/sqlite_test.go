@@ -621,7 +621,7 @@ func TestSQLiteStore_ZeroValuesPreserved(t *testing.T) {
 	job := &jobs.Job{
 		ID:        "minimal",
 		InputPath: "/media/test.mkv",
-		PresetID:  "compress",
+		PresetID:  "compress-hevc",
 		Encoder:   "none",
 		Status:    jobs.StatusPending,
 		CreatedAt: time.Now(),

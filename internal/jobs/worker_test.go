@@ -9,28 +9,7 @@ import (
 
 	"github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
-	"github.com/gwlsn/shrinkray/internal/util"
 )
-
-func TestFormatDuration(t *testing.T) {
-	tests := []struct {
-		input    time.Duration
-		expected string
-	}{
-		{5 * time.Second, "5s"},
-		{65 * time.Second, "1m 5s"},
-		{3600 * time.Second, "1h 0m"},
-		{3665 * time.Second, "1h 1m"},
-		{-1 * time.Second, ""},
-	}
-
-	for _, tt := range tests {
-		result := util.FormatDuration(tt.input)
-		if result != tt.expected {
-			t.Errorf("FormatDuration(%v) = %s, expected %s", tt.input, result, tt.expected)
-		}
-	}
-}
 
 func TestWorkerPoolIntegration(t *testing.T) {
 	if testing.Short() {
@@ -85,7 +64,7 @@ func TestWorkerPoolIntegration(t *testing.T) {
 	}
 
 	// Add job
-	job, err := queue.Add(testCopy, "compress", probe, "")
+	job, err := queue.Add(testCopy, "compress-hevc", probe, "")
 	if err != nil {
 		t.Fatalf("failed to add job: %v", err)
 	}
