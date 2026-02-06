@@ -17,6 +17,12 @@ import (
 // Always HD model since scoring happens at ≤1080p.
 const vmafModel = "vmaf_v0.6.1"
 
+// vmafSubsample scores every Nth frame instead of every frame.
+// VMAF scores are highly correlated between adjacent frames, so subsampling
+// cuts scoring time ~5x with negligible accuracy impact. ab-av1 uses
+// the same technique. Set to 1 to disable.
+const vmafSubsample = 5
+
 // scoringHeight returns the height used for VMAF scoring.
 // Content >1080p is downscaled to 1080; content ≤1080p stays native.
 // Unknown/zero height defaults to 1080 as a safety cap against OOM.
@@ -39,8 +45,8 @@ func buildSDRScoringFilter(model string, threads, scoreH int, needsDownscale boo
 
 	return fmt.Sprintf(
 		"[0:v]%s[dist];[1:v]%s[ref];"+
-			"[dist][ref]libvmaf=model=version=%s:n_threads=%d",
-		leg, leg, model, threads)
+			"[dist][ref]libvmaf=model=version=%s:n_threads=%d:n_subsample=%d",
+		leg, leg, model, threads, vmafSubsample)
 }
 
 // MaxScoreWorkers is the maximum number of concurrent VMAF scoring workers.
