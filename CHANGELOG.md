@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [2.1.0] - 2026-02-06
 
 ### Added
+- **Recursive folder scanning** (#91) — Directory video counts now include files in subdirectories, so TV show folders display total episode count across all seasons
+  - Non-blocking: Browse returns instantly using cached results, populates cache in background
+  - Startup cache warming pre-computes all counts in a single efficient walk
+  - Optimized with singleflight dedup, WalkDir, and semaphore (max 8 concurrent walks)
 - **Runtime log level setting** (#92) — Change log verbosity (debug/info/warn/error) from the UI without restarting
   - New dropdown in Advanced Settings
   - `log_level` field on GET/PUT `/api/config` endpoints
@@ -19,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **API batch job ordering** (#86) — Jobs submitted via API now queue in the order paths are submitted, not alphabetically
   - Replaced non-deterministic goroutine append + alphabetical sort with indexed pre-allocation
   - Each concurrent probe writes to its original position, preserving submission order
+- **NVIDIA GPU setup simplified** — Pre-filled `NVIDIA_DRIVER_CAPABILITIES` and `NVIDIA_VISIBLE_DEVICES` env vars; users now just add `--runtime=nvidia`
+- **Documentation overhaul** — Rewrote GPU setup guides, fixed stale API docs (browse response schema, encoder API, preset fields)
 
 ## [2.0.8] - 2026-02-05
 
