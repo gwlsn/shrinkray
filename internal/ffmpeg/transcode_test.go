@@ -74,7 +74,7 @@ func TestTranscode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	preset := GetPreset("compress")
+	preset := GetPreset("compress-hevc")
 
 	// Collect progress in a goroutine
 	var progressUpdates []Progress

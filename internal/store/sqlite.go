@@ -75,6 +75,38 @@ CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
 `
 
+// jobColumns lists all job table columns for INSERT statements.
+const jobColumns = `id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
+	status, progress, speed, eta, error, input_size, output_size, space_saved,
+	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+	is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
+	smartshrink_quality, created_at, started_at, completed_at`
+
+// jobColumnsAliased lists all job table columns with "j." prefix for JOIN queries.
+const jobColumnsAliased = `j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
+	j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
+	j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
+	j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
+	j.smartshrink_quality, j.created_at, j.started_at, j.completed_at`
+
+// jobPlaceholders provides the VALUES placeholder string for INSERT statements.
+const jobPlaceholders = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+
+// jobExecArgs returns the ordered arguments for inserting/updating a job row.
+func jobExecArgs(job *jobs.Job) []interface{} {
+	return []interface{}{
+		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
+		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
+		string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
+		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
+		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
+		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
+		boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
+		string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
+		nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
+	}
+}
+
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
 	db   *sql.DB
@@ -232,24 +264,9 @@ func (s *SQLiteStore) SaveJob(job *jobs.Job) error {
 }
 
 func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO jobs (
-			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
-			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
-			smartshrink_quality, created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
-		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
-		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
-		string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
-		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
-		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-		boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
-		string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
-		nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO jobs (`+jobColumns+`) VALUES (`+jobPlaceholders+`)`,
+		jobExecArgs(job)...,
 	)
 	return err
 }
@@ -263,15 +280,7 @@ func (s *SQLiteStore) GetJob(id string) (*jobs.Job, error) {
 }
 
 func (s *SQLiteStore) getJobLocked(id string) (*jobs.Job, error) {
-	row := s.db.QueryRow(`
-		SELECT id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
-			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
-			smartshrink_quality, created_at, started_at, completed_at
-		FROM jobs WHERE id = ?
-	`, id)
-
+	row := s.db.QueryRow(`SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id)
 	return scanJob(row)
 }
 
@@ -296,33 +305,16 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.Prepare(`
-		INSERT OR REPLACE INTO jobs (
-			id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
-			status, progress, speed, eta, error, input_size, output_size, space_saved,
-			duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-			is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
-			smartshrink_quality, created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
+	stmt, err := tx.Prepare(
+		`INSERT OR REPLACE INTO jobs (` + jobColumns + `) VALUES (` + jobPlaceholders + `)`,
+	)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
 	for _, job := range jobList {
-		_, err := stmt.Exec(
-			job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
-			job.PresetID, job.Encoder, boolToInt(job.IsHardware),
-			string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
-			job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
-			nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-			nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-			boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
-			string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
-			nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
-		)
-		if err != nil {
+		if _, err := stmt.Exec(jobExecArgs(job)...); err != nil {
 			return err
 		}
 	}
@@ -336,16 +328,10 @@ func (s *SQLiteStore) GetAllJobs() ([]*jobs.Job, []string, error) {
 	defer s.mu.RUnlock()
 
 	// Get jobs in order
-	rows, err := s.db.Query(`
-		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
-			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
-			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
+	rows, err := s.db.Query(`SELECT ` + jobColumnsAliased + `
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
-		ORDER BY o.position ASC, j.created_at ASC
-	`)
+		ORDER BY o.position ASC, j.created_at ASC`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -371,17 +357,11 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query(`
-		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
-			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
-			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
+	rows, err := s.db.Query(`SELECT `+jobColumnsAliased+`
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = ?
-		ORDER BY o.position ASC, j.created_at ASC
-	`, string(status))
+		ORDER BY o.position ASC, j.created_at ASC`, string(status))
 	if err != nil {
 		return nil, err
 	}
@@ -404,18 +384,12 @@ func (s *SQLiteStore) GetNextPendingJob() (*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	row := s.db.QueryRow(`
-		SELECT j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
-			j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-			j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-			j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
-			j.smartshrink_quality, j.created_at, j.started_at, j.completed_at
+	row := s.db.QueryRow(`SELECT ` + jobColumnsAliased + `
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = 'pending'
 		ORDER BY o.position ASC, j.created_at ASC
-		LIMIT 1
-	`)
+		LIMIT 1`)
 
 	job, err := scanJob(row)
 	if err == sql.ErrNoRows {
@@ -486,6 +460,23 @@ func (s *SQLiteStore) ResetRunningJobs() (int, error) {
 	return int(count), err
 }
 
+// getSavedStats reads the session and lifetime saved byte counters from stats_metadata.
+// Caller must hold at least s.mu.RLock().
+func (s *SQLiteStore) getSavedStats() (sessionSaved, lifetimeSaved int64, err error) {
+	var sessionStr, lifetimeStr string
+	err = s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'session_saved'`).Scan(&sessionStr)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, 0, fmt.Errorf("get session saved: %w", err)
+	}
+	err = s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'lifetime_saved'`).Scan(&lifetimeStr)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, 0, fmt.Errorf("get lifetime saved: %w", err)
+	}
+	sessionSaved, _ = strconv.ParseInt(sessionStr, 10, 64)
+	lifetimeSaved, _ = strconv.ParseInt(lifetimeStr, 10, 64)
+	return sessionSaved, lifetimeSaved, nil
+}
+
 // Stats returns queue statistics including session and lifetime savings.
 func (s *SQLiteStore) Stats() (jobs.Stats, error) {
 	s.mu.RLock()
@@ -493,19 +484,10 @@ func (s *SQLiteStore) Stats() (jobs.Stats, error) {
 
 	var stats jobs.Stats
 
-	// Get session_saved and lifetime_saved counters from stats_metadata
-	var sessionSavedStr, lifetimeSavedStr string
-	err := s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'session_saved'`).Scan(&sessionSavedStr)
-	if err != nil && err != sql.ErrNoRows {
-		return stats, fmt.Errorf("get session saved: %w", err)
+	sessionSaved, lifetimeSaved, err := s.getSavedStats()
+	if err != nil {
+		return stats, err
 	}
-	err = s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'lifetime_saved'`).Scan(&lifetimeSavedStr)
-	if err != nil && err != sql.ErrNoRows {
-		return stats, fmt.Errorf("get lifetime saved: %w", err)
-	}
-
-	sessionSaved, _ := strconv.ParseInt(sessionSavedStr, 10, 64)
-	lifetimeSaved, _ := strconv.ParseInt(lifetimeSavedStr, 10, 64)
 
 	// Get job counts
 	row := s.db.QueryRow(`
@@ -566,22 +548,7 @@ func (s *SQLiteStore) AddToLifetimeSaved(bytes int64) error {
 func (s *SQLiteStore) SessionLifetimeStats() (sessionSaved, lifetimeSaved int64, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	// Get session_saved and lifetime_saved counters from stats_metadata
-	var sessionSavedStr, lifetimeSavedStr string
-	err = s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'session_saved'`).Scan(&sessionSavedStr)
-	if err != nil && err != sql.ErrNoRows {
-		return 0, 0, fmt.Errorf("get session saved: %w", err)
-	}
-	err = s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'lifetime_saved'`).Scan(&lifetimeSavedStr)
-	if err != nil && err != sql.ErrNoRows {
-		return 0, 0, fmt.Errorf("get lifetime saved: %w", err)
-	}
-
-	sessionSaved, _ = strconv.ParseInt(sessionSavedStr, 10, 64)
-	lifetimeSaved, _ = strconv.ParseInt(lifetimeSavedStr, 10, 64)
-
-	return sessionSaved, lifetimeSaved, nil
+	return s.getSavedStats()
 }
 
 // Close closes the database connection.
