@@ -42,9 +42,8 @@ type EncodeSampleFunc func(ctx context.Context, samplePath string, quality int, 
 
 // BinarySearch finds the optimal quality setting via interpolated binary search.
 // Uses linear interpolation between data points to converge faster than pure binary search.
-// When tonemap is provided and enabled, scoring uses HDR-aware comparison.
 func BinarySearch(ctx context.Context, ffmpegPath string, referenceSamples []*Sample,
-	qRange QualityRange, threshold float64, height int, tonemap *TonemapConfig, encodeSample EncodeSampleFunc) (*SearchResult, error) {
+	qRange QualityRange, threshold float64, height int, encodeSample EncodeSampleFunc) (*SearchResult, error) {
 
 	// Validate inputs
 	if len(referenceSamples) == 0 {
@@ -52,7 +51,7 @@ func BinarySearch(ctx context.Context, ffmpegPath string, referenceSamples []*Sa
 	}
 
 	// Create the encode+score function that both search modes share
-	scorer := newSampleScorer(ctx, ffmpegPath, referenceSamples, height, tonemap, encodeSample)
+	scorer := newSampleScorer(ctx, ffmpegPath, referenceSamples, height, encodeSample)
 
 	if qRange.UsesBitrate {
 		if qRange.MinMod >= qRange.MaxMod {
@@ -73,19 +72,17 @@ type sampleScorer struct {
 	ffmpegPath       string
 	referenceSamples []*Sample
 	height           int
-	tonemap          *TonemapConfig
 	encodeSample     EncodeSampleFunc
 	testCount        int // Number of quality levels tested
 }
 
 func newSampleScorer(ctx context.Context, ffmpegPath string, referenceSamples []*Sample,
-	height int, tonemap *TonemapConfig, encodeSample EncodeSampleFunc) *sampleScorer {
+	height int, encodeSample EncodeSampleFunc) *sampleScorer {
 	return &sampleScorer{
 		ctx:              ctx,
 		ffmpegPath:       ffmpegPath,
 		referenceSamples: referenceSamples,
 		height:           height,
-		tonemap:          tonemap,
 		encodeSample:     encodeSample,
 	}
 }
@@ -116,7 +113,7 @@ func (s *sampleScorer) scoreCRF(crf int) (float64, error) {
 	encodeDuration := time.Since(encodeStart)
 
 	scoreStart := time.Now()
-	score, err := ScoreSamples(s.ctx, s.ffmpegPath, s.referenceSamples, distortedSamples, s.height, s.tonemap)
+	score, err := ScoreSamples(s.ctx, s.ffmpegPath, s.referenceSamples, distortedSamples, s.height)
 	scoreDuration := time.Since(scoreStart)
 
 	CleanupSamples(distortedSamples)
@@ -160,7 +157,7 @@ func (s *sampleScorer) scoreModifier(mod float64) (float64, error) {
 	encodeDuration := time.Since(encodeStart)
 
 	scoreStart := time.Now()
-	score, err := ScoreSamples(s.ctx, s.ffmpegPath, s.referenceSamples, distortedSamples, s.height, s.tonemap)
+	score, err := ScoreSamples(s.ctx, s.ffmpegPath, s.referenceSamples, distortedSamples, s.height)
 	scoreDuration := time.Since(scoreStart)
 
 	CleanupSamples(distortedSamples)

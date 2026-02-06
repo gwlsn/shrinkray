@@ -43,57 +43,6 @@ func buildSDRScoringFilter(model string, threads, scoreH int, needsDownscale boo
 		leg, leg, model, threads)
 }
 
-// buildHDRScoringFilter creates a filtergraph for HDR VMAF comparison.
-// BOTH legs are tonemapped from HDR to SDR because VMAF is only validated for SDR-to-SDR.
-//
-// When needsDownscale is true, the downscale is merged into the linearization zscale call
-// so that pixel resampling happens in linear light (mathematically correct).
-// The combined zscale does: resize + linearize + preserve BT.2020 in one pass.
-//
-// Pipeline per leg:
-//  1. setsar=1 (SAR normalization)
-//  2. zscale: linearize from PQ/HLG (+ downscale if needed, resampling in linear light)
-//  3. format=gbrpf32le (float precision for tonemap math)
-//  4. zscale: convert primaries to bt709
-//  5. tonemap algorithm (operates on linear bt709)
-//  6. zscale: apply bt709 transfer curve and matrix
-//  7. format=yuv420p for VMAF
-//
-// inputTransfer should be "smpte2084" for HDR10/DV or "arib-std-b67" for HLG.
-// Falls back to "smpte2084" if empty or unknown.
-func buildHDRScoringFilter(model string, threads int, algorithm, inputTransfer string, scoreH int, needsDownscale bool) string {
-	// Validate and normalize inputTransfer
-	switch inputTransfer {
-	case "smpte2084", "arib-std-b67":
-		// Valid, use as-is
-	default:
-		inputTransfer = "smpte2084"
-	}
-
-	// Build the first zscale call: linearize, optionally with resize merged in.
-	// When downscaling, adding w/h to the linearization step means zscale
-	// converts to linear light first, then resamples at the target resolution.
-	var linearizeZscale string
-	if needsDownscale {
-		linearizeZscale = fmt.Sprintf(
-			"zscale=w=-2:h=%d:pin=bt2020:tin=%s:min=bt2020nc:t=linear:npl=1000",
-			scoreH, inputTransfer)
-	} else {
-		linearizeZscale = fmt.Sprintf(
-			"zscale=pin=bt2020:tin=%s:min=bt2020nc:t=linear:npl=1000",
-			inputTransfer)
-	}
-
-	// Full tonemap chain per leg
-	tonemapChain := fmt.Sprintf(
-		"setsar=1,%s,format=gbrpf32le,zscale=p=bt709,tonemap=%s:desat=0:peak=100,zscale=t=bt709:m=bt709,format=yuv420p",
-		linearizeZscale, algorithm)
-
-	return fmt.Sprintf(
-		"[0:v]%s[dist];[1:v]%s[ref];[dist][ref]libvmaf=model=version=%s:n_threads=%d",
-		tonemapChain, tonemapChain, model, threads)
-}
-
 // MaxScoreWorkers is the maximum number of concurrent VMAF scoring workers.
 // Matches the number of samples (3) from SamplePositions.
 const MaxScoreWorkers = 3
@@ -121,30 +70,17 @@ func GetEncodingThreads() int {
 }
 
 // Score calculates the VMAF score between reference and distorted videos.
-// When tonemap is provided and enabled, both legs are tonemapped from HDR to SDR.
+// SDR content only — HDR files are skipped at the worker level before reaching this function.
 // Content >1080p is downscaled to 1080p before scoring to reduce memory and improve speed.
-// The threads parameter controls parallelism for FFmpeg and libvmaf.
-func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string, height, threads int, tonemap *TonemapConfig) (float64, error) {
+func Score(ctx context.Context, ffmpegPath, referencePath, distortedPath string, height, threads int) (float64, error) {
 	scoreH := scoringHeight(height)
 	needsDownscale := scoreH < height || height <= 0
-
-	// Build appropriate filtergraph based on HDR/SDR
-	var filterComplex string
-	if tonemap != nil && tonemap.Enabled {
-		algorithm := tonemap.Algorithm
-		if algorithm == "" {
-			algorithm = "hable"
-		}
-		filterComplex = buildHDRScoringFilter(vmafModel, threads, algorithm, tonemap.InputTransfer, scoreH, needsDownscale)
-	} else {
-		filterComplex = buildSDRScoringFilter(vmafModel, threads, scoreH, needsDownscale)
-	}
+	filterComplex := buildSDRScoringFilter(vmafModel, threads, scoreH, needsDownscale)
 
 	logger.Debug("VMAF scoring",
 		"inputHeight", height,
 		"scoringHeight", scoreH,
 		"downscale", needsDownscale,
-		"hdr", tonemap != nil && tonemap.Enabled,
 		"model", vmafModel,
 		"filter", filterComplex)
 
@@ -204,8 +140,7 @@ func averageScores(scores []float64) float64 {
 
 // ScoreSamples calculates VMAF for multiple sample pairs concurrently and returns the average.
 // Samples are scored in parallel (up to MaxScoreWorkers) with threads distributed evenly.
-// When tonemap is provided and enabled, references are tonemapped from HDR to SDR.
-func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, distortedSamples []*Sample, height int, tonemap *TonemapConfig) (float64, error) {
+func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, distortedSamples []*Sample, height int) (float64, error) {
 	if len(referenceSamples) != len(distortedSamples) {
 		return 0, fmt.Errorf("sample count mismatch: %d vs %d", len(referenceSamples), len(distortedSamples))
 	}
@@ -224,10 +159,11 @@ func ScoreSamples(ctx context.Context, ffmpegPath string, referenceSamples, dist
 	scores := make([]float64, numSamples)
 
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(workers)
 
 	for i := range referenceSamples {
 		g.Go(func() error {
-			score, err := Score(gctx, ffmpegPath, referenceSamples[i].Path, distortedSamples[i].Path, height, threadsPerWorker, tonemap)
+			score, err := Score(gctx, ffmpegPath, referenceSamples[i].Path, distortedSamples[i].Path, height, threadsPerWorker)
 			if err != nil {
 				return fmt.Errorf("scoring sample %d: %w", i, err)
 			}
