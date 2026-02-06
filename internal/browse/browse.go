@@ -385,12 +385,57 @@ func (b *Browser) GetVideoFilesWithProgress(ctx context.Context, paths []string,
 	return results, nil
 }
 
-// ClearCache clears the probe cache (useful after transcoding completes).
-// Directory count cache is preserved since file counts don't change after transcoding.
+// ClearCache clears the probe cache and selectively invalidates directory
+// count caches for any directories whose files have changed on disk (different
+// inode or size). This keeps folder sizes visible for unchanged directories
+// while ensuring changed files trigger a fresh count on next browse.
 func (b *Browser) ClearCache() {
+	// Snapshot the old probe cache so we can detect stale entries.
 	b.cacheMu.Lock()
+	oldCache := b.cache
 	b.cache = make(map[string]*ffmpeg.ProbeResult)
 	b.cacheMu.Unlock()
+
+	// Check each previously-cached file: if it changed on disk, collect
+	// ancestor directories that need their count cache invalidated.
+	staleDirs := make(map[string]struct{})
+	rootPrefix := b.mediaRoot + string(os.PathSeparator)
+	for path, cached := range oldCache {
+		info, err := os.Stat(path)
+		if err != nil {
+			// File removed or inaccessible — ancestors are stale.
+			b.markAncestorsStale(filepath.Dir(path), rootPrefix, staleDirs)
+			continue
+		}
+		currentSize := info.Size()
+		var currentInode uint64
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			currentInode = stat.Ino
+		}
+		if cached.Inode != currentInode || cached.Size != currentSize {
+			b.markAncestorsStale(filepath.Dir(path), rootPrefix, staleDirs)
+		}
+	}
+
+	if len(staleDirs) > 0 {
+		b.countCacheMu.Lock()
+		for dir := range staleDirs {
+			delete(b.countCache, dir)
+		}
+		b.countCacheMu.Unlock()
+	}
+}
+
+// markAncestorsStale adds dir and all its ancestors up to mediaRoot into the set.
+func (b *Browser) markAncestorsStale(dir, rootPrefix string, set map[string]struct{}) {
+	for dir == b.mediaRoot || strings.HasPrefix(dir, rootPrefix) {
+		set[dir] = struct{}{}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 }
 
 // InvalidateCache removes a specific path from the probe cache and clears
@@ -401,18 +446,13 @@ func (b *Browser) InvalidateCache(path string) {
 	delete(b.cache, path)
 	b.cacheMu.Unlock()
 
-	// Invalidate count cache for every ancestor directory up to media root.
-	// Use path-boundary check to avoid matching e.g. /mnt/mediastuff when root is /mnt/media.
 	rootPrefix := b.mediaRoot + string(os.PathSeparator)
+	staleDirs := make(map[string]struct{})
+	b.markAncestorsStale(filepath.Dir(path), rootPrefix, staleDirs)
+
 	b.countCacheMu.Lock()
-	dir := filepath.Dir(path)
-	for dir == b.mediaRoot || strings.HasPrefix(dir, rootPrefix) {
+	for dir := range staleDirs {
 		delete(b.countCache, dir)
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break // reached filesystem root
-		}
-		dir = parent
 	}
 	b.countCacheMu.Unlock()
 }
