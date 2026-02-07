@@ -853,7 +853,7 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	// SmartShrink does not support HDR content — VMAF is validated for SDR only.
 	// Check before acquiring analysis slot so HDR jobs don't block SDR analyses.
 	if job.IsHDR {
-		return true, "SmartShrink does not support HDR content", 0, 0, 0, nil
+		return true, "SmartShrink does not support HDR content. Use a Compress preset or tonemap to SDR first", 0, 0, 0, nil
 	}
 
 	// Update phase immediately so UI shows "Analyzing" while waiting for slot
