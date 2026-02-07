@@ -1645,6 +1645,16 @@
             text-align: center;
         }
 
+        .settings-footer a {
+            color: var(--text-tertiary);
+            text-decoration: none;
+            transition: color 150ms ease;
+        }
+
+        .settings-footer a:hover {
+            color: var(--text-secondary);
+        }
+
         /* Responsive */
         @media (max-width: 1200px) {
             .main {
@@ -2291,7 +2301,7 @@
                 </div>
             </div>
             <div class="settings-status" id="settings-status"></div>
-            <div class="settings-footer">Shrinkray v<span id="app-version"></span></div>
+            <div class="settings-footer">Shrinkray v<span id="app-version"></span> · <a href="https://github.com/gwlsn/shrinkray" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
         </div>
     </div>
 
