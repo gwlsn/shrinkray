@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-02-07
+
 ### Changed
 - **SmartShrink is now SDR-only** — Removed HDR VMAF support; HDR files are skipped when using SmartShrink presets. Use Compress presets or enable tonemapping for HDR content. This simplifies the VMAF pipeline and avoids edge cases with HDR tonemapping during analysis.
 - **VMAF frame subsampling** — Scores every 5th frame instead of every frame during VMAF analysis, cutting scoring time ~5x with negligible accuracy impact (same technique used by ab-av1)
