@@ -81,24 +81,11 @@ services:
 
 ### Podman
 
-Podman rootless requires `userns_mode: keep-id` for PUID/PGID to work correctly. Without it, UID namespace remapping causes permission errors on mounted volumes. See the [FAQ](docs/FAQ.md#permission-errors-with-podman-rootless) for details.
+Shrinkray's Docker image uses the [LinuxServer.io](https://linuxserver.io) base image with s6-overlay for PUID/PGID user management. **Rootful Podman** works the same as Docker — use the Docker Compose example above.
 
-```yaml
-services:
-  shrinkray:
-    image: ghcr.io/gwlsn/shrinkray:latest
-    userns_mode: keep-id
-    environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - ./config:/config
-      - ./media:/media
-      - ./temp:/temp
-    devices:
-      - /dev/dri:/dev/dri
-    restart: unless-stopped
-```
+**Rootless Podman is not supported.** Rootless Podman's user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism, causing permission failures that cannot be resolved with configuration alone. This is a [known limitation](https://info.linuxserver.io/issues/2023-09-06-unraid/) across all LinuxServer.io-based images, not specific to Shrinkray.
+
+If you need to run rootless, build Shrinkray from source and run it directly or package it in your own container without the LinuxServer/s6-overlay base.
 
 ### From Source
 
