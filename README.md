@@ -18,16 +18,16 @@ Shrinkray is a user-friendly video transcoding tool designed to be simple from t
 
 ### Features
 
-- **SmartShrink** — VMAF-guided auto-optimization finds the smallest file size while maintaining your target quality
-- **6 Presets** — SmartShrink (HEVC/AV1), Compress (HEVC/AV1), Downscale (1080p/720p)
-- **Full GPU Pipeline** — Hardware decoding AND encoding with software fallback
-- **HDR Support** — Automatic HDR detection with optional HDR-to-SDR tonemapping
-- **Batch Selection** — Select entire folders to transcode whole seasons or libraries at once
-- **Scheduling** — Restrict transcoding to specific hours (e.g., overnight only)
-- **Quality Control** — Adjustable CRF for fine-tuned compression, or let SmartShrink decide
-- **Queue Management** — Sort by name, size, or date; filter by status; pause/resume
-- **Push Notifications** — Pushover alerts when your queue completes
-- **Smart Skipping** — Automatically skips files already in target codec/resolution
+- **SmartShrink**: VMAF-guided auto-optimization finds the smallest file size while maintaining your target quality
+- **6 Presets**: SmartShrink (HEVC/AV1), Compress (HEVC/AV1), Downscale (1080p/720p)
+- **Full GPU Pipeline**: Hardware decoding AND encoding with software fallback
+- **HDR Support**: Automatic HDR detection with optional HDR-to-SDR tonemapping
+- **Batch Selection**: Select entire folders to transcode whole seasons or libraries at once
+- **Scheduling**: Restrict transcoding to specific hours (e.g., overnight only)
+- **Quality Control**: Adjustable CRF for fine-tuned compression, or let SmartShrink decide
+- **Queue Management**: Sort by name, size, or date; filter by status; pause/resume
+- **Push Notifications**: Pushover alerts when your queue completes
+- **Smart Skipping**: Automatically skips files already in target codec/resolution
 
 ---
 
@@ -81,7 +81,7 @@ services:
 
 ### Podman
 
-Shrinkray's Docker image uses the [LinuxServer.io](https://linuxserver.io) base image with s6-overlay for PUID/PGID user management. **Rootful Podman** works the same as Docker — use the Docker Compose example above.
+Shrinkray's Docker image uses the [LinuxServer.io](https://linuxserver.io) base image with s6-overlay for PUID/PGID user management. **Rootful Podman** works the same as Docker. Use the Docker Compose example above.
 
 **Rootless Podman is not supported.** Rootless Podman's user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism, causing permission failures that cannot be resolved with configuration alone. This is a [known limitation](https://info.linuxserver.io/issues/2023-09-06-unraid/) across all LinuxServer.io-based images, not specific to Shrinkray.
 
@@ -113,7 +113,7 @@ Open `http://localhost:8080` in your browser. GPU acceleration is used automatic
 
 ### SmartShrink Quality Tiers
 
-SmartShrink analyzes your video using VMAF to find the optimal compression settings. SDR content only — HDR files are skipped (use a Compress preset or enable tonemapping for HDR content).
+SmartShrink analyzes your video using VMAF to find the optimal compression settings. SDR content only. HDR files are skipped (use a Compress preset or enable tonemapping for HDR content).
 
 | Quality | VMAF Target | Description |
 |---------|-------------|-------------|
@@ -186,7 +186,7 @@ Restrict transcoding to specific hours to reduce system load during the day.
 
 1. Open **Settings** (gear icon)
 2. Enable **Schedule transcoding**
-3. Set start and end hours (e.g., 22:00 – 06:00 for overnight)
+3. Set start and end hours (e.g., 22:00 to 06:00 for overnight)
 
 **Behavior:**
 - Jobs can always be added to the queue

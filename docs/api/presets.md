@@ -85,7 +85,7 @@ Returns all available presets with their assigned encoder.
 
 ### SmartShrink presets
 
-SmartShrink presets use VMAF analysis to find optimal compression settings. They require VMAF support in FFmpeg and are hidden if VMAF is not available. **SDR content only** — HDR files are skipped when using SmartShrink presets.
+SmartShrink presets use VMAF analysis to find optimal compression settings. They require VMAF support in FFmpeg and are hidden if VMAF is not available. **SDR content only.** HDR files are skipped when using SmartShrink presets.
 
 When creating jobs with SmartShrink presets, include the `smartshrink_quality` field:
 

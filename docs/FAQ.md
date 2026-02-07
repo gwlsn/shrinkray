@@ -163,7 +163,7 @@ Check the logs at startup to see which encoders were detected. The active encode
 
 Shrinkray automatically tries the next available encoder. For example, if Quick Sync fails on a specific file, it falls back to VAAPI, then to software encoding. This fallback chain means jobs complete even when specific hardware encoders have issues with certain content.
 
-The fallback happens per-job, not globally—other jobs still try the preferred encoder first.
+The fallback happens per-job, not globally. Other jobs still try the preferred encoder first.
 
 ### How do I verify GPU acceleration is working?
 
@@ -293,14 +293,14 @@ Older hardware falls back to software AV1 encoding (significantly slower but sti
 
 ### Why does SmartShrink use so much CPU?
 
-SmartShrink uses VMAF (Video Multi-Method Assessment Fusion) to analyze video quality. VMAF is CPU-only—there's no GPU acceleration. To maximize throughput:
+SmartShrink uses VMAF (Video Multi-Method Assessment Fusion) to analyze video quality. VMAF is CPU-only, so there's no GPU acceleration. To maximize throughput:
 
 - Frame subsampling scores every 5th frame, cutting scoring time ~5x with negligible accuracy impact
 - VMAF scoring runs samples in parallel (up to 3 concurrent scorers)
 - Thread allocation respects container CPU limits via `GOMAXPROCS`
 - Full CPU utilization during analysis minimizes wall-clock time per iteration
 
-> **Note:** SmartShrink only works with SDR content. HDR files are automatically skipped — use a Compress preset or enable tonemapping for HDR content.
+> **Note:** SmartShrink only works with SDR content. HDR files are automatically skipped. Use a Compress preset or enable tonemapping for HDR content.
 
 ### How do quality settings work?
 
@@ -392,7 +392,7 @@ Encoding still uses GPU when available. Check logs for details.
 
 ### Podman rootless is not supported
 
-Shrinkray's Docker image uses the LinuxServer.io base with s6-overlay for user management (PUID/PGID). **Rootless Podman is not supported** — its user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism.
+Shrinkray's Docker image uses the LinuxServer.io base with s6-overlay for user management (PUID/PGID). **Rootless Podman is not supported.** Its user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism.
 
 Specifically, rootless Podman's user namespaces prevent s6-overlay from calling `setgroups()` during its init sequence, causing the container to fail at startup with errors like `s6-applyuidgid: fatal: unable to set supplementary group list: Operation not permitted`. Even with workarounds like `userns_mode: keep-id`, the underlying incompatibility remains.
 
@@ -400,8 +400,8 @@ This is a known limitation across all LinuxServer.io-based images ([Plex](https:
 
 **Alternatives:**
 - **Docker** (recommended)
-- **Rootful Podman** — works the same as Docker
-- **Build from source** — run Shrinkray directly on the host, or package it in your own rootless-friendly container without the LinuxServer/s6-overlay base
+- **Rootful Podman**: works the same as Docker
+- **Build from source**: run Shrinkray directly on the host, or package it in your own rootless-friendly container without the LinuxServer/s6-overlay base
 
 ### A job is stuck at 0% progress
 
@@ -489,33 +489,6 @@ pending → running → complete/failed/cancelled
 - **skipped**: Already meets criteria
 
 See [Job Lifecycle](architecture/job-lifecycle.md) for state diagrams.
-
-### Can I pause and resume the queue?
-
-Yes:
-
-```bash
-# Pause (stops running jobs)
-curl -X POST http://localhost:8080/api/queue/pause
-
-# Resume
-curl -X POST http://localhost:8080/api/queue/resume
-```
-
-Paused jobs are requeued at the front and resume when unpaused.
-
-### How do I clear completed jobs?
-
-```bash
-# Clear all non-running jobs
-curl -X POST http://localhost:8080/api/jobs/clear
-
-# Clear only completed
-curl -X POST http://localhost:8080/api/jobs/clear?status=complete
-
-# Clear only failed
-curl -X POST http://localhost:8080/api/jobs/clear?status=failed
-```
 
 ---
 

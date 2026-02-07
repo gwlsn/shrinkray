@@ -142,7 +142,7 @@ sequenceDiagram
     Q->>SSE: Broadcast "complete"
 ```
 
-The VMAF analysis phase (SDR content only — HDR files are skipped):
+The VMAF analysis phase (SDR content only, HDR files are skipped):
 1. Extracts 3 samples at fixed positions (25%, 50%, 75%)
 2. Uses interpolated binary search to find optimal CRF/bitrate meeting the quality threshold
 3. VMAF scores every 5th frame (subsampling) for ~5x faster scoring with negligible accuracy impact
