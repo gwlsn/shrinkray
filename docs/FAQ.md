@@ -254,7 +254,7 @@ The LinuxServer base image automatically handles device permissions inside the c
 
 **Verify it's working:**
 
-After starting the container, open a terminal into it and run `ls -la /dev/dri`. If you see `renderD128` (Intel/AMD) or can run `nvidia-smi` (NVIDIA), the device is passed through. Then check the Shrinkray startup logs for encoder detection output. Set `log_level: debug` for full details.
+After starting the container, open a terminal into it and run `ls -la /dev/dri`. If you see `renderD128` (Intel/AMD) or can run `nvidia-smi` (NVIDIA), the device is passed through. Then check the Shrinkray startup logs for encoder detection output. Set log level to `debug` in Settings > Advanced for full details.
 
 ### What hardware supports AV1 encoding?
 
@@ -390,30 +390,18 @@ Encoding still uses GPU when available. Check logs for details.
 4. **Use SSD for temp files**: Set `temp_path` to fast storage
 5. **Increase workers**: If you have headroom, try 2-4 workers
 
-### Permission errors with Podman rootless
+### Podman rootless is not supported
 
-Podman rootless uses UID namespace remapping, which breaks the PUID/PGID mechanism. Inside the container, your host user (UID 1000) maps to root (UID 0), so the `abc` user (UID 1000 inside) can't write to your mounted volumes. On the host, files created by `abc` appear owned by a high UID like `100999`.
+Shrinkray's Docker image uses the LinuxServer.io base with s6-overlay for user management (PUID/PGID). **Rootless Podman is not supported** — its user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism.
 
-**Fix:** Add `userns_mode: keep-id` to your compose file. This tells Podman to map your host UID directly to the same UID inside the container, so PUID/PGID works as intended:
+Specifically, rootless Podman's user namespaces prevent s6-overlay from calling `setgroups()` during its init sequence, causing the container to fail at startup with errors like `s6-applyuidgid: fatal: unable to set supplementary group list: Operation not permitted`. Even with workarounds like `userns_mode: keep-id`, the underlying incompatibility remains.
 
-```yaml
-services:
-  shrinkray:
-    image: ghcr.io/gwlsn/shrinkray:latest
-    userns_mode: keep-id
-    environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - ./config:/config
-      - ./media:/media
-      - ./temp:/temp
-    # ... rest of config
-```
+This is a known limitation across all LinuxServer.io-based images ([Plex](https://github.com/linuxserver/docker-plex/issues/700), [Nextcloud](https://github.com/linuxserver/docker-nextcloud/issues/508), [Sonarr](https://github.com/linuxserver/docker-sonarr/issues/278)), not specific to Shrinkray.
 
-Or with the CLI: `podman run --userns=keep-id ...`
-
-This is a known limitation of all LinuxServer.io-based containers under Podman rootless, not specific to Shrinkray.
+**Alternatives:**
+- **Docker** (recommended)
+- **Rootful Podman** — works the same as Docker
+- **Build from source** — run Shrinkray directly on the host, or package it in your own rootless-friendly container without the LinuxServer/s6-overlay base
 
 ### A job is stuck at 0% progress
 
@@ -423,7 +411,7 @@ Possible causes:
 - Disk full
 - Permission issues
 
-Try cancelling and retrying the job. Enable `log_level: debug` for more details.
+Try cancelling and retrying the job. Set log level to `debug` in Settings > Advanced for more details.
 
 ### Transcoded file plays incorrectly
 
@@ -433,7 +421,7 @@ Try cancelling and retrying the job. Enable `log_level: debug` for more details.
 
 ### How do I check FFmpeg logs?
 
-Enable debug logging:
+Enable debug logging in Settings > Advanced, or in your config file:
 
 ```yaml
 log_level: debug

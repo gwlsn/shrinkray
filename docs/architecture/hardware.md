@@ -384,7 +384,7 @@ The LinuxServer base image automatically handles device permissions inside the c
 1. Check GPU is passed through to container (`ls /dev/dri` inside container for Intel/AMD, `nvidia-smi` for NVIDIA)
 2. Verify driver is installed on the host
 3. Check PGID matches the render device group
-4. Check Shrinkray logs at startup for detection output (use `log_level: debug` for full details)
+4. Check Shrinkray logs at startup for detection output (set log level to `debug` in Settings > Advanced for full details)
 
 **Jobs show "SW" badge unexpectedly:**
 
