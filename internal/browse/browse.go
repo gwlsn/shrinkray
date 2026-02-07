@@ -645,11 +645,7 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 		// Propagate this file's count and size to every ancestor directory
 		dir := filepath.Dir(path)
 		for b.isUnderRoot(dir) {
-			dc, ok := dirCounts[dir]
-			if !ok {
-				dc = &dirCount{}
-				dirCounts[dir] = dc
-			}
+			dc := dirCounts[dir] // always present: WalkDir visits parents before children
 			dc.fileCount++
 			dc.totalSize += info.Size()
 
