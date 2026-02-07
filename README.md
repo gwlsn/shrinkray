@@ -79,6 +79,27 @@ services:
     restart: unless-stopped
 ```
 
+### Podman
+
+Podman rootless requires `userns_mode: keep-id` for PUID/PGID to work correctly. Without it, UID namespace remapping causes permission errors on mounted volumes. See the [FAQ](docs/FAQ.md#permission-errors-with-podman-rootless) for details.
+
+```yaml
+services:
+  shrinkray:
+    image: ghcr.io/gwlsn/shrinkray:latest
+    userns_mode: keep-id
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./config:/config
+      - ./media:/media
+      - ./temp:/temp
+    devices:
+      - /dev/dri:/dev/dri
+    restart: unless-stopped
+```
+
 ### From Source
 
 Requires Go 1.25+ and FFmpeg with HEVC/AV1 encoder support.

@@ -390,6 +390,31 @@ Encoding still uses GPU when available. Check logs for details.
 4. **Use SSD for temp files**: Set `temp_path` to fast storage
 5. **Increase workers**: If you have headroom, try 2-4 workers
 
+### Permission errors with Podman rootless
+
+Podman rootless uses UID namespace remapping, which breaks the PUID/PGID mechanism. Inside the container, your host user (UID 1000) maps to root (UID 0), so the `abc` user (UID 1000 inside) can't write to your mounted volumes. On the host, files created by `abc` appear owned by a high UID like `100999`.
+
+**Fix:** Add `userns_mode: keep-id` to your compose file. This tells Podman to map your host UID directly to the same UID inside the container, so PUID/PGID works as intended:
+
+```yaml
+services:
+  shrinkray:
+    image: ghcr.io/gwlsn/shrinkray:latest
+    userns_mode: keep-id
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./config:/config
+      - ./media:/media
+      - ./temp:/temp
+    # ... rest of config
+```
+
+Or with the CLI: `podman run --userns=keep-id ...`
+
+This is a known limitation of all LinuxServer.io-based containers under Podman rootless, not specific to Shrinkray.
+
 ### A job is stuck at 0% progress
 
 Possible causes:
