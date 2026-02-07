@@ -254,7 +254,7 @@ The LinuxServer base image automatically handles device permissions inside the c
 
 **Verify it's working:**
 
-After starting the container, open a terminal into it and run `ls -la /dev/dri`. If you see `renderD128` (Intel/AMD) or can run `nvidia-smi` (NVIDIA), the device is passed through. Then check the Shrinkray startup logs for encoder detection output. Set `log_level: debug` for full details.
+After starting the container, open a terminal into it and run `ls -la /dev/dri`. If you see `renderD128` (Intel/AMD) or can run `nvidia-smi` (NVIDIA), the device is passed through. Then check the Shrinkray startup logs for encoder detection output. Set log level to `debug` in Settings > Advanced for full details.
 
 ### What hardware supports AV1 encoding?
 
@@ -423,7 +423,7 @@ Possible causes:
 - Disk full
 - Permission issues
 
-Try cancelling and retrying the job. Enable `log_level: debug` for more details.
+Try cancelling and retrying the job. Set log level to `debug` in Settings > Advanced for more details.
 
 ### Transcoded file plays incorrectly
 
@@ -433,7 +433,7 @@ Try cancelling and retrying the job. Enable `log_level: debug` for more details.
 
 ### How do I check FFmpeg logs?
 
-Enable debug logging:
+Enable debug logging in Settings > Advanced, or in your config file:
 
 ```yaml
 log_level: debug
