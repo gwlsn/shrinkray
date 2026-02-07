@@ -151,7 +151,8 @@ Send a test notification to verify Pushover credentials.
 
 - Changes are persisted to `/config/shrinkray.yaml`
 - Worker count changes take effect immediately (running jobs complete normally)
-- VMAF scoring runs samples in parallel for faster analysis; thread allocation respects container CPU limits
+- VMAF scoring uses frame subsampling (every 5th frame) and runs samples in parallel for faster analysis; thread allocation respects container CPU limits
+- SmartShrink is SDR-only — HDR files are skipped
 - Some settings (`media_path`, `temp_path`, `keep_larger_files`) can only be changed in the config file
 - Quality value of 0 means "use encoder-specific default"
 - `allow_same_codec: true` enables HEVC→HEVC or AV1→AV1 re-encoding for bitrate optimization

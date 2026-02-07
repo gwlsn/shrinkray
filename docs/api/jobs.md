@@ -27,7 +27,7 @@ Add files or directories to the transcoding queue. The endpoint responds immedia
 
 **Preset IDs:** `compress-hevc`, `compress-av1`, `smartshrink-hevc`, `smartshrink-av1`, `1080p`, `720p`
 
-SmartShrink presets require the `smartshrink_quality` field. See [Presets](presets.md#smartshrink-presets) for quality tier details.
+SmartShrink presets require the `smartshrink_quality` field and only work with SDR content (HDR files are skipped). See [Presets](presets.md#smartshrink-presets) for quality tier details.
 
 **Response** (202 Accepted):
 

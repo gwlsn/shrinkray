@@ -281,8 +281,8 @@ Older hardware falls back to software AV1 encoding (significantly slower but sti
 | **Compress (AV1)** | AV1 | Maximum compression | 50-70% smaller |
 | **1080p** | HEVC | Downscale 4K to 1080p | 60-80% smaller |
 | **720p** | HEVC | Downscale to 720p | 70-85% smaller |
-| **SmartShrink (HEVC)** | H.265 | VMAF-guided auto-optimization | Varies by content |
-| **SmartShrink (AV1)** | AV1 | VMAF-guided auto-optimization | Varies by content |
+| **SmartShrink (HEVC)** | H.265 | Auto-optimization via VMAF (SDR only) | Varies by content |
+| **SmartShrink (AV1)** | AV1 | Auto-optimization via VMAF (SDR only) | Varies by content |
 
 ### Which preset should I use?
 
@@ -295,9 +295,12 @@ Older hardware falls back to software AV1 encoding (significantly slower but sti
 
 SmartShrink uses VMAF (Video Multi-Method Assessment Fusion) to analyze video quality. VMAF is CPU-only—there's no GPU acceleration. To maximize throughput:
 
+- Frame subsampling scores every 5th frame, cutting scoring time ~5x with negligible accuracy impact
 - VMAF scoring runs samples in parallel (up to 3 concurrent scorers)
 - Thread allocation respects container CPU limits via `GOMAXPROCS`
 - Full CPU utilization during analysis minimizes wall-clock time per iteration
+
+> **Note:** SmartShrink only works with SDR content. HDR files are automatically skipped — use a Compress preset or enable tonemapping for HDR content.
 
 ### How do quality settings work?
 
@@ -340,6 +343,8 @@ Two modes:
 - Useful for devices without HDR support
 
 Tonemapping algorithms: `hable` (filmic, default), `bt2390`, `reinhard`, `mobius`.
+
+> **Note:** SmartShrink presets are SDR-only. HDR files are skipped when using SmartShrink. To compress HDR content, use a Compress preset (with or without tonemapping).
 
 ### Can I create custom presets or FFmpeg settings?
 

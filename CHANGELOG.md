@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **SmartShrink is now SDR-only** — Removed HDR VMAF support; HDR files are skipped when using SmartShrink presets. Use Compress presets or enable tonemapping for HDR content. This simplifies the VMAF pipeline and avoids edge cases with HDR tonemapping during analysis.
+- **VMAF frame subsampling** — Scores every 5th frame instead of every frame during VMAF analysis, cutting scoring time ~5x with negligible accuracy impact (same technique used by ab-av1)
+- **GitHub link in settings** — Added "View on GitHub" link next to version number in settings footer
+
+### Fixed
+- Refresh button stuck state when CSS animations are disabled
+- Minimum feedback duration for UI interactions
+- Selective cache invalidation for stale folder sizes
+- Log Level dropdown styling to match other settings selects
+- Browse cache invalidation, concurrency, and path handling improvements
+
 ## [2.1.0] - 2026-02-06
 
 ### Added

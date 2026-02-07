@@ -60,7 +60,7 @@ FFmpeg integration with four files:
 
 ## internal/ffmpeg/vmaf
 
-VMAF quality analysis for SmartShrink presets:
+VMAF quality analysis for SmartShrink presets (SDR content only):
 
 | File | Responsibility |
 |------|----------------|
