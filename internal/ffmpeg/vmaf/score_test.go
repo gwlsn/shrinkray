@@ -30,6 +30,9 @@ func TestBuildSDRScoringFilter(t *testing.T) {
 		if !strings.Contains(filter, "n_threads=4") {
 			t.Error("missing thread count")
 		}
+		if !strings.Contains(filter, "n_subsample=5") {
+			t.Errorf("missing or wrong n_subsample, got: %s", filter)
+		}
 	})
 
 	t.Run("downscale to 1080p", func(t *testing.T) {

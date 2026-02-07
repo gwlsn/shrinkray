@@ -490,6 +490,8 @@ func (b *Browser) ClearCache() {
 // ClearCache call arrived during the sweep (dirty flag). If so, takes fresh
 // snapshots and runs one more time to pick up changes that were missed.
 func (b *Browser) runInvalidationLoop(oldCache map[string]*ffmpeg.ProbeResult, oldCountCache map[string]*dirCount) {
+	// Eventual consistency: a ClearCache between the dirty check and this
+	// reset may require one extra refresh to see updated counts.
 	defer atomic.StoreInt32(&b.invalidating, 0)
 
 	b.invalidateStaleCounts(oldCache, oldCountCache)
