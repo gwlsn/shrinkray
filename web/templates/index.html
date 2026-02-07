@@ -504,13 +504,9 @@
             height: 16px;
         }
 
-        .breadcrumb-refresh.refreshing svg {
-            animation: spin-once 0.5s ease-out;
-        }
-
-        @keyframes spin-once {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        .breadcrumb-refresh.refreshing {
+            opacity: 0.5;
+            pointer-events: none;
         }
 
         @keyframes spin {
@@ -2514,25 +2510,7 @@
         // Refresh browser by clearing cache and re-browsing current path
         async function refreshBrowser() {
             const btn = document.getElementById('refresh-btn');
-            if (!btn) return;
-
-            const svg = btn.querySelector('svg');
-            let animationDone = false;
-            let operationsDone = false;
-
-            const cleanup = () => {
-                if (animationDone && operationsDone) {
-                    btn.classList.remove('refreshing');
-                }
-            };
-
-            // Listen for animation end
-            const onAnimationEnd = () => {
-                animationDone = true;
-                svg.removeEventListener('animationend', onAnimationEnd);
-                cleanup();
-            };
-            svg.addEventListener('animationend', onAnimationEnd);
+            if (!btn || btn.classList.contains('refreshing')) return;
 
             btn.classList.add('refreshing');
 
@@ -2542,8 +2520,7 @@
             } catch (err) {
                 console.error('Refresh error:', err);
             } finally {
-                operationsDone = true;
-                cleanup();
+                btn.classList.remove('refreshing');
             }
         }
 
