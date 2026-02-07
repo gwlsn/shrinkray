@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	shrinkray "github.com/gwlsn/shrinkray"
@@ -180,15 +181,17 @@ func (h *Handler) CreateJobs(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		// Progress callback broadcasts SSE events (throttled to max 10/sec)
-		var lastBroadcast time.Time
+		// Progress callback broadcasts SSE events (throttled to max 10/sec).
+		// Uses atomic time to avoid race between concurrent probe goroutines.
+		var lastBroadcastNano int64
 		onProgress := func(probed, total int) {
 			now := time.Now()
+			last := time.Unix(0, atomic.LoadInt64(&lastBroadcastNano))
 			// Throttle broadcasts, but always send first (0/N) and last (N/N)
-			if probed > 0 && probed < total && now.Sub(lastBroadcast) < 100*time.Millisecond {
+			if probed > 0 && probed < total && now.Sub(last) < 100*time.Millisecond {
 				return
 			}
-			lastBroadcast = now
+			atomic.StoreInt64(&lastBroadcastNano, now.UnixNano())
 			h.queue.BroadcastProgress(probed, total)
 		}
 
