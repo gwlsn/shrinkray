@@ -504,13 +504,8 @@
             height: 16px;
         }
 
-        .breadcrumb-refresh.refreshing svg {
-            animation: spin-once 0.5s ease-out;
-        }
-
-        @keyframes spin-once {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        .breadcrumb-refresh.refreshing {
+            opacity: 0.5;
         }
 
         @keyframes spin {
@@ -1650,6 +1645,16 @@
             text-align: center;
         }
 
+        .settings-footer a {
+            color: var(--text-tertiary);
+            text-decoration: none;
+            transition: color 150ms ease;
+        }
+
+        .settings-footer a:hover {
+            color: var(--text-secondary);
+        }
+
         /* Responsive */
         @media (max-width: 1200px) {
             .main {
@@ -1989,7 +1994,7 @@
                         <span class="schedule-status" id="schedule-status"></span>
                     </div>
                     <div class="smartshrink-hint" id="smartshrink-hint" style="display: none;">
-                        Uses VMAF analysis to find optimal compression. Significantly slower than regular encoding and CPU intensive.
+                        Finds optimal compression using VMAF quality analysis. Slower and more CPU intensive than standard presets. SDR content only.
                     </div>
                 </div>
             </div>
@@ -2203,10 +2208,10 @@
                         <div class="setting-item">
                             <div class="setting-info">
                                 <div class="setting-name">Log Level</div>
-                                <div class="setting-desc">Controls logging verbosity. Use Debug when troubleshooting issues.</div>
+                                <div class="setting-desc">Use Debug when troubleshooting issues.</div>
                             </div>
                             <div class="setting-control">
-                                <select id="setting-log-level" onchange="updateSetting('log_level', this.value)">
+                                <select class="setting-select" id="setting-log-level" onchange="updateSetting('log_level', this.value)">
                                     <option value="debug">Debug</option>
                                     <option value="info">Info</option>
                                     <option value="warn">Warn</option>
@@ -2296,7 +2301,7 @@
                 </div>
             </div>
             <div class="settings-status" id="settings-status"></div>
-            <div class="settings-footer">Shrinkray v<span id="app-version"></span></div>
+            <div class="settings-footer">Shrinkray v<span id="app-version"></span> · <a href="https://github.com/gwlsn/shrinkray" target="_blank" rel="noopener noreferrer">View on GitHub</a></div>
         </div>
     </div>
 
@@ -2514,26 +2519,10 @@
         // Refresh browser by clearing cache and re-browsing current path
         async function refreshBrowser() {
             const btn = document.getElementById('refresh-btn');
-            if (!btn) return;
+            if (!btn || btn.classList.contains('refreshing')) return;
 
-            const svg = btn.querySelector('svg');
-            let animationDone = false;
-            let operationsDone = false;
-
-            const cleanup = () => {
-                if (animationDone && operationsDone) {
-                    btn.classList.remove('refreshing');
-                }
-            };
-
-            // Listen for animation end
-            const onAnimationEnd = () => {
-                animationDone = true;
-                svg.removeEventListener('animationend', onAnimationEnd);
-                cleanup();
-            };
-            svg.addEventListener('animationend', onAnimationEnd);
-
+            const minDuration = 250;
+            const start = performance.now();
             btn.classList.add('refreshing');
 
             try {
@@ -2542,8 +2531,9 @@
             } catch (err) {
                 console.error('Refresh error:', err);
             } finally {
-                operationsDone = true;
-                cleanup();
+                const elapsed = performance.now() - start;
+                const remaining = Math.max(0, minDuration - elapsed);
+                setTimeout(() => btn.classList.remove('refreshing'), remaining);
             }
         }
 

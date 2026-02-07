@@ -35,7 +35,7 @@ func TestConcurrency_MultipleWriters(t *testing.T) {
 				job := &jobs.Job{
 					ID:        fmt.Sprintf("w%d-j%d", workerID, i),
 					InputPath: fmt.Sprintf("/media/video_%d_%d.mkv", workerID, i),
-					PresetID:  "compress",
+					PresetID:  "compress-hevc",
 					Encoder:   "libx265",
 					Status:    jobs.StatusPending,
 					InputSize: int64(1000000 + i),
@@ -88,7 +88,7 @@ func TestConcurrency_ReadWhileWriting(t *testing.T) {
 			job := &jobs.Job{
 				ID:        fmt.Sprintf("job-%d", i),
 				InputPath: fmt.Sprintf("/media/video_%d.mkv", i),
-				PresetID:  "compress",
+				PresetID:  "compress-hevc",
 				Encoder:   "libx265",
 				Status:    jobs.StatusPending,
 				CreatedAt: time.Now(),
@@ -148,7 +148,7 @@ func TestConcurrency_StatusUpdateRace(t *testing.T) {
 	job := &jobs.Job{
 		ID:        "contested",
 		InputPath: "/media/contested.mkv",
-		PresetID:  "compress",
+		PresetID:  "compress-hevc",
 		Encoder:   "libx265",
 		Status:    jobs.StatusPending,
 		CreatedAt: time.Now(),
@@ -221,7 +221,7 @@ func TestConcurrency_OrderAppendRace(t *testing.T) {
 			job := &jobs.Job{
 				ID:        jobID,
 				InputPath: fmt.Sprintf("/media/video_%03d.mkv", id),
-				PresetID:  "compress",
+				PresetID:  "compress-hevc",
 				Encoder:   "libx265",
 				Status:    jobs.StatusPending,
 				CreatedAt: time.Now(),
@@ -267,7 +267,7 @@ func TestConcurrency_MixedOperations(t *testing.T) {
 		job := &jobs.Job{
 			ID:        fmt.Sprintf("init-%d", i),
 			InputPath: fmt.Sprintf("/media/init_%d.mkv", i),
-			PresetID:  "compress",
+			PresetID:  "compress-hevc",
 			Encoder:   "libx265",
 			Status:    jobs.StatusPending,
 			CreatedAt: time.Now(),
@@ -288,7 +288,7 @@ func TestConcurrency_MixedOperations(t *testing.T) {
 				job := &jobs.Job{
 					ID:        fmt.Sprintf("new-%d-%d", workerID, i),
 					InputPath: fmt.Sprintf("/media/new_%d_%d.mkv", workerID, i),
-					PresetID:  "compress",
+					PresetID:  "compress-hevc",
 					Encoder:   "libx265",
 					Status:    jobs.StatusPending,
 					CreatedAt: time.Now(),
@@ -372,7 +372,7 @@ func TestConcurrency_HighContention(t *testing.T) {
 	job := &jobs.Job{
 		ID:        "hot-spot",
 		InputPath: "/media/hot.mkv",
-		PresetID:  "compress",
+		PresetID:  "compress-hevc",
 		Encoder:   "libx265",
 		Status:    jobs.StatusRunning,
 		Progress:  0,

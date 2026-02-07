@@ -71,13 +71,17 @@ func TestBrowser(t *testing.T) {
 	// First browse triggers background computation; counts may be 0
 	t.Logf("Root browse: %d entries", len(result.Entries))
 
-	// Wait for background goroutines to finish populating count cache
-	time.Sleep(200 * time.Millisecond)
-
-	// Second browse should return cached recursive counts
-	result, err = browser.Browse(ctx, tmpDir)
-	if err != nil {
-		t.Fatalf("Browse (cached) failed: %v", err)
+	// Poll until background goroutines finish populating count cache
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err = browser.Browse(ctx, tmpDir)
+		if err != nil {
+			t.Fatalf("Browse (cached) failed: %v", err)
+		}
+		if len(result.Entries) == 1 && result.Entries[0].FileCount == 3 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if len(result.Entries) == 1 {
@@ -103,12 +107,18 @@ func TestBrowser(t *testing.T) {
 
 	// First browse triggers background count for "Test Show"
 	t.Logf("TV Shows browse: %d entries", len(result.Entries))
-	time.Sleep(200 * time.Millisecond)
 
-	// Second browse returns cached counts
-	result, err = browser.Browse(ctx, tvDir)
-	if err != nil {
-		t.Fatalf("Browse TV Shows (cached) failed: %v", err)
+	// Poll until background goroutines finish populating count cache
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err = browser.Browse(ctx, tvDir)
+		if err != nil {
+			t.Fatalf("Browse TV Shows (cached) failed: %v", err)
+		}
+		if len(result.Entries) == 1 && result.Entries[0].FileCount == 3 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if len(result.Entries) == 1 {

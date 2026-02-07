@@ -3,6 +3,7 @@ name: Dev Build
 on:
   push:
     branches:
+      - develop
       - 'feature/**'
       - 'bugfix/**'
   workflow_dispatch:
@@ -52,8 +53,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [ "${GITHUB_REF#refs/heads/}" = "develop" ]; then
+            echo "tag=dev" >> $GITHUB_OUTPUT
           else
-            echo "tag=dev-${{ steps.branch.outputs.name }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ steps.branch.outputs.name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Build and push

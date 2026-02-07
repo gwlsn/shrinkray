@@ -636,7 +636,7 @@ func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
 	// BuildPresetArgs uses a 10Mbps reference when sourceBitrate=0 and applies the modifier.
 	// When modifierOverride > 0, we also replace -b:v below for explicit control.
 	// Pass nil for subtitleIndices (samples don't use subtitles anyway - we strip them below)
-	// Pass nil for tonemap - samples stay in native format, tonemapping happens in VMAF scoring
+	// Pass nil for tonemap - samples stay in native format (VMAF is SDR-only)
 	inputArgs, outputArgs = BuildPresetArgs(preset, 0, sourceWidth, sourceHeight,
 		qualityOverride, qualityOverride, modifierOverride, softwareDecode, "mkv", nil, nil)
 

@@ -96,8 +96,8 @@ Open `http://localhost:8080` in your browser. GPU acceleration is used automatic
 
 | Preset | Codec | Description |
 |--------|-------|-------------|
-| **SmartShrink (HEVC)** | H.265 | VMAF-guided auto-optimization |
-| **SmartShrink (AV1)** | AV1 | VMAF-guided auto-optimization |
+| **SmartShrink (HEVC)** | H.265 | Auto-optimization via VMAF (SDR only) |
+| **SmartShrink (AV1)** | AV1 | Auto-optimization via VMAF (SDR only) |
 | **Compress (HEVC)** | H.265 | Re-encode to HEVC |
 | **Compress (AV1)** | AV1 | Re-encode to AV1 |
 | **1080p** | HEVC | Downscale 4K to 1080p |
@@ -105,7 +105,7 @@ Open `http://localhost:8080` in your browser. GPU acceleration is used automatic
 
 ### SmartShrink Quality Tiers
 
-SmartShrink analyzes your video using VMAF to find the optimal compression settings:
+SmartShrink analyzes your video using VMAF to find the optimal compression settings. SDR content only — HDR files are skipped (use a Compress preset or enable tonemapping for HDR content).
 
 | Quality | VMAF Target | Description |
 |---------|-------------|-------------|

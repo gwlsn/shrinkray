@@ -30,6 +30,9 @@ func TestBuildSDRScoringFilter(t *testing.T) {
 		if !strings.Contains(filter, "n_threads=4") {
 			t.Error("missing thread count")
 		}
+		if !strings.Contains(filter, "n_subsample=5") {
+			t.Errorf("missing or wrong n_subsample, got: %s", filter)
+		}
 	})
 
 	t.Run("downscale to 1080p", func(t *testing.T) {
@@ -48,155 +51,37 @@ func TestBuildSDRScoringFilter(t *testing.T) {
 	})
 }
 
-func TestBuildHDRScoringFilter(t *testing.T) {
-	t.Run("native resolution (no downscale)", func(t *testing.T) {
-		filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, false)
-
-		// Should have setsar=1 on both legs
-		if strings.Count(filter, "setsar=1") != 2 {
-			t.Errorf("expected setsar=1 on both legs, got %d", strings.Count(filter, "setsar=1"))
-		}
-
-		// Should NOT have w= or h= in any zscale (no downscale)
-		if strings.Contains(filter, "w=-2") || strings.Contains(filter, "h=") {
-			t.Error("should NOT have resize params when not downscaling")
-		}
-
-		// Check standard tonemap pipeline on both legs
-		if strings.Count(filter, "pin=bt2020") != 2 {
-			t.Errorf("expected bt2020 primaries on both legs, got %d", strings.Count(filter, "pin=bt2020"))
-		}
-		if strings.Count(filter, "tin=smpte2084") != 2 {
-			t.Errorf("expected PQ transfer on both legs, got %d", strings.Count(filter, "tin=smpte2084"))
-		}
-		if strings.Count(filter, "tonemap=hable") != 2 {
-			t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
-		}
-		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
-			t.Error("missing libvmaf filter")
-		}
-	})
-
-	t.Run("downscale merges with linearization", func(t *testing.T) {
-		filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "smpte2084", 1080, true)
-
-		// Should have setsar=1 on both legs
-		if strings.Count(filter, "setsar=1") != 2 {
-			t.Errorf("expected setsar=1 on both legs, got %d", strings.Count(filter, "setsar=1"))
-		}
-
-		// The first zscale should combine resize + linearize
-		if strings.Count(filter, "w=-2:h=1080") != 2 {
-			t.Errorf("expected resize on both legs, got %d", strings.Count(filter, "w=-2:h=1080"))
-		}
-
-		// Verify pipeline order: the combined zscale (with w=) must come before
-		// the primaries conversion and tonemap
-		resizeIdx := strings.Index(filter, "w=-2:h=1080")
-		primariesIdx := strings.Index(filter, "zscale=p=bt709")
-		tonemapIdx := strings.Index(filter, "tonemap=")
-
-		if resizeIdx == -1 || primariesIdx == -1 || tonemapIdx == -1 {
-			t.Fatal("missing required filter components")
-		}
-		if resizeIdx > primariesIdx {
-			t.Error("resize+linearize must come BEFORE primaries conversion")
-		}
-		if primariesIdx > tonemapIdx {
-			t.Error("primaries conversion must come BEFORE tonemap")
-		}
-
-		// Should still have full pipeline
-		if strings.Count(filter, "tonemap=hable") != 2 {
-			t.Errorf("expected tonemap on both legs, got %d", strings.Count(filter, "tonemap=hable"))
-		}
-		if !strings.Contains(filter, "[dist][ref]libvmaf=") {
-			t.Error("missing libvmaf filter")
-		}
-	})
-}
-
-func TestBuildHDRScoringFilterHLG(t *testing.T) {
-	// Test with HLG (arib-std-b67) - requires different input transfer
-	filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", "arib-std-b67", 1080, false)
-
-	// Should use HLG transfer function on both legs
-	if strings.Count(filter, "tin=arib-std-b67") != 2 {
-		t.Errorf("expected HLG transfer input on both legs, got %d", strings.Count(filter, "tin=arib-std-b67"))
-	}
-	if strings.Contains(filter, "tin=smpte2084") {
-		t.Error("should NOT contain PQ transfer for HLG content")
-	}
-}
-
-func TestBuildHDRScoringFilterDefaultTransfer(t *testing.T) {
-	// Test fallback to smpte2084 when input transfer is empty or unknown
-	testCases := []struct {
-		name          string
-		inputTransfer string
-	}{
-		{"empty", ""},
-		{"unknown", "unknown_transfer"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, "hable", tc.inputTransfer, 1080, false)
-			if !strings.Contains(filter, "tin=smpte2084") {
-				t.Errorf("should fallback to smpte2084 for %s input transfer", tc.name)
-			}
-		})
-	}
-}
-
-func TestBuildHDRScoringFilterAlgorithms(t *testing.T) {
-	algorithms := []string{"hable", "bt2390", "reinhard", "mobius"}
-
-	for _, algo := range algorithms {
-		t.Run(algo, func(t *testing.T) {
-			filter := buildHDRScoringFilter("vmaf_v0.6.1", 4, algo, "smpte2084", 1080, false)
-			expected := fmt.Sprintf("tonemap=%s:", algo)
+func TestBuildSDRScoringFilterThreadCount(t *testing.T) {
+	threadCounts := []int{1, 2, 4, 8}
+	for _, threads := range threadCounts {
+		t.Run(fmt.Sprintf("%d_threads", threads), func(t *testing.T) {
+			filter := buildSDRScoringFilter("vmaf_v0.6.1", threads, 1080, false)
+			expected := fmt.Sprintf("n_threads=%d", threads)
 			if !strings.Contains(filter, expected) {
-				t.Errorf("expected tonemap algorithm %s, got filter: %s", algo, filter)
+				t.Errorf("expected %s in filter, got: %s", expected, filter)
 			}
 		})
 	}
 }
 
-func TestScoreSignatureAcceptsTonemap(t *testing.T) {
-	// This test verifies the function signature compiles with tonemap param
-	// Actual scoring requires FFmpeg, tested in integration tests
-
+func TestScoreSignature(t *testing.T) {
+	// Verifies the function signature compiles without tonemap param
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately to avoid actual FFmpeg call
 
-	// SDR case - nil tonemap
-	_, err := Score(ctx, "ffmpeg", "ref.mkv", "dist.mkv", 1080, 4, nil)
-	// Error expected due to cancelled context or missing files
-	_ = err
-
-	// HDR case - with tonemap config
-	tonemap := &TonemapConfig{Enabled: true, Algorithm: "hable"}
-	_, err = Score(ctx, "ffmpeg", "ref.mkv", "dist.mkv", 1080, 4, tonemap)
+	_, err := Score(ctx, "ffmpeg", "ref.mkv", "dist.mkv", 1080, 4)
 	// Error expected due to cancelled context or missing files
 	_ = err
 }
 
-func TestScoreSamplesSignatureAcceptsTonemap(t *testing.T) {
+func TestScoreSamplesSignature(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Verify signature compiles with tonemap param
 	refSamples := []*Sample{{Path: "ref.mkv"}}
 	distSamples := []*Sample{{Path: "dist.mkv"}}
 
-	// SDR case
-	_, err := ScoreSamples(ctx, "ffmpeg", refSamples, distSamples, 1080, nil)
-	_ = err
-
-	// HDR case
-	tonemap := &TonemapConfig{Enabled: true, Algorithm: "hable"}
-	_, err = ScoreSamples(ctx, "ffmpeg", refSamples, distSamples, 1080, tonemap)
+	_, err := ScoreSamples(ctx, "ffmpeg", refSamples, distSamples, 1080)
 	_ = err
 }
 

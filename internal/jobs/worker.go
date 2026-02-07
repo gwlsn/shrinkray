@@ -850,6 +850,12 @@ func shouldRetryWithSoftwareDecode(encoder ffmpeg.HWAccel) bool {
 // runSmartShrinkAnalysis performs VMAF analysis and returns the optimal quality settings.
 // Returns (shouldSkip, skipReason, selectedCRF, qualityMod, vmafScore, error)
 func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, preset *ffmpeg.Preset) (bool, string, int, float64, float64, error) {
+	// SmartShrink does not support HDR content — VMAF is validated for SDR only.
+	// Check before acquiring analysis slot so HDR jobs don't block SDR analyses.
+	if job.IsHDR {
+		return true, "SmartShrink does not support HDR content", 0, 0, 0, nil
+	}
+
 	// Update phase immediately so UI shows "Analyzing" while waiting for slot
 	_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
 
@@ -878,13 +884,6 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		wp.analysisMu.Unlock()
 	}()
 
-	// Check HDR detected via fallback (missing color_transfer metadata)
-	// VMAF analysis requires proper transfer function for tonemapping (smpte2084, arib-std-b67, etc.)
-	// This guard applies regardless of TonemapHDR since VMAF always tonemaps HDR to SDR
-	if job.IsHDR && job.ColorTransfer == "" {
-		return true, "HDR analysis requires color transfer metadata (poorly-tagged HDR)", 0, 0, 0, nil
-	}
-
 	// Check video duration
 	duration := time.Duration(job.Duration) * time.Millisecond
 	if duration < 5*time.Second {
@@ -902,14 +901,6 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 
 	// Create analyzer
 	analyzer := vmaf.NewAnalyzer(wp.cfg.FFmpegPath, tempDir)
-
-	// Configure VMAF scoring to tonemap both legs to SDR.
-	// TonemapHDR setting only affects final transcode, not VMAF analysis.
-	// Pass job.ColorTransfer so the scoring filtergraph uses the correct input transfer
-	// (smpte2084 for HDR10/DV, arib-std-b67 for HLG).
-	if job.IsHDR {
-		analyzer.WithTonemap(true, wp.cfg.TonemapAlgorithm, job.ColorTransfer)
-	}
 
 	// Create encode callback
 	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {

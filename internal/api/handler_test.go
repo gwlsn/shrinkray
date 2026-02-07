@@ -162,7 +162,7 @@ func TestCreateJobsEndpoint(t *testing.T) {
 
 	reqBody := CreateJobsRequest{
 		Paths:    []string{showDir},
-		PresetID: "compress",
+		PresetID: "compress-hevc",
 	}
 	body, _ := json.Marshal(reqBody)
 

@@ -10,18 +10,11 @@ import (
 	"github.com/gwlsn/shrinkray/internal/logger"
 )
 
-// TonemapConfig holds tonemapping configuration for HDR content
-type TonemapConfig struct {
-	Enabled       bool   // True if HDR content should be tonemapped to SDR
-	Algorithm     string // Tonemapping algorithm (hable, bt2390, etc.)
-	InputTransfer string // Input transfer function (smpte2084 for HDR10/DV, arib-std-b67 for HLG)
-}
-
-// Analyzer orchestrates VMAF analysis for SmartShrink
+// Analyzer orchestrates VMAF analysis for SmartShrink.
+// Operates on SDR content only — HDR files are skipped at the worker level.
 type Analyzer struct {
 	FFmpegPath string
 	TempDir    string
-	Tonemap    *TonemapConfig // Optional tonemapping for HDR content
 }
 
 // NewAnalyzer creates a new VMAF analyzer
@@ -30,17 +23,6 @@ func NewAnalyzer(ffmpegPath, tempDir string) *Analyzer {
 		FFmpegPath: ffmpegPath,
 		TempDir:    tempDir,
 	}
-}
-
-// WithTonemap sets tonemapping configuration for HDR content.
-// inputTransfer should be the source transfer function: "smpte2084" for HDR10/DV, "arib-std-b67" for HLG.
-func (a *Analyzer) WithTonemap(enabled bool, algorithm, inputTransfer string) *Analyzer {
-	a.Tonemap = &TonemapConfig{
-		Enabled:       enabled,
-		Algorithm:     algorithm,
-		InputTransfer: inputTransfer,
-	}
-	return a
 }
 
 // Analyze performs full VMAF analysis on a video
@@ -68,8 +50,7 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 		"samples", len(positions),
 		"threshold", threshold)
 
-	// Extract reference samples using stream copy (fast, no tonemap)
-	// Tonemapping for HDR content is handled during VMAF scoring instead
+	// Extract reference samples using stream copy (fast)
 	extractStart := time.Now()
 	referenceSamples, err := ExtractSamples(ctx, a.FFmpegPath, inputPath, analysisDir,
 		videoDuration, positions)
@@ -79,9 +60,9 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 	logger.Info("Sample extraction complete", "duration", time.Since(extractStart).String())
 	defer CleanupSamples(referenceSamples)
 
-	// Run binary search with tonemap config
+	// Run binary search to find optimal quality
 	searchStart := time.Now()
-	result, err := BinarySearch(ctx, a.FFmpegPath, referenceSamples, qRange, threshold, height, a.Tonemap, encodeSample)
+	result, err := BinarySearch(ctx, a.FFmpegPath, referenceSamples, qRange, threshold, height, encodeSample)
 	searchDuration := time.Since(searchStart)
 	if err != nil {
 		return nil, fmt.Errorf("binary search: %w", err)

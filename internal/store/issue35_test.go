@@ -41,16 +41,16 @@ func TestIssue35_RunningJobsNotSkippedAfterRestart(t *testing.T) {
 	}{Size: 1000000, Duration: 10 * time.Second}
 
 	// Add jobs in order: episode1, episode2, episode3, episode4
-	ep1, _ := queue1.Add("/media/TV/Show/S01E01.mkv", "compress", &ffmpeg.ProbeResult{
+	ep1, _ := queue1.Add("/media/TV/Show/S01E01.mkv", "compress-hevc", &ffmpeg.ProbeResult{
 		Path: "/media/TV/Show/S01E01.mkv", Size: probe.Size, Duration: probe.Duration,
 	}, "")
-	ep2, _ := queue1.Add("/media/TV/Show/S01E02.mkv", "compress", &ffmpeg.ProbeResult{
+	ep2, _ := queue1.Add("/media/TV/Show/S01E02.mkv", "compress-hevc", &ffmpeg.ProbeResult{
 		Path: "/media/TV/Show/S01E02.mkv", Size: probe.Size, Duration: probe.Duration,
 	}, "")
-	ep3, _ := queue1.Add("/media/TV/Show/S01E03.mkv", "compress", &ffmpeg.ProbeResult{
+	ep3, _ := queue1.Add("/media/TV/Show/S01E03.mkv", "compress-hevc", &ffmpeg.ProbeResult{
 		Path: "/media/TV/Show/S01E03.mkv", Size: probe.Size, Duration: probe.Duration,
 	}, "")
-	ep4, _ := queue1.Add("/media/TV/Show/S01E04.mkv", "compress", &ffmpeg.ProbeResult{
+	ep4, _ := queue1.Add("/media/TV/Show/S01E04.mkv", "compress-hevc", &ffmpeg.ProbeResult{
 		Path: "/media/TV/Show/S01E04.mkv", Size: probe.Size, Duration: probe.Duration,
 	}, "")
 
@@ -169,8 +169,8 @@ func TestIssue35_APIResponseAfterRestart(t *testing.T) {
 	queue1, _ := jobs.NewQueueWithStore(store1)
 
 	probe := &ffmpeg.ProbeResult{Path: "/test.mkv", Size: 1000000, Duration: 10 * time.Second}
-	job1, _ := queue1.Add("/media/video1.mkv", "compress", probe, "")
-	_, _ = queue1.Add("/media/video2.mkv", "compress", probe, "")
+	job1, _ := queue1.Add("/media/video1.mkv", "compress-hevc", probe, "")
+	_, _ = queue1.Add("/media/video2.mkv", "compress-hevc", probe, "")
 
 	queue1.StartJob(job1.ID, "/tmp/temp1.mkv")
 	queue1.UpdateProgress(job1.ID, 50.0, 1.5, "5m")
@@ -251,8 +251,8 @@ func TestIssue35_MultipleRestarts(t *testing.T) {
 	queue1, _ := jobs.NewQueueWithStore(store1)
 
 	probe := &ffmpeg.ProbeResult{Path: "/test.mkv", Size: 1000000, Duration: 10 * time.Second}
-	job1, _ := queue1.Add("/media/video1.mkv", "compress", probe, "")
-	_, _ = queue1.Add("/media/video2.mkv", "compress", probe, "")
+	job1, _ := queue1.Add("/media/video1.mkv", "compress-hevc", probe, "")
+	_, _ = queue1.Add("/media/video2.mkv", "compress-hevc", probe, "")
 
 	queue1.StartJob(job1.ID, "/tmp/temp.mkv")
 	store1.Close()
