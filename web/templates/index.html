@@ -506,7 +506,6 @@
 
         .breadcrumb-refresh.refreshing {
             opacity: 0.5;
-            pointer-events: none;
         }
 
         @keyframes spin {
@@ -2512,6 +2511,8 @@
             const btn = document.getElementById('refresh-btn');
             if (!btn || btn.classList.contains('refreshing')) return;
 
+            const minDuration = 250;
+            const start = performance.now();
             btn.classList.add('refreshing');
 
             try {
@@ -2520,7 +2521,9 @@
             } catch (err) {
                 console.error('Refresh error:', err);
             } finally {
-                btn.classList.remove('refreshing');
+                const elapsed = performance.now() - start;
+                const remaining = Math.max(0, minDuration - elapsed);
+                setTimeout(() => btn.classList.remove('refreshing'), remaining);
             }
         }
 
