@@ -1746,9 +1746,6 @@
                 min-width: 0;
             }
 
-            .preset-dropdown-menu {
-                width: 100%;
-            }
         }
 
         /* Loading State */
@@ -4184,13 +4181,16 @@
             if (!isOpen) {
                 // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
+                // Set dimensions before measuring height so text reflow is accounted for
+                menu.style.left = rect.left + 'px';
+                menu.style.width = rect.width + 'px';
+
                 const menuHeight = menu.scrollHeight || 300; // Estimate if not yet rendered
                 const spaceBelow = window.innerHeight - rect.bottom - 16;
                 const spaceAbove = rect.top - 16;
                 const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
 
                 dropdown.classList.toggle('open-upward', openUpward);
-                menu.style.left = rect.left + 'px';
 
                 // Determine available space and apply max-height if needed
                 const availableSpace = openUpward ? spaceAbove : spaceBelow;
@@ -4271,13 +4271,16 @@
             if (!isOpen) {
                 // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
+                // Set dimensions before measuring height so text reflow is accounted for
+                menu.style.left = rect.left + 'px';
+                menu.style.width = rect.width + 'px';
+
                 const menuHeight = menu.scrollHeight || 200;
                 const spaceBelow = window.innerHeight - rect.bottom - 16;
                 const spaceAbove = rect.top - 16;
                 const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
 
                 dropdown.classList.toggle('open-upward', openUpward);
-                menu.style.left = rect.left + 'px';
 
                 // Determine available space and apply max-height if needed
                 const availableSpace = openUpward ? spaceAbove : spaceBelow;
