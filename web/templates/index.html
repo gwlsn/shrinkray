@@ -1965,7 +1965,7 @@
                                     <line x1="4" y1="18" x2="8" y2="18"/>
                                     <polyline points="16 14 19 17 22 14"/>
                                 </svg>
-                                <span id="browse-menu-label">Alphabetical</span>
+                                <span id="browse-menu-label">File Name</span>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polyline points="6 9 12 15 18 9"></polyline>
                                 </svg>
@@ -1973,7 +1973,7 @@
                             <div class="dropdown-menu-panel" id="browse-menu-panel">
                                 <div class="dropdown-menu-section">
                                     <div class="dropdown-menu-heading">Sort</div>
-                                    <div class="dropdown-menu-item active" data-sort="name" onclick="selectBrowseSort('name')">Alphabetical <span class="sort-arrow">↑</span></div>
+                                    <div class="dropdown-menu-item active" data-sort="name" onclick="selectBrowseSort('name')">File Name <span class="sort-arrow">↓</span></div>
                                     <div class="dropdown-menu-item" data-sort="size" onclick="selectBrowseSort('size')">Size <span class="sort-arrow">↓</span></div>
                                 </div>
                             </div>
@@ -2361,7 +2361,7 @@
         let selectedFileCounts = new Map();  // Track file count for each selected path (1 for files, N for folders)
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
         let browseSortBy = 'name';
-        let browseSortAsc = true;
+        let browseSortAsc = false;
         let lastBrowseEntries = [];
         let eventSource = null;
 
@@ -2405,6 +2405,7 @@
                 if (browseSortBy === 'size') {
                     const aSize = getBrowseEntrySize(a);
                     const bSize = getBrowseEntrySize(b);
+                    // ↓ = largest first, ↑ = smallest first (matches queue convention)
                     if (aSize < bSize) return browseSortAsc ? -1 : 1;
                     if (aSize > bSize) return browseSortAsc ? 1 : -1;
                 }
@@ -2413,7 +2414,8 @@
                 const bName = b.name || '';
                 const nameResult = aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' });
                 if (browseSortBy === 'name') {
-                    return browseSortAsc ? nameResult : -nameResult;
+                    // ↓ = A-Z, ↑ = Z-A (matches queue convention)
+                    return browseSortAsc ? -nameResult : nameResult;
                 }
                 return nameResult;
             });
@@ -2545,7 +2547,7 @@
                 browseSortAsc = !browseSortAsc;
             } else {
                 browseSortBy = sortBy;
-                browseSortAsc = sortBy === 'name';
+                browseSortAsc = false;
             }
             updateBrowseMenuDisplay();
             if (lastBrowseEntries && lastBrowseEntries.length > 0) {
@@ -2557,11 +2559,11 @@
         function updateBrowseMenuDisplay() {
             const label = document.getElementById('browse-menu-label');
             const sortLabels = {
-                'name': 'Alphabetical',
+                'name': 'File Name',
                 'size': 'Size'
             };
             if (label) {
-                label.textContent = sortLabels[browseSortBy] || 'Alphabetical';
+                label.textContent = sortLabels[browseSortBy] || 'File Name';
             }
             document.querySelectorAll('#browse-menu-panel .dropdown-menu-item[data-sort]').forEach(item => {
                 const isActive = item.dataset.sort === browseSortBy;
