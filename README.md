@@ -79,14 +79,6 @@ services:
     restart: unless-stopped
 ```
 
-### Podman
-
-Shrinkray's Docker image uses the [LinuxServer.io](https://linuxserver.io) base image with s6-overlay for PUID/PGID user management. **Rootful Podman** works the same as Docker. Use the Docker Compose example above.
-
-**Rootless Podman is not supported.** Rootless Podman's user namespace UID/GID remapping is fundamentally incompatible with s6-overlay's privilege-dropping mechanism, causing permission failures that cannot be resolved with configuration alone. This is a [known limitation](https://info.linuxserver.io/issues/2023-09-06-unraid/) across all LinuxServer.io-based images, not specific to Shrinkray.
-
-If you need to run rootless, build Shrinkray from source and run it directly or package it in your own container without the LinuxServer/s6-overlay base.
-
 ### From Source
 
 Requires Go 1.25+ and FFmpeg with HEVC/AV1 encoder support.
