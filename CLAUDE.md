@@ -53,5 +53,6 @@ feature/*     ●─●   ●─●          (short-lived branches)
 
 ## Constraints
 - Never use goto
+- Don't use em dashes and en dashes in prose. Use commas, periods, or colons. This a hard rule.
 - See `docs/` for architecture details, API reference, and package structure
 - All code generated and implementations must be submitted to Codex via our MCP for review

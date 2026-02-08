@@ -932,11 +932,11 @@
             margin-left: auto;
         }
 
-        .queue-menu {
+        .dropdown-menu {
             position: relative;
         }
 
-        .queue-menu-trigger {
+        .dropdown-menu-trigger {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -951,17 +951,17 @@
             transition: border-color 0.15s ease;
         }
 
-        .queue-menu-trigger:hover {
+        .dropdown-menu-trigger:hover {
             border-color: var(--border-hover);
         }
 
-        .queue-menu-trigger svg {
+        .dropdown-menu-trigger svg {
             width: 14px;
             height: 14px;
             opacity: 0.6;
         }
 
-        .queue-menu-dropdown {
+        .dropdown-menu-panel {
             position: fixed;
             min-width: 200px;
             background: var(--bg-primary);
@@ -975,29 +975,29 @@
             transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
         }
 
-        .queue-menu-dropdown.open {
+        .dropdown-menu-panel.open {
             opacity: 1;
             visibility: visible;
             transform: translateY(0);
         }
 
-        .queue-menu-dropdown.open-upward {
+        .dropdown-menu-panel.open-upward {
             transform: translateY(4px);
         }
 
-        .queue-menu-dropdown.open.open-upward {
+        .dropdown-menu-panel.open.open-upward {
             transform: translateY(0);
         }
 
-        .queue-menu-section {
+        .dropdown-menu-section {
             padding: 8px 0;
         }
 
-        .queue-menu-section:not(:last-child) {
+        .dropdown-menu-section:not(:last-child) {
             border-bottom: 1px solid var(--border);
         }
 
-        .queue-menu-label {
+        .dropdown-menu-heading {
             padding: 4px 12px 6px;
             font-size: 0.625rem;
             font-weight: 600;
@@ -1006,7 +1006,7 @@
             color: var(--text-tertiary);
         }
 
-        .queue-menu-item {
+        .dropdown-menu-item {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1017,23 +1017,23 @@
             transition: background 0.1s ease, color 0.1s ease;
         }
 
-        .queue-menu-item:hover {
+        .dropdown-menu-item:hover {
             background: var(--bg-secondary);
             color: var(--text-primary);
         }
 
-        .queue-menu-item.active {
+        .dropdown-menu-item.active {
             color: var(--accent);
             font-weight: 500;
         }
 
-        .queue-menu-item .sort-arrow {
+        .dropdown-menu-item .sort-arrow {
             font-size: 0.75rem;
             opacity: 0.5;
             transition: opacity 0.1s ease;
         }
 
-        .queue-menu-item.active .sort-arrow {
+        .dropdown-menu-item.active .sort-arrow {
             opacity: 1;
         }
 
@@ -1719,6 +1719,15 @@
                 font-size: 0.8125rem;
             }
 
+            .stat-queue-dropdown {
+                left: 0;
+                transform: translateX(0) translateY(-4px);
+            }
+
+            .stat-queue-wrapper.open .stat-queue-dropdown {
+                transform: translateX(0) translateY(0);
+            }
+
             .main {
                 padding: 16px;
                 gap: 16px;
@@ -1746,9 +1755,6 @@
                 min-width: 0;
             }
 
-            .preset-dropdown-menu {
-                width: 100%;
-            }
         }
 
         /* Loading State */
@@ -1957,6 +1963,27 @@
                             Select all
                         </label>
                         <span id="selection-count"></span>
+                        <div class="dropdown-menu" id="browse-menu" style="margin-left: auto">
+                            <button class="dropdown-menu-trigger" onclick="toggleDropdownMenu('browse-menu-panel', event)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="4" y1="6" x2="16" y2="6"/>
+                                    <line x1="4" y1="12" x2="12" y2="12"/>
+                                    <line x1="4" y1="18" x2="8" y2="18"/>
+                                    <polyline points="16 14 19 17 22 14"/>
+                                </svg>
+                                <span id="browse-menu-label">File Name</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div class="dropdown-menu-panel" id="browse-menu-panel">
+                                <div class="dropdown-menu-section">
+                                    <div class="dropdown-menu-heading">Sort</div>
+                                    <div class="dropdown-menu-item active" data-sort="name" onclick="selectBrowseSort('name')">File Name <span class="sort-arrow">↓</span></div>
+                                    <div class="dropdown-menu-item" data-sort="size" onclick="selectBrowseSort('size')">Size <span class="sort-arrow">↓</span></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <ul class="file-list" id="file-list">
                         <li class="loading">
@@ -2018,8 +2045,8 @@
                                 <input type="checkbox" id="notify-checkbox" onchange="updateNotifySetting(this.checked)">
                                 <span>Notify when done</span>
                             </label>
-                            <div class="queue-menu" id="queue-menu">
-                                <button class="queue-menu-trigger" onclick="toggleQueueMenu(event)">
+                            <div class="dropdown-menu" id="queue-menu">
+                                <button class="dropdown-menu-trigger" onclick="toggleDropdownMenu('queue-menu-panel', event)">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <line x1="4" y1="6" x2="16" y2="6"/>
                                         <line x1="4" y1="12" x2="12" y2="12"/>
@@ -2028,24 +2055,24 @@
                                     </svg>
                                     <span id="queue-menu-label">All</span>
                                 </button>
-                                <div class="queue-menu-dropdown" id="queue-menu-dropdown">
-                                    <div class="queue-menu-section">
-                                        <div class="queue-menu-label">Filter</div>
-                                        <div class="queue-menu-item active" data-filter="all" onclick="selectFilter('all')">All</div>
-                                        <div class="queue-menu-item" data-filter="running" onclick="selectFilter('running')">Running</div>
-                                        <div class="queue-menu-item" data-filter="pending" onclick="selectFilter('pending')">Pending</div>
-                                        <div class="queue-menu-item" data-filter="failed" onclick="selectFilter('failed')">Failed</div>
-                                        <div class="queue-menu-item" data-filter="complete" onclick="selectFilter('complete')">Complete</div>
-                                        <div class="queue-menu-item" data-filter="skipped" onclick="selectFilter('skipped')">Skipped</div>
-                                        <div class="queue-menu-item" data-filter="cancelled" onclick="selectFilter('cancelled')">Cancelled</div>
+                                <div class="dropdown-menu-panel" id="queue-menu-panel">
+                                    <div class="dropdown-menu-section">
+                                        <div class="dropdown-menu-heading">Filter</div>
+                                        <div class="dropdown-menu-item active" data-filter="all" onclick="selectFilter('all')">All</div>
+                                        <div class="dropdown-menu-item" data-filter="running" onclick="selectFilter('running')">Running</div>
+                                        <div class="dropdown-menu-item" data-filter="pending" onclick="selectFilter('pending')">Pending</div>
+                                        <div class="dropdown-menu-item" data-filter="failed" onclick="selectFilter('failed')">Failed</div>
+                                        <div class="dropdown-menu-item" data-filter="complete" onclick="selectFilter('complete')">Complete</div>
+                                        <div class="dropdown-menu-item" data-filter="skipped" onclick="selectFilter('skipped')">Skipped</div>
+                                        <div class="dropdown-menu-item" data-filter="cancelled" onclick="selectFilter('cancelled')">Cancelled</div>
                                     </div>
-                                    <div class="queue-menu-section">
-                                        <div class="queue-menu-label">Sort</div>
-                                        <div class="queue-menu-item active" data-sort="default" onclick="selectSort('default')">Default <span class="sort-arrow">↓</span></div>
-                                        <div class="queue-menu-item" data-sort="filename" onclick="selectSort('filename')">File Name <span class="sort-arrow">↓</span></div>
-                                        <div class="queue-menu-item" data-sort="input_size" onclick="selectSort('input_size')">Pre-Transcode Size <span class="sort-arrow">↓</span></div>
-                                        <div class="queue-menu-item" data-sort="output_size" onclick="selectSort('output_size')">Post-Transcode Size <span class="sort-arrow">↓</span></div>
-                                        <div class="queue-menu-item" data-sort="space_saved" onclick="selectSort('space_saved')">Space Saved <span class="sort-arrow">↓</span></div>
+                                    <div class="dropdown-menu-section">
+                                        <div class="dropdown-menu-heading">Sort</div>
+                                        <div class="dropdown-menu-item active" data-sort="default" onclick="selectSort('default')">Default <span class="sort-arrow">↓</span></div>
+                                        <div class="dropdown-menu-item" data-sort="filename" onclick="selectSort('filename')">File Name <span class="sort-arrow">↓</span></div>
+                                        <div class="dropdown-menu-item" data-sort="input_size" onclick="selectSort('input_size')">Pre-Transcode Size <span class="sort-arrow">↓</span></div>
+                                        <div class="dropdown-menu-item" data-sort="output_size" onclick="selectSort('output_size')">Post-Transcode Size <span class="sort-arrow">↓</span></div>
+                                        <div class="dropdown-menu-item" data-sort="space_saved" onclick="selectSort('space_saved')">Space Saved <span class="sort-arrow">↓</span></div>
                                     </div>
                                 </div>
                             </div>
@@ -2339,6 +2366,9 @@
         let selectedPaths = new Set();
         let selectedFileCounts = new Map();  // Track file count for each selected path (1 for files, N for folders)
         let totalSelectableCount = 0;  // Track total selectable items to avoid DOM queries
+        let browseSortBy = 'name';
+        let browseSortAsc = false;
+        let lastBrowseEntries = [];
         let eventSource = null;
 
         // Preset dropdown state
@@ -2362,6 +2392,193 @@
             if (h > 0) return `${h}h ${m}m`;
             if (m > 0) return `${m}m ${s}s`;
             return `${s}s`;
+        }
+
+        function getBrowseEntrySize(entry) {
+            if (entry.is_dir) {
+                return typeof entry.total_size === 'number' ? entry.total_size : 0;
+            }
+            return typeof entry.size === 'number' ? entry.size : 0;
+        }
+
+        function sortBrowseEntries(entries) {
+            const sorted = entries.slice();
+            sorted.sort((a, b) => {
+                if (a.is_dir !== b.is_dir) {
+                    return a.is_dir ? -1 : 1;
+                }
+
+                if (browseSortBy === 'size') {
+                    const aSize = getBrowseEntrySize(a);
+                    const bSize = getBrowseEntrySize(b);
+                    // ↓ = largest first, ↑ = smallest first (matches queue convention)
+                    if (aSize < bSize) return browseSortAsc ? -1 : 1;
+                    if (aSize > bSize) return browseSortAsc ? 1 : -1;
+                }
+
+                const aName = a.name || '';
+                const bName = b.name || '';
+                const nameResult = aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' });
+                if (browseSortBy === 'name') {
+                    // ↓ = A-Z, ↑ = Z-A (matches queue convention)
+                    return browseSortAsc ? -nameResult : nameResult;
+                }
+                return nameResult;
+            });
+            return sorted;
+        }
+
+        function renderBrowseEntries(entries) {
+            const list = document.getElementById('file-list');
+            const header = document.getElementById('file-list-header');
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+            if (!entries || entries.length === 0) {
+                list.innerHTML = '<li class="file-list-empty">This folder is empty</li>';
+                header.classList.add('hidden');
+                totalSelectableCount = 0;
+                updateButtons();
+                return;
+            }
+
+            // Count selectable items (videos or folders) to avoid DOM queries later
+            totalSelectableCount = entries.filter(e =>
+                (!e.is_dir && e.video_info) || e.is_dir
+            ).length;
+
+            if (totalSelectableCount > 0) {
+                header.classList.remove('hidden');
+            } else {
+                header.classList.add('hidden');
+            }
+
+            list.innerHTML = entries.map(entry => {
+                const isVideo = !entry.is_dir && entry.video_info;
+                const isFolder = entry.is_dir;
+                const isSelectable = isVideo || isFolder;
+                const iconClass = entry.is_dir ? 'folder' : (isVideo ? 'video' : 'other');
+                const icon = entry.is_dir
+                    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`
+                    : isVideo
+                        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>`
+                        : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+
+                let metaHtml = '';
+                // For folders, file_count is the number of videos inside; for videos it's 1
+                const fileCount = entry.is_dir ? (entry.file_count || 0) : (isVideo ? 1 : 0);
+                if (entry.is_dir) {
+                    const count = entry.file_count || 0;
+                    if (count > 0) {
+                        const size = formatBytes(entry.total_size || 0);
+                        metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
+                    }
+                } else if (isVideo) {
+                    const vi = entry.video_info;
+                    const codec = vi.video_codec?.toLowerCase() || '';
+                    let codecClass = 'h264';
+                    if (codec.includes('hevc') || codec.includes('h265')) {
+                        codecClass = 'hevc';
+                    } else if (codec.includes('av1')) {
+                        codecClass = 'av1';
+                    }
+                    const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
+                    metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+                }
+
+                const isSelected = selectedPaths.has(entry.path);
+                if (isSelected && !selectedFileCounts.has(entry.path)) {
+                    selectedFileCounts.set(entry.path, fileCount);
+                }
+
+                return `<li class="file-item${isSelected ? ' selected' : ''}" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
+                    ${isSelectable ? `<input type="checkbox" class="file-checkbox" onclick="handleCheckbox(this, event)" data-path="${entry.path}" data-file-count="${fileCount}" ${isSelected ? 'checked' : ''}>` : '<div style="width: 18px"></div>'}
+                    <div class="file-icon ${iconClass}">${icon}</div>
+                    <div class="file-info">
+                        <div class="file-name">${entry.name}</div>
+                        <div class="file-meta">${metaHtml}</div>
+                    </div>
+                    ${entry.is_dir ? '' : `<div class="file-size">${formatBytes(entry.size)}</div>`}
+                </li>`;
+            }).join('');
+
+            updateButtons();
+        }
+
+        function toggleDropdownMenu(panelId, event) {
+            event.stopPropagation();
+            const trigger = event.currentTarget;
+            const panel = document.getElementById(panelId);
+            const isOpen = panel.classList.contains('open');
+
+            if (!isOpen) {
+                const rect = trigger.getBoundingClientRect();
+                const menuHeight = panel.scrollHeight || 200;
+                const spaceBelow = window.innerHeight - rect.bottom - 16;
+                const spaceAbove = rect.top - 16;
+                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+                panel.classList.toggle('open-upward', openUpward);
+                panel.style.right = (window.innerWidth - rect.right) + 'px';
+
+                const availableSpace = openUpward ? spaceAbove : spaceBelow;
+                if (menuHeight > availableSpace) {
+                    panel.style.maxHeight = availableSpace + 'px';
+                    panel.style.overflowY = 'auto';
+                } else {
+                    panel.style.maxHeight = '';
+                    panel.style.overflowY = '';
+                }
+
+                if (openUpward) {
+                    panel.style.top = 'auto';
+                    panel.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+                } else {
+                    panel.style.top = (rect.bottom + 6) + 'px';
+                    panel.style.bottom = 'auto';
+                }
+            }
+
+            panel.classList.toggle('open');
+        }
+
+        function closeDropdownMenu(panelId) {
+            const panel = document.getElementById(panelId);
+            panel.classList.remove('open');
+            panel.classList.remove('open-upward');
+        }
+
+        function selectBrowseSort(sortBy) {
+            if (sortBy === browseSortBy) {
+                browseSortAsc = !browseSortAsc;
+            } else {
+                browseSortBy = sortBy;
+                browseSortAsc = false;
+            }
+            updateBrowseMenuDisplay();
+            if (lastBrowseEntries && lastBrowseEntries.length > 0) {
+                renderBrowseEntries(sortBrowseEntries(lastBrowseEntries));
+            }
+            closeDropdownMenu('browse-menu-panel');
+        }
+
+        function updateBrowseMenuDisplay() {
+            const label = document.getElementById('browse-menu-label');
+            const sortLabels = {
+                'name': 'File Name',
+                'size': 'Size'
+            };
+            if (label) {
+                label.textContent = sortLabels[browseSortBy] || 'File Name';
+            }
+            document.querySelectorAll('#browse-menu-panel .dropdown-menu-item[data-sort]').forEach(item => {
+                const isActive = item.dataset.sort === browseSortBy;
+                item.classList.toggle('active', isActive);
+                const arrowSpan = item.querySelector('.sort-arrow');
+                if (arrowSpan) {
+                    arrowSpan.textContent = isActive ? (browseSortAsc ? '↑' : '↓') : '↓';
+                }
+            });
         }
 
         function toggleJobDetails(jobId) {
@@ -2445,71 +2662,9 @@
                 breadcrumb.innerHTML = crumbs;
 
                 // Update file list
-                const list = document.getElementById('file-list');
-                if (data.entries.length === 0) {
-                    list.innerHTML = '<li class="file-list-empty">This folder is empty</li>';
-                    document.getElementById('file-list-header').classList.add('hidden');
-                    return;
-                }
-
-                // Count selectable items (videos or folders) to avoid DOM queries later
-                totalSelectableCount = data.entries.filter(e =>
-                    (!e.is_dir && e.video_info) || e.is_dir
-                ).length;
-                const header = document.getElementById('file-list-header');
-                const selectAllCheckbox = document.getElementById('select-all-checkbox');
-
-                if (totalSelectableCount > 0) {
-                    header.classList.remove('hidden');
-                } else {
-                    header.classList.add('hidden');
-                }
-                selectAllCheckbox.checked = false;
-                selectAllCheckbox.indeterminate = false;
-
-                list.innerHTML = data.entries.map(entry => {
-                    const isVideo = !entry.is_dir && entry.video_info;
-                    const isFolder = entry.is_dir;
-                    const isSelectable = isVideo || isFolder;
-                    const iconClass = entry.is_dir ? 'folder' : (isVideo ? 'video' : 'other');
-                    const icon = entry.is_dir
-                        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`
-                        : isVideo
-                            ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>`
-                            : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-
-                    let metaHtml = '';
-                    // For folders, file_count is the number of videos inside; for videos it's 1
-                    const fileCount = entry.is_dir ? (entry.file_count || 0) : (isVideo ? 1 : 0);
-                    if (entry.is_dir) {
-                        const count = entry.file_count || 0;
-                        if (count > 0) {
-                            const size = formatBytes(entry.total_size || 0);
-                            metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
-                        }
-                    } else if (isVideo) {
-                        const vi = entry.video_info;
-                        const codec = vi.video_codec?.toLowerCase() || '';
-                        let codecClass = 'h264';
-                        if (codec.includes('hevc') || codec.includes('h265')) {
-                            codecClass = 'hevc';
-                        } else if (codec.includes('av1')) {
-                            codecClass = 'av1';
-                        }
-                        const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
-                        metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
-                    }
-
-                    return `<li class="file-item" data-path="${entry.path}" data-is-dir="${entry.is_dir}" onclick="handleFileClick(this, event)">
-                        ${isSelectable ? `<input type="checkbox" class="file-checkbox" onclick="handleCheckbox(this, event)" data-path="${entry.path}" data-file-count="${fileCount}">` : '<div style="width: 18px"></div>'}
-                        <div class="file-icon ${iconClass}">${icon}</div>
-                        <div class="file-info">
-                            <div class="file-name">${entry.name}</div>
-                            <div class="file-meta">${metaHtml}</div>
-                        </div>
-                        ${entry.is_dir ? '' : `<div class="file-size">${formatBytes(entry.size)}</div>`}
-                    </li>`;
-                }).join('');
+                lastBrowseEntries = data.entries || [];
+                renderBrowseEntries(sortBrowseEntries(lastBrowseEntries));
+                updateBrowseMenuDisplay();
 
             } catch (err) {
                 console.error('Browse error:', err);
@@ -3171,50 +3326,8 @@
         let queueSortAsc = false; // false = descending, true = ascending
 
         // Queue menu functions
-        function toggleQueueMenu(event) {
-            event.stopPropagation();
-            const trigger = event.currentTarget;
-            const dropdown = document.getElementById('queue-menu-dropdown');
-            const isOpen = dropdown.classList.contains('open');
-
-            if (!isOpen) {
-                // Position the dropdown - check if we need to open upward
-                const rect = trigger.getBoundingClientRect();
-                const menuHeight = dropdown.scrollHeight || 350;
-                const spaceBelow = window.innerHeight - rect.bottom - 16;
-                const spaceAbove = rect.top - 16;
-                const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
-
-                dropdown.classList.toggle('open-upward', openUpward);
-                dropdown.style.right = (window.innerWidth - rect.right) + 'px';
-
-                // Determine available space and apply max-height if needed
-                const availableSpace = openUpward ? spaceAbove : spaceBelow;
-                if (menuHeight > availableSpace) {
-                    dropdown.style.maxHeight = availableSpace + 'px';
-                    dropdown.style.overflowY = 'auto';
-                } else {
-                    dropdown.style.maxHeight = '';
-                    dropdown.style.overflowY = '';
-                }
-
-                if (openUpward) {
-                    dropdown.style.top = 'auto';
-                    dropdown.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
-                } else {
-                    dropdown.style.top = (rect.bottom + 6) + 'px';
-                    dropdown.style.bottom = 'auto';
-                }
-            }
-
-            dropdown.classList.toggle('open');
-        }
-
-        function closeQueueMenu() {
-            const dropdown = document.getElementById('queue-menu-dropdown');
-            dropdown.classList.remove('open');
-            dropdown.classList.remove('open-upward');
-        }
+        // toggleQueueMenu and closeQueueMenu replaced by shared
+        // toggleDropdownMenu() and closeDropdownMenu() in browse sort section
 
         function selectFilter(filter) {
             queueFilter = filter;
@@ -3225,7 +3338,7 @@
             // Disable Clear button for running filter (can't clear running jobs)
             document.getElementById('clear-btn').disabled = filter === 'running';
             updateQueueMenuDisplay();
-            closeQueueMenu();
+            closeDropdownMenu('queue-menu-panel');
         }
 
         function selectSort(sortBy) {
@@ -3240,7 +3353,7 @@
             updateQueueMenuDisplay();
             saveSortPreference();
             applySortAndRender();
-            closeQueueMenu();
+            closeDropdownMenu('queue-menu-panel');
         }
 
         function loadSortPreference() {
@@ -3276,7 +3389,7 @@
             label.textContent = filterLabels[queueFilter] || 'All';
 
             // Update filter items
-            document.querySelectorAll('.queue-menu-item[data-filter]').forEach(item => {
+            document.querySelectorAll('#queue-menu-panel .dropdown-menu-item[data-filter]').forEach(item => {
                 item.classList.toggle('active', item.dataset.filter === queueFilter);
             });
 
@@ -3290,7 +3403,7 @@
                 'space_saved': 'Space Saved'
             };
 
-            document.querySelectorAll('.queue-menu-item[data-sort]').forEach(item => {
+            document.querySelectorAll('#queue-menu-panel .dropdown-menu-item[data-sort]').forEach(item => {
                 const sortKey = item.dataset.sort;
                 const isActive = sortKey === queueSortBy;
                 item.classList.toggle('active', isActive);
@@ -3301,12 +3414,18 @@
             });
         }
 
-        // Close menu when clicking outside
+        // Close any open dropdown when clicking outside
         document.addEventListener('click', (event) => {
-            const menu = document.getElementById('queue-menu');
-            if (menu && !menu.contains(event.target)) {
-                closeQueueMenu();
-            }
+            ['queue-menu', 'browse-menu'].forEach(menuId => {
+                const menu = document.getElementById(menuId);
+                if (menu && !menu.contains(event.target)) {
+                    const panel = menu.querySelector('.dropdown-menu-panel');
+                    if (panel) {
+                        panel.classList.remove('open');
+                        panel.classList.remove('open-upward');
+                    }
+                }
+            });
         });
 
         function applySortAndRender() {
@@ -4071,13 +4190,16 @@
             if (!isOpen) {
                 // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
+                // Set dimensions before measuring height so text reflow is accounted for
+                menu.style.left = rect.left + 'px';
+                menu.style.width = rect.width + 'px';
+
                 const menuHeight = menu.scrollHeight || 300; // Estimate if not yet rendered
                 const spaceBelow = window.innerHeight - rect.bottom - 16;
                 const spaceAbove = rect.top - 16;
                 const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
 
                 dropdown.classList.toggle('open-upward', openUpward);
-                menu.style.left = rect.left + 'px';
 
                 // Determine available space and apply max-height if needed
                 const availableSpace = openUpward ? spaceAbove : spaceBelow;
@@ -4158,13 +4280,16 @@
             if (!isOpen) {
                 // Position the dropdown - check if we need to open upward
                 const rect = trigger.getBoundingClientRect();
+                // Set dimensions before measuring height so text reflow is accounted for
+                menu.style.left = rect.left + 'px';
+                menu.style.width = rect.width + 'px';
+
                 const menuHeight = menu.scrollHeight || 200;
                 const spaceBelow = window.innerHeight - rect.bottom - 16;
                 const spaceAbove = rect.top - 16;
                 const openUpward = spaceBelow < menuHeight && spaceAbove > spaceBelow;
 
                 dropdown.classList.toggle('open-upward', openUpward);
-                menu.style.left = rect.left + 'px';
 
                 // Determine available space and apply max-height if needed
                 const availableSpace = openUpward ? spaceAbove : spaceBelow;

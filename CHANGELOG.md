@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-02-08
+
+### Added
+- **Browse page sorting** (#97) - Sort files by name or size in the browse view
+
+### Fixed
+- Preset dropdown badges (HW/SW) clipped on mobile portrait
+- Queue stats dropdown clipped on left edge on mobile
+- Browse sort labels and arrow convention aligned with queue menu
+
+### Changed
+- Removed Podman section from Quick Start (info remains in FAQ)
+
 ## [2.1.1] - 2026-02-07
 
 ### Changed
