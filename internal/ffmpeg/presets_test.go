@@ -890,6 +890,12 @@ func TestBuildPresetArgsDownscaleHDRPreservation(t *testing.T) {
 			scaleFilter: "scale_vaapi",
 			wantInVF:    "scale_vaapi=w=-2:h='min(ih,720)':format=p010",
 		},
+		{
+			name:        "QSV HDR downscale 720p",
+			encoder:     HWAccelQSV,
+			scaleFilter: "scale_qsv",
+			wantInVF:    "scale_qsv=w=-2:h='min(ih,720)':format=p010",
+		},
 	}
 
 	for _, tt := range tests {
@@ -930,6 +936,96 @@ func TestBuildPresetArgsDownscaleHDRPreservation(t *testing.T) {
 			count := strings.Count(vfFilter, tt.scaleFilter)
 			if count != 1 {
 				t.Errorf("expected exactly 1 %s in filter chain, found %d: %s", tt.scaleFilter, count, vfFilter)
+			}
+		})
+	}
+}
+
+// TestBuildPresetArgsTonemapDownscale verifies that tonemapping + downscaling
+// uses CPU scale (not HW scale) before hwupload, since tonemapping outputs
+// CPU frames via zscale.
+func TestBuildPresetArgsTonemapDownscale(t *testing.T) {
+	tests := []struct {
+		name        string
+		encoder     HWAccel
+		scaleFilter string // HW scaler that should NOT appear
+		wantScale   bool   // expect CPU scale in chain
+		wantUpload  string // expected upload filter substring (empty = none)
+	}{
+		{
+			name:        "NVENC tonemap + downscale",
+			encoder:     HWAccelNVENC,
+			scaleFilter: "scale_cuda",
+			wantScale:   true,
+			wantUpload:  "", // NVENC handles CPU frames natively
+		},
+		{
+			name:        "QSV tonemap + downscale",
+			encoder:     HWAccelQSV,
+			scaleFilter: "scale_qsv",
+			wantScale:   true,
+			wantUpload:  "format=nv12,hwupload=extra_hw_frames=64",
+		},
+		{
+			name:        "VAAPI tonemap + downscale",
+			encoder:     HWAccelVAAPI,
+			scaleFilter: "scale_vaapi",
+			wantScale:   true,
+			wantUpload:  "format=nv12,hwupload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preset := &Preset{
+				ID:        "test-tonemap-downscale",
+				Encoder:   tt.encoder,
+				Codec:     CodecHEVC,
+				MaxHeight: 720,
+			}
+
+			tonemap := &TonemapParams{
+				IsHDR:         true,
+				EnableTonemap: true, // triggers tonemapping path
+			}
+
+			// sourceHeight=1080 triggers downscaling to 720
+			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+
+			vfFilter := ""
+			for i, arg := range outputArgs {
+				if arg == "-vf" && i+1 < len(outputArgs) {
+					vfFilter = outputArgs[i+1]
+					break
+				}
+			}
+
+			if vfFilter == "" {
+				t.Fatal("expected -vf argument in output args")
+			}
+
+			t.Logf("Filter chain: %s", vfFilter)
+
+			// Must start with zscale tonemap chain
+			if !strings.Contains(vfFilter, "zscale=t=linear") {
+				t.Errorf("expected zscale tonemap in filter chain, got: %s", vfFilter)
+			}
+
+			// Must use CPU scale, not HW scaler (tonemap outputs CPU frames)
+			if strings.Contains(vfFilter, tt.scaleFilter) {
+				t.Errorf("tonemap path should not use %s, got: %s", tt.scaleFilter, vfFilter)
+			}
+
+			if tt.wantScale {
+				if !strings.Contains(vfFilter, "scale=-2:'min(ih,720)'") {
+					t.Errorf("expected CPU scale=-2:'min(ih,720)' in filter chain, got: %s", vfFilter)
+				}
+			}
+
+			if tt.wantUpload != "" {
+				if !strings.Contains(vfFilter, tt.wantUpload) {
+					t.Errorf("expected upload filter %q in chain, got: %s", tt.wantUpload, vfFilter)
+				}
 			}
 		})
 	}
