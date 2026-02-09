@@ -88,11 +88,11 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelNone, CodecHEVC}: {
 		encoder:     "libx265",
 		qualityFlag: "-crf",
-		quality:     "26",
+		quality:     "22",
 		extraArgs:   []string{"-preset", "medium"},
 		scaleFilter: "scale",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  16,
+		qualityMax:  30,
 	},
 	{HWAccelVideoToolbox, CodecHEVC}: {
 		// VideoToolbox uses bitrate control (-b:v) with dynamic calculation.
@@ -100,12 +100,9 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// Unlike CRF-based encoders, VideoToolbox requires explicit bitrate targets.
 		encoder:     "hevc_videotoolbox",
 		qualityFlag: "-b:v",
-		// 0.35 = 35% of source bitrate, typically yields 50-60% smaller files.
-		// This value was chosen empirically to balance quality vs compression:
-		// - 0.50 = minimal compression, near-transparent quality
-		// - 0.35 = good balance (default) - comparable to x265 CRF 22-24
-		// - 0.25 = aggressive compression, some quality loss on detailed scenes
-		quality:     "0.35",
+		// 0.52 = 52% of source bitrate. Calibrated via VMAF binary search to
+		// match libx265 CRF 22 (VMAF 83.23, delta +0.09).
+		quality:     "0.52",
 		extraArgs:   []string{"-allow_sw", "1"},
 		usesBitrate: true,
 		hwaccelArgs: []string{"-hwaccel", "videotoolbox"},
@@ -116,39 +113,39 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelNVENC, CodecHEVC}: {
 		encoder:     "hevc_nvenc",
 		qualityFlag: "-cq",
-		quality:     "28",
+		quality:     "26",
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  16,
+		qualityMax:  30,
 	},
 	{HWAccelQSV, CodecHEVC}: {
 		encoder:       "hevc_qsv",
 		qualityFlag:   "-global_quality",
-		quality:       "27",
+		quality:       "22",
 		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
 		scaleFilter:   "scale_qsv",
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    16,
+		qualityMax:    30,
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:       "hevc_vaapi",
 		qualityFlag:   "-qp",
-		quality:       "27",
+		quality:       "22",
 		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter:   "scale_vaapi",
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    16,
+		qualityMax:    30,
 	},
 
 	// AV1 encoders
@@ -156,11 +153,11 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelNone, CodecAV1}: {
 		encoder:     "libsvtav1",
 		qualityFlag: "-crf",
-		quality:     "35",
+		quality:     "25",
 		extraArgs:   []string{"-preset", "6"},
 		scaleFilter: "scale",
-		qualityMin:  20,
-		qualityMax:  45,
+		qualityMin:  18,
+		qualityMax:  35,
 	},
 	{HWAccelVideoToolbox, CodecAV1}: {
 		// VideoToolbox AV1 (M3+ chips) uses bitrate control.
@@ -187,34 +184,34 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  20,
-		qualityMax:  40,
+		qualityMin:  18,
+		qualityMax:  35,
 	},
 	{HWAccelQSV, CodecAV1}: {
 		encoder:       "av1_qsv",
 		qualityFlag:   "-global_quality",
-		quality:       "32",
+		quality:       "25",
 		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
 		scaleFilter:   "scale_qsv",
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    20,
-		qualityMax:    40,
+		qualityMin:    18,
+		qualityMax:    35,
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:       "av1_vaapi",
 		qualityFlag:   "-qp",
-		quality:       "32",
+		quality:       "25",
 		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter:   "scale_vaapi",
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    20,
-		qualityMax:    40,
+		qualityMin:    18,
+		qualityMax:    35,
 	},
 }
 
@@ -292,9 +289,9 @@ func GetQualityRange(hwaccel HWAccel, codec Codec) vmaf.QualityRange {
 	if !ok {
 		// Fallback defaults
 		if codec == CodecAV1 {
-			return vmaf.QualityRange{Min: 20, Max: 45}
+			return vmaf.QualityRange{Min: 18, Max: 35}
 		}
-		return vmaf.QualityRange{Min: 18, Max: 35}
+		return vmaf.QualityRange{Min: 16, Max: 30}
 	}
 
 	return vmaf.QualityRange{

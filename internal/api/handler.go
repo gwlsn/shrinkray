@@ -74,9 +74,9 @@ func validateQuality(value int, codec string) string {
 	var min, max int
 	switch codec {
 	case "hevc":
-		min, max = 15, 40
+		min, max = 16, 30
 	case "av1":
-		min, max = 20, 50
+		min, max = 18, 35
 	default:
 		return fmt.Sprintf("unknown codec: %s", codec)
 	}
@@ -308,10 +308,10 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	defaultHEVC, defaultAV1 := ffmpeg.GetEncoderDefaults(bestEncoder.Accel)
 	// Fall back to software defaults for bitrate-based encoders (VideoToolbox)
 	if defaultHEVC == 0 {
-		defaultHEVC = 26
+		defaultHEVC = 22
 	}
 	if defaultAV1 == 0 {
-		defaultAV1 = 35
+		defaultAV1 = 25
 	}
 
 	// Return a sanitized config (no sensitive paths exposed)

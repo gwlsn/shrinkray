@@ -11,7 +11,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 	// Source bitrate: 3481000 bits/s (3481 kbps)
 	sourceBitrate := int64(3481000)
 
-	// Create a VideoToolbox preset (0.35 modifier for HEVC)
+	// Create a VideoToolbox preset (0.52 modifier for HEVC, calibrated via VMAF)
 	preset := &Preset{
 		ID:      "test-hevc",
 		Encoder: HWAccelVideoToolbox,
@@ -27,7 +27,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 	t.Logf("Input args: %v", inputArgs)
 
 	// Should contain -b:v with calculated bitrate
-	// Expected: 3481 * 0.35 = ~1218k
+	// Expected: 3481 * 0.52 = ~1810k
 	found := false
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
@@ -38,9 +38,9 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 			}
 			t.Logf("HEVC VideoToolbox: source=%dkbps → target=%s", sourceBitrate/1000, bitrate)
 
-			// Should be around 1218k (3481 * 0.35)
-			if bitrate != "1218k" {
-				t.Errorf("expected ~1218k, got %s", bitrate)
+			// Should be around 1810k (3481 * 0.52)
+			if bitrate != "1810k" {
+				t.Errorf("expected ~1810k, got %s", bitrate)
 			}
 		}
 	}
@@ -135,7 +135,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 	// Test min/max bitrate constraints
 
 	// Very low source bitrate (should hit minimum)
-	// 500 kbps * 0.35 = 175k, should clamp to 500k
+	// 500 kbps * 0.52 = 260k, should clamp to 500k
 	lowBitrate := int64(500000)
 	presetLow := &Preset{
 		ID:      "test-low",
@@ -156,7 +156,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 	}
 
 	// Very high source bitrate (should hit maximum)
-	// 50000 kbps * 0.35 = 17500k, should clamp to 15000k
+	// 50000 kbps * 0.52 = 26000k, should clamp to 15000k
 	highBitrate := int64(50000000)
 	presetHigh := &Preset{
 		ID:      "test-high",
@@ -200,9 +200,9 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 	for i, arg := range outputArgs {
 		if arg == "-crf" {
 			foundCRF = true
-			// Verify CRF value is 26
-			if i+1 < len(outputArgs) && outputArgs[i+1] != "26" {
-				t.Errorf("expected CRF 26, got %s", outputArgs[i+1])
+			// Verify CRF value is 22 (VMAF-calibrated default)
+			if i+1 < len(outputArgs) && outputArgs[i+1] != "22" {
+				t.Errorf("expected CRF 22, got %s", outputArgs[i+1])
 			}
 		}
 		if arg == "-b:v" {
@@ -235,14 +235,14 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		t.Error("expected hwaccel input args for VideoToolbox")
 	}
 
-	// Should use 10Mbps reference * 0.35 modifier = 3500k
+	// Should use 10Mbps reference * 0.52 modifier = 5200k
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
 			t.Logf("Zero bitrate source (10Mbps reference) → target=%s", bitrate)
-			// 10000 kbps * 0.35 = 3500k
-			if bitrate != "3500k" {
-				t.Errorf("expected 3500k with 10Mbps reference, got %s", bitrate)
+			// 10000 kbps * 0.52 = 5200k
+			if bitrate != "5200k" {
+				t.Errorf("expected 5200k with 10Mbps reference, got %s", bitrate)
 			}
 		}
 	}
@@ -255,11 +255,11 @@ func TestGetEncoderDefaults(t *testing.T) {
 		expectedHEVC int
 		expectedAV1  int
 	}{
-		{HWAccelNone, "Software", 26, 35},
+		{HWAccelNone, "Software", 22, 25},
 		{HWAccelVideoToolbox, "VideoToolbox", 0, 0}, // Bitrate-based, returns 0
-		{HWAccelNVENC, "NVENC", 28, 32},
-		{HWAccelQSV, "QSV", 27, 32},
-		{HWAccelVAAPI, "VAAPI", 27, 32},
+		{HWAccelNVENC, "NVENC", 26, 32},
+		{HWAccelQSV, "QSV", 22, 25},
+		{HWAccelVAAPI, "VAAPI", 22, 25},
 	}
 
 	for _, tt := range tests {
