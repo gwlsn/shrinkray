@@ -71,6 +71,10 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // validateQuality validates a quality/CRF value for the given codec.
 // Returns an error message if invalid, empty string if valid.
 func validateQuality(value int, codec string) string {
+	// 0 = auto mode (use encoder-specific default)
+	if value == 0 {
+		return ""
+	}
 	var min, max int
 	switch codec {
 	case "hevc":
@@ -81,7 +85,7 @@ func validateQuality(value int, codec string) string {
 		return fmt.Sprintf("unknown codec: %s", codec)
 	}
 	if value < min || value > max {
-		return fmt.Sprintf("quality_%s must be between %d and %d", codec, min, max)
+		return fmt.Sprintf("quality_%s must be between %d and %d (or 0 for auto)", codec, min, max)
 	}
 	return ""
 }
@@ -303,9 +307,12 @@ func (h *Handler) ResumeQueue(w http.ResponseWriter, r *http.Request) {
 
 // GetConfig handles GET /api/config
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	// Get encoder-specific defaults
-	bestEncoder := ffmpeg.GetBestEncoder()
-	defaultHEVC, defaultAV1 := ffmpeg.GetEncoderDefaults(bestEncoder.Accel)
+	// Get per-codec encoder defaults: HEVC and AV1 may use different hardware
+	// (e.g., NVENC for HEVC but software for AV1 on older GPUs)
+	bestHEVC := ffmpeg.GetBestEncoderForCodec(ffmpeg.CodecHEVC)
+	bestAV1 := ffmpeg.GetBestEncoderForCodec(ffmpeg.CodecAV1)
+	defaultHEVC, _ := ffmpeg.GetEncoderDefaults(bestHEVC.Accel)
+	_, defaultAV1 := ffmpeg.GetEncoderDefaults(bestAV1.Accel)
 	// Fall back to software defaults for bitrate-based encoders (VideoToolbox)
 	if defaultHEVC == 0 {
 		defaultHEVC = 22
@@ -329,6 +336,8 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"quality_av1":             h.cfg.QualityAV1,
 		"default_quality_hevc":    defaultHEVC,
 		"default_quality_av1":     defaultAV1,
+		"hevc_encoder":            string(bestHEVC.Accel),
+		"av1_encoder":             string(bestAV1.Accel),
 		"schedule_enabled":        h.cfg.ScheduleEnabled,
 		"schedule_start_hour":     h.cfg.ScheduleStartHour,
 		"schedule_end_hour":       h.cfg.ScheduleEndHour,

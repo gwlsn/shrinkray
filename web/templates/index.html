@@ -1624,6 +1624,12 @@
             -moz-appearance: textfield;
         }
 
+        .quality-recommended {
+            font-size: 0.75rem;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
         .settings-status {
             padding: 12px 24px;
             font-size: 0.8125rem;
@@ -2263,6 +2269,7 @@
                                            min="16" max="30" value="22"
                                            onchange="syncQualitySlider('hevc', this.value); updateSetting('quality_hevc', parseInt(document.getElementById('setting-quality-hevc').value))">
                                 </div>
+                                <div class="quality-recommended" id="quality-recommended-hevc"></div>
                             </div>
                         </div>
                         <div class="setting-item setting-item-stacked">
@@ -2282,6 +2289,7 @@
                                            min="18" max="35" value="25"
                                            onchange="syncQualitySlider('av1', this.value); updateSetting('quality_av1', parseInt(document.getElementById('setting-quality-av1').value))">
                                 </div>
+                                <div class="quality-recommended" id="quality-recommended-av1"></div>
                             </div>
                         </div>
                         <div class="setting-item">
@@ -3863,14 +3871,21 @@
                 }
 
                 // Quality settings - use encoder-specific defaults when config value is 0
-                const defaultHEVC = config.default_quality_hevc || 26;
-                const defaultAV1 = config.default_quality_av1 || 35;
+                const defaultHEVC = config.default_quality_hevc || 22;
+                const defaultAV1 = config.default_quality_av1 || 25;
                 const hevcQuality = config.quality_hevc || defaultHEVC;
                 const av1Quality = config.quality_av1 || defaultAV1;
                 document.getElementById('setting-quality-hevc').value = hevcQuality;
                 document.getElementById('setting-quality-hevc-input').value = hevcQuality;
                 document.getElementById('setting-quality-av1').value = av1Quality;
                 document.getElementById('setting-quality-av1-input').value = av1Quality;
+
+                // Show encoder name and recommended value
+                const encoderLabel = (enc) => enc === 'none' ? 'Software' : enc.toUpperCase();
+                document.getElementById('quality-recommended-hevc').textContent =
+                    `Recommended (${encoderLabel(config.hevc_encoder)}): ${defaultHEVC}`;
+                document.getElementById('quality-recommended-av1').textContent =
+                    `Recommended (${encoderLabel(config.av1_encoder)}): ${defaultAV1}`;
 
                 // Schedule settings
                 document.getElementById('setting-schedule-enabled').checked = config.schedule_enabled || false;
