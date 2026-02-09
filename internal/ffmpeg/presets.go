@@ -28,18 +28,45 @@ func (p *Preset) WithEncoder(encoder HWAccel) *Preset {
 
 // encoderSettings defines FFmpeg settings for each encoder
 type encoderSettings struct {
-	encoder     string   // FFmpeg encoder name
-	qualityFlag string   // -crf, -b:v, -global_quality, etc.
-	quality     string   // Quality value (CRF or bitrate modifier)
-	extraArgs   []string // Additional encoder-specific args
-	usesBitrate bool     // If true, quality value is a bitrate modifier (0.0-1.0)
-	hwaccelArgs []string // Args to prepend before -i for hardware decoding
-	scaleFilter string   // Hardware-specific scale filter (e.g., "scale_qsv", "scale_cuda")
-	baseFilter  string   // Filter to prepend before scale (e.g., "format=nv12,hwupload" for VAAPI)
-	qualityMin  int      // Minimum quality (best quality, lowest compression)
-	qualityMax  int      // Maximum quality (most compression)
-	modMin      float64  // Min bitrate modifier (for VideoToolbox)
-	modMax      float64  // Max bitrate modifier (for VideoToolbox)
+	encoder       string   // FFmpeg encoder name
+	qualityFlag   string   // -crf, -b:v, -global_quality, etc.
+	quality       string   // Quality value (CRF or bitrate modifier)
+	extraArgs     []string // Additional encoder-specific args
+	usesBitrate   bool     // If true, quality value is a bitrate modifier (0.0-1.0)
+	hwaccelArgs   []string // Args to prepend before -i for hardware decoding
+	scaleFilter   string   // Hardware-specific scale filter (e.g., "scale_qsv", "scale_cuda", "scale")
+	scalePixFmt   string   // Pixel format for HW scaler: "nv12". Empty for CPU-only encoders.
+	hwFrameSuffix string   // Surface type for HW frame negotiation: "qsv", "vaapi". Produces "format=nv12|qsv".
+	uploadFilter  string   // GPU upload filter: "hwupload=extra_hw_frames=64", "hwupload". Empty if not needed.
+	qualityMin    int      // Minimum quality (best quality, lowest compression)
+	qualityMax    int      // Maximum quality (most compression)
+	modMin        float64  // Min bitrate modifier (for VideoToolbox)
+	modMax        float64  // Max bitrate modifier (for VideoToolbox)
+}
+
+// buildScaleFilter composes the hardware/software scale filter string.
+// Called exactly once per transcode, making duplicate scale filters structurally impossible.
+func (es *encoderSettings) buildScaleFilter(maxHeight int, resize bool, pixFmt string) string {
+	if pixFmt == "" {
+		// CPU-only encoders (software, VideoToolbox)
+		if resize {
+			return fmt.Sprintf("scale=-2:'min(ih,%d)'", maxHeight)
+		}
+		return ""
+	}
+	if resize {
+		return fmt.Sprintf("%s=w=-2:h='min(ih,%d)':format=%s", es.scaleFilter, maxHeight, pixFmt)
+	}
+	return fmt.Sprintf("%s=format=%s", es.scaleFilter, pixFmt)
+}
+
+// buildUploadPipeline returns the filter to upload CPU frames to the GPU.
+// Returns "" for encoders that handle CPU frames natively (NVENC, VideoToolbox, software).
+func (es *encoderSettings) buildUploadPipeline(pixFmt string) string {
+	if es.uploadFilter == "" {
+		return ""
+	}
+	return fmt.Sprintf("format=%s,%s", pixFmt, es.uploadFilter)
 }
 
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox).
@@ -93,31 +120,35 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
-		baseFilter:  "scale_cuda=format=nv12", // Explicit format for compatibility
+		scalePixFmt: "nv12",
 		qualityMin:  18,
 		qualityMax:  35,
 	},
 	{HWAccelQSV, CodecHEVC}: {
-		encoder:     "hevc_qsv",
-		qualityFlag: "-global_quality",
-		quality:     "27",
-		extraArgs:   []string{"-preset", "medium"},
+		encoder:       "hevc_qsv",
+		qualityFlag:   "-global_quality",
+		quality:       "27",
+		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
-		scaleFilter: "scale_qsv",
-		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64,scale_qsv=format=nv12", // Added scale_qsv for format compatibility
-		qualityMin:  18,
-		qualityMax:  35,
+		scaleFilter:   "scale_qsv",
+		scalePixFmt:   "nv12",
+		hwFrameSuffix: "qsv",
+		uploadFilter:  "hwupload=extra_hw_frames=64",
+		qualityMin:    18,
+		qualityMax:    35,
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
-		encoder:     "hevc_vaapi",
-		qualityFlag: "-qp",
-		quality:     "27",
-		extraArgs:   []string{},
+		encoder:       "hevc_vaapi",
+		qualityFlag:   "-qp",
+		quality:       "27",
+		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
-		scaleFilter: "scale_vaapi",
-		baseFilter:  "format=nv12|vaapi,hwupload,scale_vaapi=format=nv12", // Added scale_vaapi for format compatibility
-		qualityMin:  18,
-		qualityMax:  35,
+		scaleFilter:   "scale_vaapi",
+		scalePixFmt:   "nv12",
+		hwFrameSuffix: "vaapi",
+		uploadFilter:  "hwupload",
+		qualityMin:    18,
+		qualityMax:    35,
 	},
 
 	// AV1 encoders
@@ -155,31 +186,35 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		extraArgs:   []string{"-preset", "p4", "-tune", "hq", "-rc", "vbr"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
-		baseFilter:  "scale_cuda=format=nv12", // Explicit format for compatibility
+		scalePixFmt: "nv12",
 		qualityMin:  20,
 		qualityMax:  40,
 	},
 	{HWAccelQSV, CodecAV1}: {
-		encoder:     "av1_qsv",
-		qualityFlag: "-global_quality",
-		quality:     "32",
-		extraArgs:   []string{"-preset", "medium"},
+		encoder:       "av1_qsv",
+		qualityFlag:   "-global_quality",
+		quality:       "32",
+		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
-		scaleFilter: "scale_qsv",
-		baseFilter:  "format=nv12|qsv,hwupload=extra_hw_frames=64,scale_qsv=format=nv12", // Added scale_qsv for format compatibility
-		qualityMin:  20,
-		qualityMax:  40,
+		scaleFilter:   "scale_qsv",
+		scalePixFmt:   "nv12",
+		hwFrameSuffix: "qsv",
+		uploadFilter:  "hwupload=extra_hw_frames=64",
+		qualityMin:    20,
+		qualityMax:    40,
 	},
 	{HWAccelVAAPI, CodecAV1}: {
-		encoder:     "av1_vaapi",
-		qualityFlag: "-qp",
-		quality:     "32",
-		extraArgs:   []string{},
+		encoder:       "av1_vaapi",
+		qualityFlag:   "-qp",
+		quality:       "32",
+		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
-		scaleFilter: "scale_vaapi",
-		baseFilter:  "format=nv12|vaapi,hwupload,scale_vaapi=format=nv12", // Added scale_vaapi for format compatibility
-		qualityMin:  20,
-		qualityMax:  40,
+		scaleFilter:   "scale_vaapi",
+		scalePixFmt:   "nv12",
+		hwFrameSuffix: "vaapi",
+		uploadFilter:  "hwupload",
+		qualityMin:    20,
+		qualityMax:    40,
 	},
 }
 
@@ -428,55 +463,46 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	// Build video filter chain
 	var filterParts []string
 
-	// First add any base filters for decode pipeline
-	if softwareDecode {
-		// Use software decode filter for the encoder
-		// Pass preserveHDR=false when tonemapping (SW tonemap outputs 8-bit SDR)
-		swFilter := getSoftwareDecodeFilter(preset.Encoder, preserveHDR && !needsTonemap)
-		if swFilter != "" {
-			filterParts = append(filterParts, swFilter)
-		}
-	} else if config.baseFilter != "" {
-		// Use normal hardware decode filter
-		// For HDR preservation, replace nv12 with p010 in the filter chain
-		baseFilter := config.baseFilter
-		if preserveHDR && !needsTonemap {
-			baseFilter = strings.ReplaceAll(baseFilter, "format=nv12", "format=p010")
-			baseFilter = strings.ReplaceAll(baseFilter, "=format=nv12", "=format=p010")
-		}
-		filterParts = append(filterParts, baseFilter)
+	// Determine pixel format: nv12 for SDR, p010 for HDR preservation
+	pixFmt := config.scalePixFmt
+	if preserveHDR && !needsTonemap && pixFmt != "" {
+		pixFmt = "p010"
 	}
 
-	// Add tonemapping filter if needed
-	// Software tonemap (zscale) goes before hwupload since it requires CPU frames
 	if needsTonemap && tonemapFilter != "" {
-		// Software tonemap - insert at beginning (before hwupload)
-		// The zscale chain expects CPU frames and outputs CPU frames
+		// TONEMAPPING PATH: zscale on CPU, optional CPU scale, then hwupload
 		filterParts = []string{tonemapFilter}
-
-		// Add CPU scaling if needed - must be done BEFORE hwupload since
-		// software tonemapping outputs CPU frames. Hardware scalers (scale_qsv,
-		// scale_cuda, etc.) don't work after hwupload from software tonemap.
 		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
-			filterParts = append(filterParts, fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
+			filterParts = append(filterParts,
+				fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
 		}
-
-		// Re-add hwupload after tonemap (and optional scale) if encoder needs it
-		// Tonemap outputs 8-bit SDR, so preserveHDR=false
-		swFilter := getSoftwareDecodeFilter(preset.Encoder, false)
-		if swFilter != "" {
-			filterParts = append(filterParts, swFilter)
+		if upload := config.buildUploadPipeline("nv12"); upload != "" {
+			filterParts = append(filterParts, upload)
 		}
-	}
-
-	// Add scaling filter if needed (non-tonemapping path only)
-	// When tonemapping, scaling is already handled above with CPU scale
-	if !needsTonemap && preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
-		scaleFilter := config.scaleFilter
-		if scaleFilter == "" {
-			scaleFilter = "scale"
+	} else if softwareDecode {
+		// SOFTWARE DECODE PATH: CPU scale first (frames are in system memory),
+		// then upload to GPU. Scaling must happen before hwupload because the
+		// CPU scale filter cannot operate on hardware surfaces.
+		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+			filterParts = append(filterParts,
+				fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
 		}
-		filterParts = append(filterParts, fmt.Sprintf("%s=-2:'min(ih,%d)'", scaleFilter, preset.MaxHeight))
+		if upload := config.buildUploadPipeline(pixFmt); upload != "" {
+			filterParts = append(filterParts, upload)
+		}
+	} else {
+		// HARDWARE DECODE PATH: frame format negotiation, upload, HW scale
+		if config.hwFrameSuffix != "" {
+			filterParts = append(filterParts,
+				fmt.Sprintf("format=%s|%s", pixFmt, config.hwFrameSuffix))
+		}
+		if config.uploadFilter != "" {
+			filterParts = append(filterParts, config.uploadFilter)
+		}
+		needsResize := preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight
+		if scaleStr := config.buildScaleFilter(preset.MaxHeight, needsResize, pixFmt); scaleStr != "" {
+			filterParts = append(filterParts, scaleStr)
+		}
 	}
 
 	// Apply filter chain if we have any filters
@@ -778,31 +804,6 @@ func getSoftwarePreset(id string) *Preset {
 		}
 	}
 	return nil
-}
-
-// getSoftwareDecodeFilter returns the filter chain for software decode + hardware encode.
-// These are simplified filters that avoid problematic hardware post-processing filters
-// like vpp_qsv which can cause -38 errors near end of stream.
-// When preserveHDR is true, uses p010 (10-bit) format to preserve HDR color depth.
-func getSoftwareDecodeFilter(encoder HWAccel, preserveHDR bool) string {
-	pixFmt := "nv12"
-	if preserveHDR {
-		pixFmt = "p010"
-	}
-	switch encoder {
-	case HWAccelQSV:
-		// Simple hwupload - no vpp_qsv (causes -38 errors near EOF)
-		// Per Jellyfin PR #5534: hwupload is sufficient for QSV encoding
-		return fmt.Sprintf("format=%s,hwupload=extra_hw_frames=64", pixFmt)
-	case HWAccelVAAPI:
-		return fmt.Sprintf("format=%s,hwupload", pixFmt)
-	case HWAccelNVENC:
-		return "" // NVENC auto-handles CPU frames
-	case HWAccelVideoToolbox:
-		return "" // VideoToolbox encoder handles CPU frames directly
-	default:
-		return ""
-	}
 }
 
 // BuildTonemapFilter returns the FFmpeg filter chain for HDR to SDR tonemapping.

@@ -785,3 +785,229 @@ func TestBuildPresetArgsSubtitleMapping(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildPresetArgsDownscaleSingleHWScaler verifies that downscale presets
+// produce exactly one hardware scale filter per encoder, not two.
+// Regression test for issue #101: duplicate scale_cuda/scale_qsv/scale_vaapi
+// caused fallback to software encoding on older GPUs.
+func TestBuildPresetArgsDownscaleSingleHWScaler(t *testing.T) {
+	tests := []struct {
+		name        string
+		encoder     HWAccel
+		codec       Codec
+		scaleFilter string // the HW scaler name to check for duplicates
+		wantInVF    string // expected merged filter substring
+	}{
+		{
+			name:        "NVENC HEVC downscale 720p",
+			encoder:     HWAccelNVENC,
+			codec:       CodecHEVC,
+			scaleFilter: "scale_cuda",
+			wantInVF:    "scale_cuda=w=-2:h='min(ih,720)':format=nv12",
+		},
+		{
+			name:        "NVENC AV1 downscale 720p",
+			encoder:     HWAccelNVENC,
+			codec:       CodecAV1,
+			scaleFilter: "scale_cuda",
+			wantInVF:    "scale_cuda=w=-2:h='min(ih,720)':format=nv12",
+		},
+		{
+			name:        "QSV HEVC downscale 720p",
+			encoder:     HWAccelQSV,
+			codec:       CodecHEVC,
+			scaleFilter: "scale_qsv",
+			wantInVF:    "scale_qsv=w=-2:h='min(ih,720)':format=nv12",
+		},
+		{
+			name:        "VAAPI HEVC downscale 720p",
+			encoder:     HWAccelVAAPI,
+			codec:       CodecHEVC,
+			scaleFilter: "scale_vaapi",
+			wantInVF:    "scale_vaapi=w=-2:h='min(ih,720)':format=nv12",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preset := &Preset{
+				ID:        "test-downscale",
+				Encoder:   tt.encoder,
+				Codec:     tt.codec,
+				MaxHeight: 720,
+			}
+
+			// sourceHeight=1080 triggers downscaling to 720
+			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+
+			// Find the -vf argument
+			vfFilter := ""
+			for i, arg := range outputArgs {
+				if arg == "-vf" && i+1 < len(outputArgs) {
+					vfFilter = outputArgs[i+1]
+					break
+				}
+			}
+
+			if vfFilter == "" {
+				t.Fatal("expected -vf argument in output args")
+			}
+
+			t.Logf("Filter chain: %s", vfFilter)
+
+			// Must contain the merged filter
+			if !strings.Contains(vfFilter, tt.wantInVF) {
+				t.Errorf("expected merged filter %q in chain, got: %s", tt.wantInVF, vfFilter)
+			}
+
+			// Must have exactly one instance of the HW scaler
+			count := strings.Count(vfFilter, tt.scaleFilter)
+			if count != 1 {
+				t.Errorf("expected exactly 1 %s in filter chain, found %d: %s", tt.scaleFilter, count, vfFilter)
+			}
+		})
+	}
+}
+
+// TestBuildPresetArgsDownscaleHDRPreservation verifies that downscale presets
+// with HDR preservation use p010 format in the merged filter.
+func TestBuildPresetArgsDownscaleHDRPreservation(t *testing.T) {
+	tests := []struct {
+		name        string
+		encoder     HWAccel
+		scaleFilter string
+		wantInVF    string
+	}{
+		{
+			name:        "NVENC HDR downscale 720p",
+			encoder:     HWAccelNVENC,
+			scaleFilter: "scale_cuda",
+			wantInVF:    "scale_cuda=w=-2:h='min(ih,720)':format=p010",
+		},
+		{
+			name:        "VAAPI HDR downscale 720p",
+			encoder:     HWAccelVAAPI,
+			scaleFilter: "scale_vaapi",
+			wantInVF:    "scale_vaapi=w=-2:h='min(ih,720)':format=p010",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preset := &Preset{
+				ID:        "test-hdr-downscale",
+				Encoder:   tt.encoder,
+				Codec:     CodecHEVC,
+				MaxHeight: 720,
+			}
+
+			tonemap := &TonemapParams{
+				IsHDR:         true,
+				EnableTonemap: false, // preserve HDR
+			}
+
+			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+
+			vfFilter := ""
+			for i, arg := range outputArgs {
+				if arg == "-vf" && i+1 < len(outputArgs) {
+					vfFilter = outputArgs[i+1]
+					break
+				}
+			}
+
+			if vfFilter == "" {
+				t.Fatal("expected -vf argument in output args")
+			}
+
+			t.Logf("Filter chain: %s", vfFilter)
+
+			if !strings.Contains(vfFilter, tt.wantInVF) {
+				t.Errorf("expected merged HDR filter %q in chain, got: %s", tt.wantInVF, vfFilter)
+			}
+
+			// Exactly one HW scaler
+			count := strings.Count(vfFilter, tt.scaleFilter)
+			if count != 1 {
+				t.Errorf("expected exactly 1 %s in filter chain, found %d: %s", tt.scaleFilter, count, vfFilter)
+			}
+		})
+	}
+}
+
+// TestBuildPresetArgsSoftwareDecodeDownscale verifies that when software decode
+// is active, downscale presets use CPU scaling (scale) not hardware scaling
+// (scale_cuda/scale_qsv/scale_vaapi), since frames are on CPU.
+func TestBuildPresetArgsSoftwareDecodeDownscale(t *testing.T) {
+	hwEncoders := []struct {
+		name        string
+		encoder     HWAccel
+		scaleFilter string // should NOT appear in filter chain
+	}{
+		{"NVENC", HWAccelNVENC, "scale_cuda"},
+		{"QSV", HWAccelQSV, "scale_qsv"},
+		{"VAAPI", HWAccelVAAPI, "scale_vaapi"},
+	}
+
+	for _, enc := range hwEncoders {
+		t.Run(enc.name, func(t *testing.T) {
+			preset := &Preset{
+				ID:        "test-sw-downscale",
+				Encoder:   enc.encoder,
+				Codec:     CodecHEVC,
+				MaxHeight: 720,
+			}
+
+			// softwareDecode=true, sourceHeight=1080 triggers downscaling
+			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, true, "mkv", nil, nil)
+
+			vfFilter := ""
+			for i, arg := range outputArgs {
+				if arg == "-vf" && i+1 < len(outputArgs) {
+					vfFilter = outputArgs[i+1]
+					break
+				}
+			}
+
+			t.Logf("Filter chain: %s", vfFilter)
+
+			// Must use CPU scale, not the HW scaler
+			if strings.Contains(vfFilter, enc.scaleFilter) {
+				t.Errorf("software decode should not use %s, got: %s", enc.scaleFilter, vfFilter)
+			}
+
+			// Must contain CPU scale with dimensions
+			if !strings.Contains(vfFilter, "scale=-2:'min(ih,720)'") {
+				t.Errorf("expected CPU scale=-2:'min(ih,720)' in filter chain, got: %s", vfFilter)
+			}
+		})
+	}
+}
+
+// TestBuildPresetArgsCompressNoScale verifies that compress presets (MaxHeight=0)
+// do NOT add any scaling filter, confirming they remain unaffected by the fix.
+func TestBuildPresetArgsCompressNoScale(t *testing.T) {
+	preset := &Preset{
+		ID:      "test-compress",
+		Encoder: HWAccelNVENC,
+		Codec:   CodecHEVC,
+		// MaxHeight=0 means no scaling
+	}
+
+	_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+
+	vfFilter := ""
+	for i, arg := range outputArgs {
+		if arg == "-vf" && i+1 < len(outputArgs) {
+			vfFilter = outputArgs[i+1]
+			break
+		}
+	}
+
+	t.Logf("Filter chain: %s", vfFilter)
+
+	// Compress should have exactly the base filter, no resize dimensions
+	if vfFilter != "scale_cuda=format=nv12" {
+		t.Errorf("compress preset should have only base filter, got: %s", vfFilter)
+	}
+}
