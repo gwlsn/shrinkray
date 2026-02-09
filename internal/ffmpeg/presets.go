@@ -167,7 +167,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// 0.25 = 25% of source bitrate.
 		// AV1 achieves better quality at lower bitrates than HEVC, so this
 		// more aggressive setting produces comparable visual quality to
-		// HEVC at 0.35. Roughly equivalent to SVT-AV1 CRF 30-32.
+		// HEVC at 0.52. Roughly equivalent to SVT-AV1 CRF 30-32.
 		quality:     "0.25",
 		extraArgs:   []string{"-allow_sw", "1"},
 		usesBitrate: true,
@@ -530,7 +530,7 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 			// Convert CRF override to bitrate modifier
 			modifier = crfToBitrateModifier(qualityOverride)
 		} else {
-			// Parse default modifier from config (e.g., "0.35")
+			// Parse default modifier from config (e.g., "0.52")
 			modifier = 0.5
 			fmt.Sscanf(config.quality, "%f", &modifier)
 		}
@@ -650,7 +650,7 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 // BuildSampleEncodeArgs builds FFmpeg arguments for encoding a sample.
 // Similar to BuildPresetArgs but video-only (no audio/subtitles).
 // For VideoToolbox (bitrate-based encoders), modifierOverride sets the bitrate
-// as a fraction of a reference bitrate (e.g., 0.35 = 35% of 10Mbps = 3.5Mbps).
+// as a fraction of a reference bitrate (e.g., 0.52 = 52% of 10Mbps = 5.2Mbps).
 func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
 	qualityOverride int, modifierOverride float64, softwareDecode bool) (inputArgs []string, outputArgs []string) {
 
