@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-02-09
+
+### Added
+- **Per-codec encoder recommended quality** - Quality sliders now show the encoder name and VMAF-calibrated default below each slider (e.g., "Recommended (VAAPI): 20")
+
+### Fixed
+- **Duplicate hardware scale filters** (#102) - Restructured encoder filter chain to eliminate duplicate HW scale filters that caused transcode failures
+- **VMAF-calibrated quality defaults** - All encoder defaults recalibrated via VMAF binary search to target ~83 VMAF consistently across QSV, VAAPI, NVENC, and software
+- **Per-codec encoder detection** - HEVC and AV1 now detect hardware encoders independently, fixing wrong defaults when codecs use different hardware (e.g., NVENC HEVC + software AV1)
+- **Quality validation accepts auto mode** - Setting quality to 0 (use encoder default) no longer rejected by API validation
+
+### Changed
+- Collapsed identical main10 profile switch arms into single statement
+- Updated stale comments referencing old 0.35 bitrate modifier values
+
 ## [2.2.0] - 2026-02-08
 
 ### Added
