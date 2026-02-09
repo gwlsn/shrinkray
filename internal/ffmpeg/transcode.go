@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,7 +327,8 @@ func (t *Transcoder) Transcode(
 	}, nil
 }
 
-// BuildTempPath generates a temporary output path for transcoding
+// BuildTempPath generates a unique temporary output path for transcoding.
+// Uses a random suffix to prevent collisions when temp files share a directory.
 // format should be "mkv" or "mp4"
 func BuildTempPath(inputPath, tempDir, format string) string {
 	base := filepath.Base(inputPath)
@@ -336,7 +338,7 @@ func BuildTempPath(inputPath, tempDir, format string) string {
 	if format == "mp4" {
 		outExt = "mp4"
 	}
-	tempName := fmt.Sprintf("%s.shrinkray.tmp.%s", name, outExt)
+	tempName := fmt.Sprintf("%s.%016x.shrinkray.tmp.%s", name, rand.Uint64(), outExt)
 	return filepath.Join(tempDir, tempName)
 }
 

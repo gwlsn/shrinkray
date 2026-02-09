@@ -113,7 +113,7 @@ func main() {
 	if cfg.TempPath != "" {
 		fmt.Printf("  Temp path:    %s\n", cfg.TempPath)
 	} else {
-		fmt.Printf("  Temp path:    (same as source)\n")
+		fmt.Printf("  Temp path:    %s (default)\n", os.TempDir())
 	}
 	fmt.Printf("  Workers:      %d\n", cfg.Workers)
 	fmt.Printf("  Original:     %s\n", cfg.OriginalHandling)

@@ -4,43 +4,45 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestBuildTempPath(t *testing.T) {
 	tests := []struct {
-		input    string
-		tempDir  string
-		format   string
-		expected string
+		input   string
+		tempDir string
+		format  string
+		wantDir string
+		prefix  string
+		suffix  string
 	}{
-		{
-			"/media/movie.mkv",
-			"/tmp",
-			"mkv",
-			"/tmp/movie.shrinkray.tmp.mkv",
-		},
-		{
-			"/media/tv/show/episode.mp4",
-			"/media/tv/show",
-			"mkv",
-			"/media/tv/show/episode.shrinkray.tmp.mkv",
-		},
-		{
-			"/data/video.avi",
-			"/data",
-			"mp4",
-			"/data/video.shrinkray.tmp.mp4",
-		},
+		{"/media/movie.mkv", "/tmp", "mkv", "/tmp", "movie.", ".shrinkray.tmp.mkv"},
+		{"/media/tv/show/episode.mp4", "/media/tv/show", "mkv", "/media/tv/show", "episode.", ".shrinkray.tmp.mkv"},
+		{"/data/video.avi", "/data", "mp4", "/data", "video.", ".shrinkray.tmp.mp4"},
 	}
 
 	for _, tt := range tests {
 		result := BuildTempPath(tt.input, tt.tempDir, tt.format)
-		if result != tt.expected {
-			t.Errorf("BuildTempPath(%s, %s, %s) = %s, expected %s",
-				tt.input, tt.tempDir, tt.format, result, tt.expected)
+		dir := filepath.Dir(result)
+		base := filepath.Base(result)
+		if dir != tt.wantDir {
+			t.Errorf("BuildTempPath(%s, %s, %s): dir = %s, want %s", tt.input, tt.tempDir, tt.format, dir, tt.wantDir)
 		}
+		if !strings.HasPrefix(base, tt.prefix) {
+			t.Errorf("BuildTempPath(%s, %s, %s): base %s missing prefix %s", tt.input, tt.tempDir, tt.format, base, tt.prefix)
+		}
+		if !strings.HasSuffix(base, tt.suffix) {
+			t.Errorf("BuildTempPath(%s, %s, %s): base %s missing suffix %s", tt.input, tt.tempDir, tt.format, base, tt.suffix)
+		}
+	}
+
+	// Verify uniqueness: same input produces different paths (random suffix)
+	a := BuildTempPath("/media/movie.mkv", "/tmp", "mkv")
+	b := BuildTempPath("/media/movie.mkv", "/tmp", "mkv")
+	if a == b {
+		t.Errorf("expected unique paths, got identical: %s", a)
 	}
 }
 

@@ -12,8 +12,8 @@ type Config struct {
 	// MediaPath is the root directory to browse for media files
 	MediaPath string `yaml:"media_path"`
 
-	// TempPath is where temp files are written during transcoding
-	// If empty, temp files go in the same directory as the source
+	// TempPath is where temp files are written during transcoding.
+	// If empty, defaults to os.TempDir().
 	TempPath string `yaml:"temp_path"`
 
 	// OriginalHandling determines what happens to original files after transcoding
@@ -88,7 +88,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		MediaPath:         "/media",
-		TempPath:          "", // same directory as source
+		TempPath:          "", // defaults to os.TempDir()
 		OriginalHandling:  "replace",
 		Workers:           1,
 		FFmpegPath:        "ffmpeg",
@@ -177,11 +177,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// GetTempDir returns the directory for temp files
-// If TempPath is set, returns that; otherwise returns the directory of the source file
-func (c *Config) GetTempDir(sourcePath string) string {
+// GetTempDir returns the directory for temp files.
+// If TempPath is set, returns that; otherwise defaults to os.TempDir()
+// to avoid writing temp files to slow or unreliable media filesystems (#103).
+func (c *Config) GetTempDir() string {
 	if c.TempPath != "" {
 		return c.TempPath
 	}
-	return filepath.Dir(sourcePath)
+	return os.TempDir()
 }

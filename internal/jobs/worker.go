@@ -579,7 +579,7 @@ func (w *Worker) processJob(job *Job) {
 	}
 
 	// Build temp output path
-	tempDir := w.cfg.GetTempDir(job.InputPath)
+	tempDir := w.cfg.GetTempDir()
 	tempPath := ffmpeg.BuildTempPath(job.InputPath, tempDir, w.cfg.OutputFormat)
 
 	// Mark job as started (first worker to call this wins)
@@ -893,8 +893,7 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	// Get quality range for this encoder
 	qRange := ffmpeg.GetQualityRange(preset.Encoder, preset.Codec)
 
-	// Get temp directory for analysis
-	tempDir := wp.cfg.GetTempDir(job.InputPath)
+	tempDir := wp.cfg.GetTempDir()
 
 	// Get threshold from job's quality tier
 	threshold := getSmartShrinkThreshold(job.SmartShrinkQuality)

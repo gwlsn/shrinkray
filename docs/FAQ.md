@@ -55,7 +55,7 @@ Open `http://localhost:8080` in your browser.
 
 - **Config file**: `/config/shrinkray.yaml`
 - **Database**: `/config/shrinkray.db` (SQLite)
-- **Temp files**: Same directory as source (configurable via `temp_path`)
+- **Temp files**: OS temp directory (configurable via `temp_path`)
 
 ### Can I run Shrinkray in Docker on Mac?
 
