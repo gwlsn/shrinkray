@@ -124,7 +124,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelQSV, CodecHEVC}: {
 		encoder:       "hevc_qsv",
 		qualityFlag:   "-global_quality",
-		quality:       "22",
+		quality:       "20",
 		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
 		scaleFilter:   "scale_qsv",
@@ -137,7 +137,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:       "hevc_vaapi",
 		qualityFlag:   "-qp",
-		quality:       "22",
+		quality:       "20",
 		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter:   "scale_vaapi",
@@ -190,7 +190,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelQSV, CodecAV1}: {
 		encoder:       "av1_qsv",
 		qualityFlag:   "-global_quality",
-		quality:       "25",
+		quality:       "22",
 		extraArgs:     []string{"-preset", "medium"},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs() - QSV derived from VAAPI on Linux
 		scaleFilter:   "scale_qsv",
@@ -203,7 +203,7 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:       "av1_vaapi",
 		qualityFlag:   "-qp",
-		quality:       "25",
+		quality:       "22",
 		extraArgs:     []string{},
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter:   "scale_vaapi",

@@ -258,8 +258,8 @@ func TestGetEncoderDefaults(t *testing.T) {
 		{HWAccelNone, "Software", 22, 25},
 		{HWAccelVideoToolbox, "VideoToolbox", 0, 0}, // Bitrate-based, returns 0
 		{HWAccelNVENC, "NVENC", 26, 32},
-		{HWAccelQSV, "QSV", 22, 25},
-		{HWAccelVAAPI, "VAAPI", 22, 25},
+		{HWAccelQSV, "QSV", 20, 22},
+		{HWAccelVAAPI, "VAAPI", 20, 22},
 	}
 
 	for _, tt := range tests {
