@@ -338,7 +338,7 @@ func BuildTempPath(inputPath, tempDir, format string) string {
 	if format == "mp4" {
 		outExt = "mp4"
 	}
-	tempName := fmt.Sprintf("%s.%016x.shrinkray.tmp.%s", name, rand.Uint64(), outExt)
+	tempName := fmt.Sprintf("%s.%016x.shrinkray.tmp.%s", name, rand.Uint64(), outExt) //nolint:gosec // temp filename uniqueness, not security
 	return filepath.Join(tempDir, tempName)
 }
 
