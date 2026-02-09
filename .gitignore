@@ -46,4 +46,4 @@ test/integration/
 ghcr.sh
 CLAUDE.md
 HANDOFF.md
-plans/
+**/plans/
