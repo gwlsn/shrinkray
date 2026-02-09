@@ -580,20 +580,9 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	// - Main10 profile for 10-bit HEVC/AV1
 	// - Color metadata for HDR10 (BT.2020 colorspace, PQ transfer)
 	if preserveHDR && !needsTonemap {
-		// Set 10-bit profile for HEVC encoders
-		// Most HW encoders auto-detect, but explicit is safer
+		// Set 10-bit profile for HDR HEVC (works for all encoders)
 		if preset.Codec == CodecHEVC {
-			switch preset.Encoder {
-			case HWAccelNVENC:
-				outputArgs = append(outputArgs, "-profile:v", "main10")
-			case HWAccelQSV, HWAccelVAAPI:
-				outputArgs = append(outputArgs, "-profile:v", "main10")
-			case HWAccelVideoToolbox:
-				outputArgs = append(outputArgs, "-profile:v", "main10")
-			case HWAccelNone:
-				// libx265 uses x265-params for profile
-				outputArgs = append(outputArgs, "-profile:v", "main10")
-			}
+			outputArgs = append(outputArgs, "-profile:v", "main10")
 		}
 		// Add HDR10 color metadata to preserve HDR signaling
 		outputArgs = append(outputArgs,
