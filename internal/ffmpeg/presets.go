@@ -419,7 +419,8 @@ type TonemapParams struct {
 // qualityHEVC/qualityAV1 are optional CRF overrides (0 = use default)
 // qualityMod is an optional bitrate modifier for VideoToolbox (0 = use default)
 // softwareDecode: if true, skip hardware decode args and use software decode filter
-// outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC and strips subtitles
+// outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC.
+//                So far this will pass through text based subtitles but will fail if an image based subtitle is in the original file. That's my next fix. 
 // tonemap: optional tonemapping parameters (nil = no tonemapping)
 // subtitleIndices controls subtitle mapping for MKV output:
 //   - nil: map all subtitles (-map 0:s?)
@@ -600,15 +601,20 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		"-map", "0:a?",  // All audio streams (optional)
 	)
 
-	if outputFormat == "mp4" {
-		// MP4: Transcode audio to AAC for web compatibility, strip subtitles (PGS breaks MP4)
-		outputArgs = append(outputArgs,
-			"-c:a", "aac",
-			"-b:a", "192k",
-			"-ac", "2", // Stereo for wide compatibility
-			"-sn",      // Strip subtitles
-		)
-	} else {
+if outputFormat == "mp4" {
+    outputArgs = append(outputArgs,
+        // MP4: keep original audio
+        "-c:a", "copy",
+
+        // Include subtitles (optional) and convert to MP4-compatible text
+        "-map", "0:s?",
+        "-c:s", "mov_text",
+
+        // Faststart: move moov atom to beginning
+        "-movflags", "+faststart",
+    )
+} else {
+
 		// MKV: Copy audio, handle subtitles based on subtitleIndices
 		outputArgs = append(outputArgs, "-c:a", "copy")
 

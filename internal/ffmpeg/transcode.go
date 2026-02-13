@@ -348,15 +348,25 @@ func BuildTempPath(inputPath, tempDir, format string) string {
 // Uses copy-then-delete instead of rename to support cross-filesystem moves.
 // format should be "mkv" or "mp4"
 func FinalizeTranscode(inputPath, tempPath, format string, replace bool) (finalPath string, err error) {
-	dir := filepath.Dir(inputPath)
-	base := filepath.Base(inputPath)
-	ext := filepath.Ext(base)
-	name := strings.TrimSuffix(base, ext)
-	outExt := ".mkv"
-	if format == "mp4" {
-		outExt = ".mp4"
-	}
-	finalPath = filepath.Join(dir, name+outExt)
+    dir := filepath.Dir(inputPath)
+
+    // NEW: write finished files into a "completed" subfolder next to the input
+    dir = filepath.Join(dir, "completed")
+    if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+        return "", fmt.Errorf("create completed dir: %w", mkErr)
+    }
+
+    base := filepath.Base(inputPath)
+    ext := filepath.Ext(base)
+    name := strings.TrimSuffix(base, ext)
+    outExt := ".mkv"
+    if format == "mp4" {
+        outExt = ".mp4"
+    }
+    finalPath = filepath.Join(dir, name+outExt)
+
+    // ...rest unchanged...
+
 
 	// Capture original modification time to preserve it on the output file
 	inputInfo, err := os.Stat(inputPath)
