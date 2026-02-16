@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -759,11 +760,11 @@ func TestBuildPresetArgsSubtitleMapping(t *testing.T) {
 			wantNotContains: []string{"0:s?"},
 		},
 		{
-			name:            "MP4 always strips subtitles regardless of indices",
+			name:            "MP4 includes subtitles as mov_text",
 			subtitleIndices: []int{2, 4},
 			outputFormat:    "mp4",
-			wantContains:    []string{"-sn"},
-			wantNotContains: []string{"0:2", "0:4", "-c:s"},
+			wantContains:    []string{"0:s?", "-c:s", "mov_text"},
+			wantNotContains: []string{"-sn"},
 		},
 	}
 
@@ -1105,5 +1106,326 @@ func TestBuildPresetArgsCompressNoScale(t *testing.T) {
 	// Compress should have exactly the base filter, no resize dimensions
 	if vfFilter != "scale_cuda=format=nv12" {
 		t.Errorf("compress preset should have only base filter, got: %s", vfFilter)
+	}
+}
+
+// TestCrfToBitrateModifier tests the CRF to bitrate modifier conversion formula
+func TestCrfToBitrateModifier(t *testing.T) {
+	tests := []struct {
+		crf      int
+		expected float64
+	}{
+		{15, 0.50}, // Near-lossless
+		{22, 0.36}, // High quality default
+		{26, 0.28}, // Typical compress
+		{35, 0.10}, // Aggressive compression
+		{0, 0.80},  // Edge case: CRF 0 clamps to max 0.80
+		{50, 0.05}, // Edge case: high CRF clamps to min 0.05
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("CRF_%d", tt.crf), func(t *testing.T) {
+			result := crfToBitrateModifier(tt.crf)
+			// Allow small floating point tolerance
+			if result < tt.expected-0.01 || result > tt.expected+0.01 {
+				t.Errorf("crfToBitrateModifier(%d) = %.3f, want %.3f", tt.crf, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestEncoderSettings_buildScaleFilter tests the scale filter generation
+func TestEncoderSettings_buildScaleFilter(t *testing.T) {
+	tests := []struct {
+		name           string
+		scaleFilter    string
+		scalePixFmt    string
+		maxHeight      int
+		resize         bool
+		pixFmt         string
+		expectedFilter string
+	}{
+		{
+			name:           "CPU encoder no resize",
+			scaleFilter:    "scale",
+			scalePixFmt:    "",
+			maxHeight:      0,
+			resize:         false,
+			pixFmt:         "",
+			expectedFilter: "",
+		},
+		{
+			name:           "CPU encoder with resize",
+			scaleFilter:    "scale",
+			scalePixFmt:    "",
+			maxHeight:      720,
+			resize:         true,
+			pixFmt:         "",
+			expectedFilter: "scale=-2:'min(ih,720)'",
+		},
+		{
+			name:           "NVENC no resize (format only)",
+			scaleFilter:    "scale_cuda",
+			scalePixFmt:    "nv12",
+			maxHeight:      0,
+			resize:         false,
+			pixFmt:         "nv12",
+			expectedFilter: "scale_cuda=format=nv12",
+		},
+		{
+			name:           "NVENC with resize",
+			scaleFilter:    "scale_cuda",
+			scalePixFmt:    "nv12",
+			maxHeight:      1080,
+			resize:         true,
+			pixFmt:         "nv12",
+			expectedFilter: "scale_cuda=w=-2:h='min(ih,1080)':format=nv12",
+		},
+		{
+			name:           "HDR preservation with p010",
+			scaleFilter:    "scale_cuda",
+			scalePixFmt:    "nv12",
+			maxHeight:      1080,
+			resize:         true,
+			pixFmt:         "p010",
+			expectedFilter: "scale_cuda=w=-2:h='min(ih,1080)':format=p010",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			es := &encoderSettings{
+				scaleFilter: tt.scaleFilter,
+				scalePixFmt: tt.scalePixFmt,
+			}
+			result := es.buildScaleFilter(tt.maxHeight, tt.resize, tt.pixFmt)
+			if result != tt.expectedFilter {
+				t.Errorf("buildScaleFilter() = %q, want %q", result, tt.expectedFilter)
+			}
+		})
+	}
+}
+
+// TestEncoderSettings_buildUploadPipeline tests the GPU upload filter generation
+func TestEncoderSettings_buildUploadPipeline(t *testing.T) {
+	tests := []struct {
+		name           string
+		uploadFilter   string
+		pixFmt         string
+		expectedFilter string
+	}{
+		{
+			name:           "No upload filter (NVENC, VideoToolbox)",
+			uploadFilter:   "",
+			pixFmt:         "nv12",
+			expectedFilter: "",
+		},
+		{
+			name:           "QSV upload",
+			uploadFilter:   "hwupload=extra_hw_frames=64",
+			pixFmt:         "nv12",
+			expectedFilter: "format=nv12,hwupload=extra_hw_frames=64",
+		},
+		{
+			name:           "VAAPI upload",
+			uploadFilter:   "hwupload",
+			pixFmt:         "nv12",
+			expectedFilter: "format=nv12,hwupload",
+		},
+		{
+			name:           "Upload with p010 format",
+			uploadFilter:   "hwupload",
+			pixFmt:         "p010",
+			expectedFilter: "format=p010,hwupload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			es := &encoderSettings{
+				uploadFilter: tt.uploadFilter,
+			}
+			result := es.buildUploadPipeline(tt.pixFmt)
+			if result != tt.expectedFilter {
+				t.Errorf("buildUploadPipeline() = %q, want %q", result, tt.expectedFilter)
+			}
+		})
+	}
+}
+
+// TestGetQualityRange tests quality range retrieval for different encoders
+func TestGetQualityRange(t *testing.T) {
+	tests := []struct {
+		name        string
+		hwaccel     HWAccel
+		codec       Codec
+		expectedMin int
+		expectedMax int
+	}{
+		{"Software HEVC", HWAccelNone, CodecHEVC, 16, 30},
+		{"Software AV1", HWAccelNone, CodecAV1, 18, 35},
+		{"NVENC HEVC", HWAccelNVENC, CodecHEVC, 16, 30},
+		{"NVENC AV1", HWAccelNVENC, CodecAV1, 18, 35},
+		{"QSV HEVC", HWAccelQSV, CodecHEVC, 16, 30},
+		{"QSV AV1", HWAccelQSV, CodecAV1, 18, 35},
+		{"VAAPI HEVC", HWAccelVAAPI, CodecHEVC, 16, 30},
+		{"VAAPI AV1", HWAccelVAAPI, CodecAV1, 18, 35},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			qr := GetQualityRange(tt.hwaccel, tt.codec)
+			if qr.Min != tt.expectedMin {
+				t.Errorf("Min = %d, want %d", qr.Min, tt.expectedMin)
+			}
+			if qr.Max != tt.expectedMax {
+				t.Errorf("Max = %d, want %d", qr.Max, tt.expectedMax)
+			}
+		})
+	}
+}
+
+// TestGetQualityRange_VideoToolbox tests VideoToolbox bitrate-based range
+func TestGetQualityRange_VideoToolbox(t *testing.T) {
+	tests := []struct {
+		codec       Codec
+		expectedMin float64
+		expectedMax float64
+	}{
+		{CodecHEVC, 0.05, 0.80},
+		{CodecAV1, 0.05, 0.70},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.codec), func(t *testing.T) {
+			qr := GetQualityRange(HWAccelVideoToolbox, tt.codec)
+			if !qr.UsesBitrate {
+				t.Error("VideoToolbox should use bitrate-based quality")
+			}
+			if qr.MinMod != tt.expectedMin {
+				t.Errorf("MinMod = %.2f, want %.2f", qr.MinMod, tt.expectedMin)
+			}
+			if qr.MaxMod != tt.expectedMax {
+				t.Errorf("MaxMod = %.2f, want %.2f", qr.MaxMod, tt.expectedMax)
+			}
+		})
+	}
+}
+
+// TestBuildSampleEncodeArgs tests sample encoding arguments for VMAF
+func TestBuildSampleEncodeArgs(t *testing.T) {
+	preset := &Preset{
+		ID:      "test",
+		Encoder: HWAccelNVENC,
+		Codec:   CodecHEVC,
+	}
+
+	inputArgs, outputArgs := BuildSampleEncodeArgs(preset, 1920, 1080, 25, 0, false)
+
+	// Should have input args for hardware acceleration
+	if len(inputArgs) == 0 {
+		t.Error("expected hwaccel input args")
+	}
+
+	// Should have video codec
+	hasCodec := false
+	for i, arg := range outputArgs {
+		if arg == "-c:v" && i+1 < len(outputArgs) {
+			hasCodec = true
+			if outputArgs[i+1] != "hevc_nvenc" {
+				t.Errorf("expected hevc_nvenc, got %s", outputArgs[i+1])
+			}
+		}
+	}
+	if !hasCodec {
+		t.Error("expected -c:v in output args")
+	}
+
+	// Should have quality flag
+	hasQuality := false
+	for i, arg := range outputArgs {
+		if arg == "-cq" && i+1 < len(outputArgs) {
+			hasQuality = true
+			if outputArgs[i+1] != "25" {
+				t.Errorf("expected quality 25, got %s", outputArgs[i+1])
+			}
+		}
+	}
+	if !hasQuality {
+		t.Error("expected -cq flag in output args")
+	}
+
+	// Should have -an and -sn (no audio/subtitles)
+	hasAN := false
+	hasSN := false
+	for _, arg := range outputArgs {
+		if arg == "-an" {
+			hasAN = true
+		}
+		if arg == "-sn" {
+			hasSN = true
+		}
+	}
+	if !hasAN {
+		t.Error("expected -an in sample encode args")
+	}
+	if !hasSN {
+		t.Error("expected -sn in sample encode args")
+	}
+
+	// Should NOT have audio/subtitle mapping
+	for _, arg := range outputArgs {
+		if strings.Contains(arg, ":a") || strings.Contains(arg, ":s") {
+			t.Errorf("sample encode should not map audio/subtitles, found: %s", arg)
+		}
+	}
+}
+
+// TestBuildSampleEncodeArgs_VideoToolbox tests sample encoding with bitrate modifier
+func TestBuildSampleEncodeArgs_VideoToolbox(t *testing.T) {
+	preset := &Preset{
+		ID:      "test-vt",
+		Encoder: HWAccelVideoToolbox,
+		Codec:   CodecHEVC,
+	}
+
+	// With modifierOverride=0.4, should use 10Mbps reference * 0.4 = 4000k
+	_, outputArgs := BuildSampleEncodeArgs(preset, 1920, 1080, 0, 0.4, false)
+
+	foundBitrate := false
+	for i, arg := range outputArgs {
+		if arg == "-b:v" && i+1 < len(outputArgs) {
+			foundBitrate = true
+			if outputArgs[i+1] != "4000k" {
+				t.Errorf("expected 4000k with modifier 0.4, got %s", outputArgs[i+1])
+			}
+		}
+	}
+	if !foundBitrate {
+		t.Error("expected -b:v flag for VideoToolbox")
+	}
+}
+
+// TestBuildSampleEncodeArgs_QualityOverride tests CRF override in sample encoding
+func TestBuildSampleEncodeArgs_QualityOverride(t *testing.T) {
+	preset := &Preset{
+		ID:      "test-sw",
+		Encoder: HWAccelNone,
+		Codec:   CodecAV1,
+	}
+
+	_, outputArgs := BuildSampleEncodeArgs(preset, 1920, 1080, 30, 0, false)
+
+	foundQuality := false
+	for i, arg := range outputArgs {
+		if arg == "-crf" && i+1 < len(outputArgs) {
+			foundQuality = true
+			if outputArgs[i+1] != "30" {
+				t.Errorf("expected CRF 30, got %s", outputArgs[i+1])
+			}
+		}
+	}
+	if !foundQuality {
+		t.Error("expected -crf flag with override value")
 	}
 }

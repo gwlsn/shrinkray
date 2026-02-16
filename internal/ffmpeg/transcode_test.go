@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,10 +154,10 @@ func TestFinalizeTranscodeReplace(t *testing.T) {
 		t.Fatalf("FinalizeTranscode failed: %v", err)
 	}
 
-	// For mkv→mkv, finalPath == originalPath, so the file should exist
-	// but contain transcoded content (original was replaced)
-	if finalPath != originalPath {
-		t.Errorf("expected final path %s to equal original path %s for mkv→mkv", finalPath, originalPath)
+	// Files are now written to completed/ subdirectory
+	expectedFinalPath := filepath.Join(tmpDir, "completed", "video.mkv")
+	if finalPath != expectedFinalPath {
+		t.Errorf("expected final path %s, got %s", expectedFinalPath, finalPath)
 	}
 
 	// .old file should NOT exist in replace mode
@@ -179,7 +180,12 @@ func TestFinalizeTranscodeReplace(t *testing.T) {
 		t.Error("temp file still exists")
 	}
 
-	t.Logf("Replace mode (mkv→mkv): original replaced in-place, final=%s", finalPath)
+	// Original should be deleted
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Error("original file should be deleted in replace mode")
+	}
+
+	t.Logf("Replace mode (mkv→mkv): original replaced, final=%s", finalPath)
 }
 
 func TestFinalizeTranscodeReplaceDifferentExt(t *testing.T) {
@@ -208,8 +214,8 @@ func TestFinalizeTranscodeReplaceDifferentExt(t *testing.T) {
 		t.Error("original mp4 file still exists, should have been deleted")
 	}
 
-	// Final path should be .mkv and contain transcoded content
-	expectedFinal := filepath.Join(tmpDir, "video.mkv")
+	// Final path should be in completed/ subdirectory with .mkv extension
+	expectedFinal := filepath.Join(tmpDir, "completed", "video.mkv")
 	if finalPath != expectedFinal {
 		t.Errorf("expected final path %s, got %s", expectedFinal, finalPath)
 	}
@@ -261,7 +267,12 @@ func TestFinalizeTranscodeKeep(t *testing.T) {
 		t.Error("original file still exists at original path, should have been renamed to .old")
 	}
 
-	// Final file should exist with transcoded content
+	// Final file should exist in completed/ subdirectory with transcoded content
+	expectedFinal := filepath.Join(tmpDir, "completed", "video.mkv")
+	if finalPath != expectedFinal {
+		t.Errorf("expected final path %s, got %s", expectedFinal, finalPath)
+	}
+
 	content, err = os.ReadFile(finalPath)
 	if err != nil {
 		t.Fatalf("failed to read final: %v", err)
@@ -345,4 +356,261 @@ func TestFrameBasedSpeedAndETA(t *testing.T) {
 	}
 
 	t.Logf("Frame-based calculation: speed=%.2fx, eta=%v", speed, eta)
+}
+
+// TestTranscodeError_Unwrap tests that TranscodeError properly wraps errors
+func TestTranscodeError_Unwrap(t *testing.T) {
+	innerErr := fmt.Errorf("ffmpeg process failed")
+	transcodeErr := &TranscodeError{
+		Err:    innerErr,
+		Stderr: "some error output",
+		Frames: 100,
+	}
+
+	// Test Error() method
+	if transcodeErr.Error() != innerErr.Error() {
+		t.Errorf("Error() = %q, want %q", transcodeErr.Error(), innerErr.Error())
+	}
+
+	// Test Unwrap() method
+	unwrapped := transcodeErr.Unwrap()
+	if unwrapped != innerErr {
+		t.Errorf("Unwrap() returned wrong error")
+	}
+
+	// Test that errors.Is works with wrapped error
+	if !strings.Contains(transcodeErr.Error(), "ffmpeg process failed") {
+		t.Error("TranscodeError should contain inner error message")
+	}
+}
+
+// TestTranscodeError_Fields tests TranscodeError field access
+func TestTranscodeError_Fields(t *testing.T) {
+	stderr := "hwaccel not available"
+	frames := int64(0)
+	err := &TranscodeError{
+		Err:    fmt.Errorf("hardware decode failed"),
+		Stderr: stderr,
+		Frames: frames,
+	}
+
+	if err.Stderr != stderr {
+		t.Errorf("Stderr = %q, want %q", err.Stderr, stderr)
+	}
+	if err.Frames != frames {
+		t.Errorf("Frames = %d, want %d", err.Frames, frames)
+	}
+}
+
+// TestFinalizeTranscode_CompletedDirectory tests completed/ subdirectory creation
+func TestFinalizeTranscode_CompletedDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a fake "original" file
+	originalPath := filepath.Join(tmpDir, "video.mkv")
+	if err := os.WriteFile(originalPath, []byte("original content"), 0644); err != nil {
+		t.Fatalf("failed to create original: %v", err)
+	}
+
+	// Create a fake "temp" file
+	tempPath := filepath.Join(tmpDir, "video.shrinkray.tmp.mkv")
+	if err := os.WriteFile(tempPath, []byte("transcoded content"), 0644); err != nil {
+		t.Fatalf("failed to create temp: %v", err)
+	}
+
+	// Finalize with replace=true
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, "mkv", true)
+	if err != nil {
+		t.Fatalf("FinalizeTranscode failed: %v", err)
+	}
+
+	// Final path should be in completed/ subdirectory
+	expectedDir := filepath.Join(tmpDir, "completed")
+	expectedPath := filepath.Join(expectedDir, "video.mkv")
+
+	if finalPath != expectedPath {
+		t.Errorf("finalPath = %q, want %q", finalPath, expectedPath)
+	}
+
+	// Verify completed/ directory was created
+	if stat, err := os.Stat(expectedDir); err != nil || !stat.IsDir() {
+		t.Errorf("completed/ directory not created: %v", err)
+	}
+
+	// Verify final file exists in completed/ with correct content
+	content, err := os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatalf("failed to read final file: %v", err)
+	}
+	if string(content) != "transcoded content" {
+		t.Error("final file has wrong content")
+	}
+
+	// Original should be deleted
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Error("original file should be deleted in replace mode")
+	}
+}
+
+// TestFinalizeTranscode_CompletedDirectoryKeepMode tests completed/ with keep mode
+func TestFinalizeTranscode_CompletedDirectoryKeepMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	originalPath := filepath.Join(tmpDir, "video.mp4")
+	if err := os.WriteFile(originalPath, []byte("original content"), 0644); err != nil {
+		t.Fatalf("failed to create original: %v", err)
+	}
+
+	tempPath := filepath.Join(tmpDir, "video.shrinkray.tmp.mkv")
+	if err := os.WriteFile(tempPath, []byte("transcoded content"), 0644); err != nil {
+		t.Fatalf("failed to create temp: %v", err)
+	}
+
+	// Finalize with replace=false (keep mode)
+	finalPath, err := FinalizeTranscode(originalPath, tempPath, "mkv", false)
+	if err != nil {
+		t.Fatalf("FinalizeTranscode failed: %v", err)
+	}
+
+	// Final path should be in completed/ subdirectory
+	expectedDir := filepath.Join(tmpDir, "completed")
+	expectedPath := filepath.Join(expectedDir, "video.mkv")
+
+	if finalPath != expectedPath {
+		t.Errorf("finalPath = %q, want %q", finalPath, expectedPath)
+	}
+
+	// Original should be renamed to .old
+	oldPath := originalPath + ".old"
+	content, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatalf("failed to read .old file: %v", err)
+	}
+	if string(content) != "original content" {
+		t.Error(".old file has wrong content")
+	}
+
+	// Final file should exist with transcoded content
+	content, err = os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatalf("failed to read final file: %v", err)
+	}
+	if string(content) != "transcoded content" {
+		t.Error("final file has wrong content")
+	}
+}
+
+// TestBuildTempPath_Uniqueness tests that BuildTempPath generates unique paths
+func TestBuildTempPath_Uniqueness(t *testing.T) {
+	paths := make(map[string]bool)
+	inputPath := "/media/movies/test.mkv"
+	tempDir := "/tmp"
+
+	// Generate 100 temp paths and ensure they're all unique
+	for i := 0; i < 100; i++ {
+		path := BuildTempPath(inputPath, tempDir, "mkv")
+		if paths[path] {
+			t.Errorf("duplicate path generated: %s", path)
+		}
+		paths[path] = true
+
+		// Verify path structure
+		if !strings.Contains(path, "test.") {
+			t.Errorf("path missing original filename prefix: %s", path)
+		}
+		if !strings.Contains(path, ".shrinkray.tmp.mkv") {
+			t.Errorf("path missing temp marker: %s", path)
+		}
+	}
+}
+
+// TestBuildTempPath_FormatSelection tests different output formats
+func TestBuildTempPath_FormatSelection(t *testing.T) {
+	tests := []struct {
+		format   string
+		wantExt  string
+	}{
+		{"mkv", ".shrinkray.tmp.mkv"},
+		{"mp4", ".shrinkray.tmp.mp4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			path := BuildTempPath("/media/test.mkv", "/tmp", tt.format)
+			if !strings.HasSuffix(path, tt.wantExt) {
+				t.Errorf("path %q does not end with %q", path, tt.wantExt)
+			}
+		})
+	}
+}
+
+// TestProgress_Fields tests Progress struct field types
+func TestProgress_Fields(t *testing.T) {
+	p := Progress{
+		Frame:   1000,
+		FPS:     30.5,
+		Size:    1024000,
+		Time:    60 * time.Second,
+		Bitrate: 2500.5,
+		Speed:   1.5,
+		Percent: 50.25,
+		ETA:     120 * time.Second,
+	}
+
+	// Verify types are accessible
+	if p.Frame != 1000 {
+		t.Errorf("Frame = %d, want 1000", p.Frame)
+	}
+	if p.FPS != 30.5 {
+		t.Errorf("FPS = %.1f, want 30.5", p.FPS)
+	}
+	if p.Size != 1024000 {
+		t.Errorf("Size = %d, want 1024000", p.Size)
+	}
+	if p.Time != 60*time.Second {
+		t.Errorf("Time = %v, want 1m0s", p.Time)
+	}
+	if p.Bitrate != 2500.5 {
+		t.Errorf("Bitrate = %.1f, want 2500.5", p.Bitrate)
+	}
+	if p.Speed != 1.5 {
+		t.Errorf("Speed = %.1f, want 1.5", p.Speed)
+	}
+	if p.Percent != 50.25 {
+		t.Errorf("Percent = %.2f, want 50.25", p.Percent)
+	}
+	if p.ETA != 120*time.Second {
+		t.Errorf("ETA = %v, want 2m0s", p.ETA)
+	}
+}
+
+// TestTranscodeResult_Fields tests TranscodeResult struct
+func TestTranscodeResult_Fields(t *testing.T) {
+	result := TranscodeResult{
+		InputPath:  "/input/video.mkv",
+		OutputPath: "/output/video.mkv",
+		InputSize:  1000000,
+		OutputSize: 500000,
+		SpaceSaved: 500000,
+		Duration:   5 * time.Minute,
+	}
+
+	if result.InputPath != "/input/video.mkv" {
+		t.Errorf("InputPath = %q, want /input/video.mkv", result.InputPath)
+	}
+	if result.OutputPath != "/output/video.mkv" {
+		t.Errorf("OutputPath = %q, want /output/video.mkv", result.OutputPath)
+	}
+	if result.InputSize != 1000000 {
+		t.Errorf("InputSize = %d, want 1000000", result.InputSize)
+	}
+	if result.OutputSize != 500000 {
+		t.Errorf("OutputSize = %d, want 500000", result.OutputSize)
+	}
+	if result.SpaceSaved != 500000 {
+		t.Errorf("SpaceSaved = %d, want 500000", result.SpaceSaved)
+	}
+	if result.Duration != 5*time.Minute {
+		t.Errorf("Duration = %v, want 5m0s", result.Duration)
+	}
 }
