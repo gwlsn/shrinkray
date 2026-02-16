@@ -8,7 +8,6 @@
   ![Go](https://img.shields.io/badge/go-1.25+-00ADD8?style=flat-square&logo=go)
   ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
   ![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker)
-  ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/gwlsn/shrinkray?utm_source=oss&utm_medium=github&utm_campaign=gwlsn%2Fshrinkray&labelColor=555555&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 </div>
 
 ---
