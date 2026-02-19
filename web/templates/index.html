@@ -1136,6 +1136,11 @@
             color: var(--purple);
         }
 
+        .job-badge.waiting-analysis {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
         .job-badge.analyzing {
             background: var(--warning-light);
             color: var(--warning);
@@ -3004,14 +3009,17 @@
         // Helper to render a single job's HTML
         function renderJobHTML(job) {
             const filename = job.input_path.split('/').pop();
+            const isWaitingAnalysis = job.status === 'running' && job.phase === 'waiting_analysis';
             const isAnalyzing = job.status === 'running' && job.phase === 'analyzing';
-            const isInitializing = job.status === 'running' && !isAnalyzing && job.progress === 0 && job.speed === 0;
-            const statusClass = isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : job.status);
-            const statusLabel = isAnalyzing ? 'Analyzing' : (isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1));
+            const isInitializing = job.status === 'running' && !isWaitingAnalysis && !isAnalyzing && job.progress === 0 && job.speed === 0;
+            const statusClass = isWaitingAnalysis ? 'waiting-analysis' : (isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : job.status));
+            const statusLabel = isWaitingAnalysis ? 'Pending Analysis' : (isAnalyzing ? 'Analyzing' : (isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1)));
 
             let detailsHtml = '';
             if (job.status === 'running') {
-                if (isAnalyzing) {
+                if (isWaitingAnalysis) {
+                    detailsHtml = '<span class="job-detail">Waiting for analysis slot...</span>';
+                } else if (isAnalyzing) {
                     detailsHtml = '<span class="job-detail">Finding optimal quality...</span>';
                 } else if (isInitializing) {
                     detailsHtml = '<span class="job-detail">Starting encoder...</span>';
@@ -3045,7 +3053,7 @@
                     ${job.status === 'running' ? `
                         <div class="job-progress">
                             <div class="progress-bar">
-                                <div class="progress-fill ${isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : '')}" style="width: ${(isAnalyzing || isInitializing) ? 100 : job.progress}%"></div>
+                                <div class="progress-fill ${isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : '')}" style="width: ${(isAnalyzing || isInitializing) ? 100 : (isWaitingAnalysis ? 0 : job.progress)}%"></div>
                             </div>
                         </div>
                     ` : ''}
@@ -3084,11 +3092,10 @@
 
             // Get current job state
             const job = allSortedJobs.find(j => j.id === jobId);
-            const wasAnalyzing = job && job.phase === 'analyzing';
-            const isAnalyzing = phase === 'analyzing';
+            const wasPhase = job ? job.phase : null;
 
-            // If phase changed (entering or leaving analyzing), do a full re-render
-            if (wasAnalyzing !== isAnalyzing) {
+            // If phase changed at all, do a full re-render (handles waiting_analysis <-> analyzing <-> encoding transitions)
+            if (wasPhase !== phase) {
                 if (job) {
                     job.progress = progress;
                     job.speed = speed;
@@ -3101,8 +3108,8 @@
                 return;
             }
 
-            // If analyzing, don't update progress further - keep the analyzing state
-            if (isAnalyzing) {
+            // If in a non-progress phase, don't update progress bar - keep the current state
+            if (phase === 'analyzing' || phase === 'waiting_analysis') {
                 return;
             }
 
