@@ -650,11 +650,6 @@
             opacity: 0.6;
             font-style: italic;
         }
-        .counts-updating {
-            opacity: 0.6;
-            font-size: 0.85em;
-            font-style: italic;
-        }
         .counts-error {
             color: var(--danger, #e74c3c);
             font-style: italic;
@@ -2405,7 +2400,7 @@
         let selectedQuality = 'good';
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0';
+            if (bytes === 0) return '0 B';
             if (bytes < 0) return '0';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -2457,8 +2452,8 @@
         }
 
         // Build the metadata HTML for a directory entry based on its counts_state.
-        // Always renders something: "calculating..." when unknown, counts with an
-        // optional "updating..." badge when stale, or "error" on failure.
+        // Always renders something: "calculating..." when unknown, counts when
+        // available, or "error" on failure.
         function renderDirCountsMeta(entry) {
             const count = entry.file_count || 0;
             const size = formatBytes(entry.total_size || 0);
@@ -2470,10 +2465,7 @@
             if (state === 'error') {
                 return '<span class="counts-error">error</span>';
             }
-            const stateIndicator = (state === 'stale' || state === 'pending')
-                ? ' <span class="counts-updating">updating\u2026</span>'
-                : '';
-            return `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>${stateIndicator}`;
+            return `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
         }
 
         function renderBrowseEntries(entries) {
@@ -2866,7 +2858,11 @@
 
             const summary = document.getElementById('selection-summary');
             if (hasSelection) {
-                summary.textContent = `${selectedPaths.size} file${selectedPaths.size > 1 ? 's' : ''} selected`;
+                let totalFiles = 0;
+                for (const count of selectedFileCounts.values()) {
+                    totalFiles += count;
+                }
+                summary.textContent = `${totalFiles} file${totalFiles !== 1 ? 's' : ''} selected`;
             } else {
                 summary.textContent = '';
             }

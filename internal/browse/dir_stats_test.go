@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gwlsn/shrinkray/internal/ffmpeg"
 )
 
 func TestGetDirSig(t *testing.T) {
@@ -311,7 +313,18 @@ func TestBrowseSSE_FullChannelDoesNotBlock(t *testing.T) {
 
 func TestInvalidateCache_PreservesLastKnownValues(t *testing.T) {
 	tmpDir := t.TempDir()
-	browser := NewBrowser(nil, tmpDir)
+	// Construct directly without starting workers so enqueueRecompute
+	// pushes to the buffered channel but nothing consumes it. This lets
+	// us assert the stale state without a race against background recompute.
+	absDir, _ := filepath.Abs(tmpDir)
+	browser := &Browser{
+		mediaRoot:         absDir,
+		cache:             make(map[string]*ffmpeg.ProbeResult),
+		countCache:        make(map[string]*dirCount),
+		countSem:          make(chan struct{}, 8),
+		browseSubscribers: make(map[chan DirCountEvent]struct{}),
+		recomputeQueue:    make(chan string, 256),
+	}
 
 	subDir := filepath.Join(tmpDir, "shows")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
