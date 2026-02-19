@@ -22,23 +22,27 @@ type ProgressCallback func(probed, total int)
 
 // Entry represents a file or directory in the browser
 type Entry struct {
-	Name        string             `json:"name"`
-	Path        string             `json:"path"`
-	IsDir       bool               `json:"is_dir"`
-	Size        int64              `json:"size"`
-	ModTime     time.Time          `json:"mod_time"`
-	VideoInfo   *ffmpeg.ProbeResult `json:"video_info,omitempty"`
-	FileCount   int                `json:"file_count,omitempty"`   // For directories: number of video files
-	TotalSize   int64              `json:"total_size,omitempty"`   // For directories: total size of video files
+	Name            string              `json:"name"`
+	Path            string              `json:"path"`
+	IsDir           bool                `json:"is_dir"`
+	Size            int64               `json:"size"`
+	ModTime         time.Time           `json:"mod_time"`
+	VideoInfo       *ffmpeg.ProbeResult `json:"video_info,omitempty"`
+	FileCount       int                 `json:"file_count"`
+	TotalSize       int64               `json:"total_size"`
+	CountsState     string              `json:"counts_state,omitempty"`
+	CountsUpdatedAt string              `json:"counts_updated_at,omitempty"`
+	CountsError     string              `json:"counts_error,omitempty"`
 }
 
 // BrowseResult contains the result of browsing a directory
 type BrowseResult struct {
-	Path       string   `json:"path"`
-	Parent     string   `json:"parent,omitempty"`
-	Entries    []*Entry `json:"entries"`
-	VideoCount int      `json:"video_count"` // Total video files in this directory and subdirs
-	TotalSize  int64    `json:"total_size"`  // Total size of video files
+	Path        string   `json:"path"`
+	Parent      string   `json:"parent,omitempty"`
+	Entries     []*Entry `json:"entries"`
+	VideoCount  int      `json:"video_count"`  // Total video files in this directory and subdirs
+	TotalSize   int64    `json:"total_size"`   // Total size of video files
+	CountsState string   `json:"counts_state"` // State of the recursive counts for this path
 }
 
 // Browser handles file system browsing with video metadata
@@ -131,7 +135,6 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 	}
 
 	// Process entries — single pass to build entry list and collect work items.
-	var uncachedDirs []string
 	var videoEntries []*Entry
 
 	for _, e := range entries {
@@ -155,26 +158,28 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 		}
 
 		if e.IsDir() {
-			// Return cached counts instantly; collect uncached dirs for
-			// bounded background computation.
-			b.countCacheMu.RLock()
-			cached, isCached := b.countCache[entryPath]
-			b.countCacheMu.RUnlock()
-
-			if isCached {
-				entry.FileCount = cached.fileCount
-				entry.TotalSize = cached.totalSize
-			} else {
-				uncachedDirs = append(uncachedDirs, entryPath)
+			dc := b.GetDirCount(ctx, entryPath)
+			entry.FileCount = dc.FileCount
+			entry.TotalSize = dc.TotalSize
+			entry.CountsState = string(dc.State)
+			if !dc.UpdatedAt.IsZero() {
+				entry.CountsUpdatedAt = dc.UpdatedAt.Format(time.RFC3339)
+			}
+			if dc.Err != "" {
+				entry.CountsError = dc.Err
 			}
 		} else if ffmpeg.IsVideoFile(e.Name()) {
 			videoEntries = append(videoEntries, entry)
-			result.VideoCount++
-			result.TotalSize += info.Size()
 		}
 
 		result.Entries = append(result.Entries, entry)
 	}
+
+	// Populate recursive totals for current path from stats subsystem
+	pathDc := b.GetDirCount(ctx, cleanPath)
+	result.VideoCount = pathDc.FileCount
+	result.TotalSize = pathDc.TotalSize
+	result.CountsState = string(pathDc.State)
 
 	// Probe video files through a bounded worker pool — only maxProbes
 	// goroutines are created instead of one per file.
@@ -203,36 +208,6 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 			}()
 		}
 		wg.Wait()
-	}
-
-	// Dispatch uncached directory counts through a bounded worker pool.
-	// Uses countSem capacity as the pool size since that's the actual concurrency
-	// limit for walks — no point spawning more goroutines than can run.
-	if len(uncachedDirs) > 0 {
-		go func() {
-			var countWg sync.WaitGroup
-			work := make(chan string, len(uncachedDirs))
-			for _, dir := range uncachedDirs {
-				work <- dir
-			}
-			close(work)
-
-			// Spawn workers up to countSem capacity (8)
-			workers := cap(b.countSem)
-			if workers > len(uncachedDirs) {
-				workers = len(uncachedDirs)
-			}
-			for range workers {
-				countWg.Add(1)
-				go func() {
-					defer countWg.Done()
-					for dir := range work {
-						b.countVideos(context.Background(), dir)
-					}
-				}()
-			}
-			countWg.Wait()
-		}()
 	}
 
 	// Sort entries: directories first, then by name
