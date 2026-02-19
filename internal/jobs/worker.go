@@ -856,26 +856,33 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		return true, "SmartShrink does not support HDR content. Use a Compress preset or tonemap to SDR first", 0, 0, 0, nil
 	}
 
-	// Update phase immediately so UI shows "Analyzing" while waiting for slot
-	_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
-
-	// Acquire analysis slot (limited to prevent CPU saturation from concurrent VMAF)
-	for {
-		wp.analysisMu.Lock()
-		if wp.analysisCount < wp.analysisLimit {
-			wp.analysisCount++
-			wp.analysisMu.Unlock()
-			break
-		}
+	// TryAcquire: if a slot is immediately available, go straight to analyzing (no flicker).
+	// If contended, show waiting state until a slot is released.
+	wp.analysisMu.Lock()
+	if wp.analysisCount < wp.analysisLimit {
+		wp.analysisCount++
 		wp.analysisMu.Unlock()
+		_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+	} else {
+		wp.analysisMu.Unlock()
+		// Slot contended - show waiting state, then spin until one is free
+		_ = wp.queue.UpdateJobPhase(job.ID, PhaseWaitingAnalysis)
+		for {
+			wp.analysisMu.Lock()
+			if wp.analysisCount < wp.analysisLimit {
+				wp.analysisCount++
+				wp.analysisMu.Unlock()
+				break
+			}
+			wp.analysisMu.Unlock()
 
-		// At limit, wait with context check
-		select {
-		case <-ctx.Done():
-			return false, "", 0, 0, 0, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-			// Retry
+			select {
+			case <-ctx.Done():
+				return false, "", 0, 0, 0, ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
+		_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
 	}
 
 	defer func() {
