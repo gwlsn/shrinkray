@@ -293,6 +293,24 @@ func (b *Browser) broadcastAncestorTotals(dirPath string) {
 	}
 }
 
+// Subscribe returns a buffered channel that receives directory count
+// update events. Callers must call Unsubscribe when done.
+func (b *Browser) Subscribe() chan DirCountEvent {
+	ch := make(chan DirCountEvent, 100)
+	b.browseSubsMu.Lock()
+	b.browseSubscribers[ch] = struct{}{}
+	b.browseSubsMu.Unlock()
+	return ch
+}
+
+// Unsubscribe removes a subscriber and closes its channel.
+func (b *Browser) Unsubscribe(ch chan DirCountEvent) {
+	b.browseSubsMu.Lock()
+	delete(b.browseSubscribers, ch)
+	b.browseSubsMu.Unlock()
+	close(ch)
+}
+
 // broadcast sends a directory count event to all subscribers.
 // Non-blocking: if a subscriber's channel is full, the event is dropped
 // for that subscriber (they will get the next one).

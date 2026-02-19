@@ -238,3 +238,73 @@ func TestGetDirCount_NeverDeletedCacheMiss(t *testing.T) {
 		t.Errorf("expected 0 count for never-cached dir, got %d", dc.FileCount)
 	}
 }
+
+func TestBrowseSSE_SubscribeReceivesBroadcast(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	ch := browser.Subscribe()
+	defer browser.Unsubscribe(ch)
+
+	event := DirCountEvent{
+		Path:      "/media/test",
+		FileCount: 42,
+		TotalSize: 1024,
+		State:     string(stateReady),
+		UpdatedAt: time.Now(),
+	}
+	browser.broadcast(event)
+
+	select {
+	case received := <-ch:
+		if received.Path != event.Path {
+			t.Errorf("expected path %s, got %s", event.Path, received.Path)
+		}
+		if received.FileCount != 42 {
+			t.Errorf("expected count 42, got %d", received.FileCount)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for broadcast event")
+	}
+}
+
+func TestBrowseSSE_UnsubscribeStopsEvents(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	ch := browser.Subscribe()
+	browser.Unsubscribe(ch)
+
+	// Channel should be closed after unsubscribe
+	_, ok := <-ch
+	if ok {
+		t.Error("expected channel to be closed after unsubscribe")
+	}
+}
+
+func TestBrowseSSE_FullChannelDoesNotBlock(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	ch := browser.Subscribe()
+	defer browser.Unsubscribe(ch)
+
+	// Fill the channel buffer
+	for i := 0; i < 100; i++ {
+		browser.broadcast(DirCountEvent{Path: "/test", FileCount: i})
+	}
+
+	// One more broadcast should not block (non-blocking send drops the event)
+	done := make(chan struct{})
+	go func() {
+		browser.broadcast(DirCountEvent{Path: "/test", FileCount: 999})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good: broadcast returned without blocking
+	case <-time.After(1 * time.Second):
+		t.Fatal("broadcast blocked on full channel")
+	}
+}
