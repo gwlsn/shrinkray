@@ -384,3 +384,57 @@ func TestClearCache_PreservesLastKnownValues(t *testing.T) {
 		t.Errorf("expected preserved count of 1, got %d", cached.fileCount)
 	}
 }
+
+func TestWarmCountCache_CapturesSignatures(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "ep1.mkv"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	browser.WarmCountCache(context.Background())
+
+	browser.countCacheMu.RLock()
+	cached, exists := browser.countCache[subDir]
+	browser.countCacheMu.RUnlock()
+
+	if !exists {
+		t.Fatal("WarmCountCache did not populate entry")
+	}
+	if cached.state != stateReady {
+		t.Errorf("expected ready state, got %s", cached.state)
+	}
+	if cached.sig.mtime.IsZero() {
+		t.Error("expected non-zero mtime in signature")
+	}
+}
+
+func TestWarmCountCache_PrunesStaleEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	// Pre-populate cache with an entry for a path that doesn't exist
+	browser.countCacheMu.Lock()
+	browser.countCache[filepath.Join(tmpDir, "deleted_show")] = &dirCount{
+		fileCount: 5,
+		state:     stateReady,
+	}
+	browser.countCacheMu.Unlock()
+
+	// Warm cache (walks only dirs that actually exist)
+	browser.WarmCountCache(context.Background())
+
+	// The stale entry should be pruned
+	browser.countCacheMu.RLock()
+	_, exists := browser.countCache[filepath.Join(tmpDir, "deleted_show")]
+	browser.countCacheMu.RUnlock()
+
+	if exists {
+		t.Error("expected deleted_show entry to be pruned by WarmCountCache")
+	}
+}

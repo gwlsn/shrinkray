@@ -507,20 +507,24 @@ func (b *Browser) InvalidateCache(path string) {
 }
 
 // WarmCountCache pre-computes recursive video counts for all directories
-// under the media root in a single pass. Call this in a background goroutine
-// at startup so counts are ready by the time the user opens the UI.
+// under the media root in a single pass. Captures full dirSig for each
+// directory and prunes entries for directories that no longer exist.
+// Pruning is skipped if the walk encountered any errors (safety guard
+// for NAS timeouts or permission issues).
 func (b *Browser) WarmCountCache(ctx context.Context) {
 	start := time.Now()
 	logger.Info("Warming directory count cache", "media_root", b.mediaRoot)
 
 	dirCounts := make(map[string]*dirCount)
 	var videoCount int
+	var walkHadErrors bool
 
 	_ = filepath.WalkDir(b.mediaRoot, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
 		if err != nil {
+			walkHadErrors = true
 			return nil
 		}
 		// Skip hidden entries
@@ -531,12 +535,10 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 			return nil
 		}
 		if d.IsDir() {
-			// Ensure every directory gets a cache entry (even if 0 videos)
-			// and capture its mtime for staleness detection on refresh.
 			if _, ok := dirCounts[path]; !ok {
-				dc := &dirCount{state: stateReady, updatedAt: time.Now()}
-				if info, infoErr := d.Info(); infoErr == nil {
-					dc.sig.mtime = info.ModTime()
+				dc := &dirCount{state: stateReady, updatedAt: start}
+				if sig, sigErr := getDirSig(path); sigErr == nil {
+					dc.sig = sig
 				}
 				dirCounts[path] = dc
 			}
@@ -546,7 +548,6 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 			return nil
 		}
 
-		// Only stat video files (WalkDir skips stat for non-video entries)
 		info, infoErr := d.Info()
 		if infoErr != nil {
 			return nil
@@ -570,9 +571,8 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 		return nil
 	})
 
-	// Populate cache in chunks to avoid holding the lock for too long
-	// (Browse calls need the read lock to return cached counts)
 	if ctx.Err() == nil {
+		// Populate cache in chunks to avoid holding the lock for too long
 		const chunkSize = 500
 		chunk := 0
 		for dir, dc := range dirCounts {
@@ -587,6 +587,22 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 		}
 		if chunk > 0 {
 			b.countCacheMu.Unlock()
+		}
+
+		// Prune entries for directories that no longer exist.
+		// Safety guard: if the walk had ANY errors (permissions, NAS
+		// timeout, etc.), skip pruning entirely. A transient filesystem
+		// error must not cause false deletion of valid cache entries.
+		if !walkHadErrors {
+			b.countCacheMu.Lock()
+			for path := range b.countCache {
+				if _, visited := dirCounts[path]; !visited {
+					delete(b.countCache, path)
+				}
+			}
+			b.countCacheMu.Unlock()
+		} else {
+			logger.Warn("Skipping cache pruning due to walk errors")
 		}
 
 		logger.Info("Directory count cache warmed",
