@@ -69,6 +69,22 @@ func (es *encoderSettings) buildUploadPipeline(pixFmt string) string {
 	return fmt.Sprintf("format=%s,%s", pixFmt, es.uploadFilter)
 }
 
+// Quality range constants define the valid CRF/QP bounds for each codec.
+// These are used both by the encoder configs and by the API validation layer
+// to ensure consistent range enforcement across the codebase.
+const (
+	// HEVCQualityMin is the best-quality (lowest compression) CRF for HEVC.
+	HEVCQualityMin = 16
+	// HEVCQualityMax is the most-compressed (highest) CRF for HEVC.
+	HEVCQualityMax = 30
+
+	// AV1QualityMin is the best-quality CRF for AV1.
+	// AV1 is more efficient than HEVC, so its range starts slightly higher.
+	AV1QualityMin = 18
+	// AV1QualityMax is the most-compressed CRF for AV1.
+	AV1QualityMax = 35
+)
+
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox).
 // These bounds prevent extreme compression artifacts or excessive file sizes.
 const (
@@ -91,8 +107,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		quality:     "22",
 		extraArgs:   []string{"-preset", "medium"},
 		scaleFilter: "scale",
-		qualityMin:  16,
-		qualityMax:  30,
+		qualityMin:  HEVCQualityMin,
+		qualityMax:  HEVCQualityMax,
 	},
 	{HWAccelVideoToolbox, CodecHEVC}: {
 		// VideoToolbox uses bitrate control (-b:v) with dynamic calculation.
@@ -118,8 +134,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  16,
-		qualityMax:  30,
+		qualityMin:  HEVCQualityMin,
+		qualityMax:  HEVCQualityMax,
 	},
 	{HWAccelQSV, CodecHEVC}: {
 		encoder:       "hevc_qsv",
@@ -131,8 +147,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    16,
-		qualityMax:    30,
+		qualityMin:    HEVCQualityMin,
+		qualityMax:    HEVCQualityMax,
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:       "hevc_vaapi",
@@ -144,8 +160,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    16,
-		qualityMax:    30,
+		qualityMin:    HEVCQualityMin,
+		qualityMax:    HEVCQualityMax,
 	},
 
 	// AV1 encoders
@@ -156,8 +172,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		quality:     "25",
 		extraArgs:   []string{"-preset", "6"},
 		scaleFilter: "scale",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  AV1QualityMin,
+		qualityMax:  AV1QualityMax,
 	},
 	{HWAccelVideoToolbox, CodecAV1}: {
 		// VideoToolbox AV1 (M3+ chips) uses bitrate control.
@@ -184,8 +200,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  AV1QualityMin,
+		qualityMax:  AV1QualityMax,
 	},
 	{HWAccelQSV, CodecAV1}: {
 		encoder:       "av1_qsv",
@@ -197,8 +213,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    AV1QualityMin,
+		qualityMax:    AV1QualityMax,
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:       "av1_vaapi",
@@ -210,8 +226,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    AV1QualityMin,
+		qualityMax:    AV1QualityMax,
 	},
 }
 
@@ -289,9 +305,9 @@ func GetQualityRange(hwaccel HWAccel, codec Codec) vmaf.QualityRange {
 	if !ok {
 		// Fallback defaults
 		if codec == CodecAV1 {
-			return vmaf.QualityRange{Min: 18, Max: 35}
+			return vmaf.QualityRange{Min: AV1QualityMin, Max: AV1QualityMax}
 		}
-		return vmaf.QualityRange{Min: 16, Max: 30}
+		return vmaf.QualityRange{Min: HEVCQualityMin, Max: HEVCQualityMax}
 	}
 
 	return vmaf.QualityRange{

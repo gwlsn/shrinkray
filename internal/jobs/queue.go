@@ -125,32 +125,15 @@ func (q *Queue) persistDelete(id string) {
 	}
 }
 
-// Add adds a new job to the queue
-func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult, smartShrinkQuality string) (*Job, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	// Look up preset to get encoder info
-	preset := ffmpeg.GetPreset(presetID)
-	encoder := string(ffmpeg.HWAccelNone)
-	isHardware := false
-	if preset != nil {
-		encoder = string(preset.Encoder)
-		isHardware = preset.Encoder != ffmpeg.HWAccelNone
-	}
-
-	// Check if file should be skipped - get metadata from preset or base definitions
-	var skipReason string
-	if meta := getPresetMeta(preset, presetID); meta != nil {
-		skipReason = checkSkipReason(probe, meta, q.allowSameCodec)
-	}
-
+// newJob constructs a Job from the given parameters and probe result.
+// Both Add and AddMultiple use this to avoid duplicating the 20+ field assignments.
+func newJob(inputPath string, probe *ffmpeg.ProbeResult, presetID string, encoder string, isHardware bool, skipReason string, smartShrinkQuality string) *Job {
 	status := StatusPending
 	if skipReason != "" {
 		status = StatusSkipped
 	}
 
-	job := &Job{
+	return &Job{
 		ID:                 generateID(),
 		InputPath:          inputPath,
 		PresetID:           presetID,
@@ -173,6 +156,29 @@ func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult
 		ColorTransfer:      probe.ColorTransfer,
 		CreatedAt:          time.Now(),
 	}
+}
+
+// Add adds a new job to the queue
+func (q *Queue) Add(inputPath string, presetID string, probe *ffmpeg.ProbeResult, smartShrinkQuality string) (*Job, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Look up preset to get encoder info
+	preset := ffmpeg.GetPreset(presetID)
+	encoder := string(ffmpeg.HWAccelNone)
+	isHardware := false
+	if preset != nil {
+		encoder = string(preset.Encoder)
+		isHardware = preset.Encoder != ffmpeg.HWAccelNone
+	}
+
+	// Check if file should be skipped - get metadata from preset or base definitions
+	var skipReason string
+	if meta := getPresetMeta(preset, presetID); meta != nil {
+		skipReason = checkSkipReason(probe, meta, q.allowSameCodec)
+	}
+
+	job := newJob(inputPath, probe, presetID, encoder, isHardware, skipReason, smartShrinkQuality)
 
 	q.jobs[job.ID] = job
 	q.order = append(q.order, job.ID)
@@ -219,37 +225,13 @@ func (q *Queue) AddMultiple(probes []*ffmpeg.ProbeResult, presetID string, smart
 			skipReason = checkSkipReason(probe, meta, q.allowSameCodec)
 		}
 
-		status := StatusPending
 		if skipReason != "" {
-			status = StatusSkipped
 			failedCount++
 		} else {
 			addedCount++
 		}
 
-		job := &Job{
-			ID:                 generateID(),
-			InputPath:          probe.Path,
-			PresetID:           presetID,
-			Encoder:            encoder,
-			IsHardware:         isHardware,
-			Status:             status,
-			Error:              skipReason,
-			SkipReason:         skipReason,
-			SmartShrinkQuality: smartShrinkQuality,
-			InputSize:          probe.Size,
-			Duration:           probe.Duration.Milliseconds(),
-			Bitrate:            probe.Bitrate,
-			Width:              probe.Width,
-			Height:             probe.Height,
-			FrameRate:          probe.FrameRate,
-			VideoCodec:         probe.VideoCodec,
-			Profile:            probe.Profile,
-			BitDepth:           probe.BitDepth,
-			IsHDR:              probe.IsHDR,
-			ColorTransfer:      probe.ColorTransfer,
-			CreatedAt:          time.Now(),
-		}
+		job := newJob(probe.Path, probe, presetID, encoder, isHardware, skipReason, smartShrinkQuality)
 
 		q.jobs[job.ID] = job
 		q.order = append(q.order, job.ID)

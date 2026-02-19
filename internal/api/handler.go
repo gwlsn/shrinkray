@@ -78,9 +78,9 @@ func validateQuality(value int, codec string) string {
 	var min, max int
 	switch codec {
 	case "hevc":
-		min, max = 16, 30
+		min, max = ffmpeg.HEVCQualityMin, ffmpeg.HEVCQualityMax
 	case "av1":
-		min, max = 18, 35
+		min, max = ffmpeg.AV1QualityMin, ffmpeg.AV1QualityMax
 	default:
 		return fmt.Sprintf("unknown codec: %s", codec)
 	}
@@ -347,6 +347,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"max_concurrent_analyses": h.cfg.MaxConcurrentAnalyses,
 		"log_level":               h.cfg.LogLevel,
 		"allow_same_codec":        h.cfg.AllowSameCodec,
+		"keep_larger_files":       h.cfg.KeepLargerFiles,
 	})
 }
 
@@ -368,6 +369,7 @@ type UpdateConfigRequest struct {
 	MaxConcurrentAnalyses *int    `json:"max_concurrent_analyses,omitempty"`
 	LogLevel              *string `json:"log_level,omitempty"`
 	AllowSameCodec        *bool   `json:"allow_same_codec,omitempty"`
+	KeepLargerFiles       *bool   `json:"keep_larger_files,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -478,6 +480,10 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if req.AllowSameCodec != nil {
 		h.cfg.AllowSameCodec = *req.AllowSameCodec
 		h.queue.SetAllowSameCodec(*req.AllowSameCodec)
+	}
+
+	if req.KeepLargerFiles != nil {
+		h.cfg.KeepLargerFiles = *req.KeepLargerFiles
 	}
 
 	// Handle log level

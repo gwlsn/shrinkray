@@ -582,7 +582,9 @@ func (w *Worker) processJob(job *Job) {
 	preset := ffmpeg.GetPreset(job.PresetID)
 	if preset == nil {
 		logger.Error("Job failed", "job_id", job.ID, "error", "unknown preset", "preset", job.PresetID)
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("unknown preset: %s", job.PresetID))
+		if err := w.queue.FailJob(job.ID, fmt.Sprintf("unknown preset: %s", job.PresetID)); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
 		return
 	}
 
@@ -619,28 +621,38 @@ func (w *Worker) processJob(job *Job) {
 				// - Shutdown: w.ctx also cancelled, job left as running for restart
 				if w.ctx.Err() == nil {
 					logger.Info("Job cancelled during analysis", "job_id", job.ID)
-					_ = w.queue.CancelJob(job.ID)
+					if err := w.queue.CancelJob(job.ID); err != nil {
+						logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CancelJob", "error", err)
+					}
 				} else {
 					logger.Info("Job interrupted by shutdown during analysis", "job_id", job.ID)
 				}
 				return
 			}
 			logger.Error("SmartShrink analysis failed", "job_id", job.ID, "error", err.Error())
-			_ = w.queue.FailJob(job.ID, err.Error())
+			if err := w.queue.FailJob(job.ID, err.Error()); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+			}
 			return
 		}
 
 		if shouldSkip {
 			logger.Info("Job skipped by SmartShrink", "job_id", job.ID, "reason", skipReason)
-			_ = w.queue.SkipJob(job.ID, skipReason)
+			if err := w.queue.SkipJob(job.ID, skipReason); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "SkipJob", "error", err)
+			}
 			return
 		}
 
 		// Store VMAF results
-		_ = w.queue.UpdateJobVMAFResult(job.ID, vmafScore, selectedCRF, qualityMod)
+		if err := w.queue.UpdateJobVMAFResult(job.ID, vmafScore, selectedCRF, qualityMod); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobVMAFResult", "error", err)
+		}
 
 		// Update phase to encoding
-		_ = w.queue.UpdateJobPhase(job.ID, PhaseEncoding)
+		if err := w.queue.UpdateJobPhase(job.ID, PhaseEncoding); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
 
 		// Set quality overrides for transcode
 		if selectedCRF > 0 {
@@ -759,10 +771,14 @@ func (w *Worker) processJob(job *Job) {
 
 	// Handle cancellation (could happen at any point above)
 	if jobCtx.Err() == context.Canceled {
-		os.Remove(tempPath)
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
 		if w.ctx.Err() != context.Canceled && job.Status == StatusRunning {
 			logger.Info("Job cancelled", "job_id", job.ID)
-			_ = w.queue.CancelJob(job.ID)
+			if err := w.queue.CancelJob(job.ID); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CancelJob", "error", err)
+			}
 		} else if w.ctx.Err() == context.Canceled {
 			logger.Info("Job interrupted by shutdown", "job_id", job.ID)
 		}
@@ -771,19 +787,27 @@ func (w *Worker) processJob(job *Job) {
 
 	// Handle final failure (after all recovery strategies exhausted)
 	if err != nil {
-		os.Remove(tempPath)
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
 		logger.Error("Job failed", "job_id", job.ID, "error", err.Error())
-		_ = w.queue.FailJob(job.ID, err.Error())
+		if err := w.queue.FailJob(job.ID, err.Error()); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
 		return
 	}
 
 	// Check if transcoded file is larger than original
 	if result.OutputSize >= job.InputSize && !w.cfg.KeepLargerFiles {
 		// Delete the temp file and skip the job (not fail - this is expected behavior)
-		os.Remove(tempPath)
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
+		}
 		logger.Warn("Job skipped - output larger than input", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
-		_ = w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
-			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize)))
+		if err := w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
+			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize))); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "SkipJob", "error", err)
+		}
 		return
 	} else if result.OutputSize >= job.InputSize {
 		logger.Warn("Output larger than input but keeping (keep_larger_files enabled)", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
@@ -794,9 +818,13 @@ func (w *Worker) processJob(job *Job) {
 	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, w.cfg.OutputFormat, replace)
 	if err != nil {
 		// Try to clean up
-		os.Remove(tempPath)
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
 		logger.Error("Job failed - finalization error", "job_id", job.ID, "error", err.Error())
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("failed to finalize: %v", err))
+		if err := w.queue.FailJob(job.ID, fmt.Sprintf("failed to finalize: %v", err)); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
 		return
 	}
 
@@ -826,7 +854,9 @@ func (w *Worker) processJob(job *Job) {
 	logger.Info("Job complete", "job_id", job.ID, "duration", util.FormatDuration(elapsed), "saved", util.FormatBytes(saved))
 
 	// Mark job complete
-	_ = w.queue.CompleteJob(job.ID, finalPath, result.OutputSize)
+	if err := w.queue.CompleteJob(job.ID, finalPath, result.OutputSize); err != nil {
+		logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CompleteJob", "error", err)
+	}
 }
 
 // CancelCurrentJob cancels the job if it matches the given ID.
@@ -882,11 +912,15 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	if wp.analysisCount < wp.analysisLimit {
 		wp.analysisCount++
 		wp.analysisMu.Unlock()
-		_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
 	} else {
 		wp.analysisMu.Unlock()
 		// Slot contended - show waiting state, then spin until one is free
-		_ = wp.queue.UpdateJobPhase(job.ID, PhaseWaitingAnalysis)
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseWaitingAnalysis); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
 		for {
 			wp.analysisMu.Lock()
 			if wp.analysisCount < wp.analysisLimit {
@@ -902,7 +936,9 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 			case <-time.After(100 * time.Millisecond):
 			}
 		}
-		_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
 	}
 
 	defer func() {

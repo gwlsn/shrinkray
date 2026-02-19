@@ -17,7 +17,7 @@ type Config struct {
 	TempPath string `yaml:"temp_path"`
 
 	// OriginalHandling determines what happens to original files after transcoding
-	// Options: "replace" (rename original to .old), "keep" (keep original, new file replaces)
+	// Options: "replace" (delete original, transcoded file takes its place), "keep" (rename original to .old, transcoded file takes its place)
 	OriginalHandling string `yaml:"original_handling"`
 
 	// Workers is the number of concurrent transcode jobs (default 1)
