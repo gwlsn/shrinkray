@@ -41,15 +41,6 @@ type BrowseResult struct {
 	TotalSize  int64    `json:"total_size"`  // Total size of video files
 }
 
-// dirCount holds cached recursive video counts for a directory.
-// mtime tracks the directory's own modification time so ClearCache can detect
-// structural changes (files added/removed) without probing individual files.
-type dirCount struct {
-	fileCount int
-	totalSize int64
-	mtime     time.Time
-}
-
 // Browser handles file system browsing with video metadata
 type Browser struct {
 	prober    *ffmpeg.Prober
@@ -304,7 +295,7 @@ func (b *Browser) countVideos(ctx context.Context, dirPath string) (int, int64) 
 			dirMtime = info.ModTime()
 		}
 
-		dc := &dirCount{fileCount: count, totalSize: totalSize, mtime: dirMtime}
+		dc := &dirCount{fileCount: count, totalSize: totalSize, sig: dirSig{mtime: dirMtime}, state: stateReady, updatedAt: time.Now()}
 		// Only cache if context wasn't cancelled (partial results would be wrong)
 		if ctx.Err() == nil {
 			b.countCacheMu.Lock()
@@ -527,7 +518,7 @@ func (b *Browser) invalidateStaleCounts(oldCache map[string]*ffmpeg.ProbeResult,
 			b.markAncestorsStale(dir, staleDirs)
 			continue
 		}
-		if !info.ModTime().Equal(cached.mtime) {
+		if !info.ModTime().Equal(cached.sig.mtime) {
 			staleDirs[dir] = struct{}{}
 			b.markAncestorsStale(dir, staleDirs)
 		}
@@ -624,9 +615,9 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 			// Ensure every directory gets a cache entry (even if 0 videos)
 			// and capture its mtime for staleness detection on refresh.
 			if _, ok := dirCounts[path]; !ok {
-				dc := &dirCount{}
+				dc := &dirCount{state: stateReady, updatedAt: time.Now()}
 				if info, infoErr := d.Info(); infoErr == nil {
-					dc.mtime = info.ModTime()
+					dc.sig.mtime = info.ModTime()
 				}
 				dirCounts[path] = dc
 			}

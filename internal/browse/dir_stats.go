@@ -50,6 +50,19 @@ type dirCountView struct {
 	Err       string
 }
 
+// dirCount holds cached recursive video counts for a directory with
+// explicit state tracking. The key invariant: last-known values are
+// never deleted during normal operation. Values are only replaced
+// when a recompute successfully completes.
+type dirCount struct {
+	fileCount int
+	totalSize int64
+	sig       dirSig
+	state     dirCountState
+	updatedAt time.Time
+	err       string
+}
+
 // getDirSig is implemented in build-tagged files:
 //   dir_sig_linux.go  - uses syscall.Stat_t for inode/dev/ctime
 //   dir_sig_other.go  - mtime-only fallback for non-Linux
