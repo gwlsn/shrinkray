@@ -646,6 +646,20 @@
             gap: 12px;
         }
 
+        .counts-pending {
+            opacity: 0.6;
+            font-style: italic;
+        }
+        .counts-updating {
+            opacity: 0.6;
+            font-size: 0.85em;
+            font-style: italic;
+        }
+        .counts-error {
+            color: var(--danger, #e74c3c);
+            font-style: italic;
+        }
+
         .file-size {
             font-variant-numeric: tabular-nums;
             color: var(--text-tertiary);
@@ -2383,6 +2397,7 @@
         let browseSortAsc = false;
         let lastBrowseEntries = [];
         let eventSource = null;
+        let browseEventSource = null;
 
         // Preset dropdown state
         let allPresets = [];
@@ -2441,6 +2456,26 @@
             return sorted;
         }
 
+        // Build the metadata HTML for a directory entry based on its counts_state.
+        // Always renders something: "calculating..." when unknown, counts with an
+        // optional "updating..." badge when stale, or "error" on failure.
+        function renderDirCountsMeta(entry) {
+            const count = entry.file_count || 0;
+            const size = formatBytes(entry.total_size || 0);
+            const state = entry.counts_state || 'unknown';
+
+            if (state === 'unknown' || (state === 'pending' && count === 0)) {
+                return '<span class="counts-pending">calculating\u2026</span>';
+            }
+            if (state === 'error') {
+                return '<span class="counts-error">error</span>';
+            }
+            const stateIndicator = (state === 'stale' || state === 'pending')
+                ? ' <span class="counts-updating">updating\u2026</span>'
+                : '';
+            return `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>${stateIndicator}`;
+        }
+
         function renderBrowseEntries(entries) {
             const list = document.getElementById('file-list');
             const header = document.getElementById('file-list-header');
@@ -2481,11 +2516,7 @@
                 // For folders, file_count is the number of videos inside; for videos it's 1
                 const fileCount = entry.is_dir ? (entry.file_count || 0) : (isVideo ? 1 : 0);
                 if (entry.is_dir) {
-                    const count = entry.file_count || 0;
-                    if (count > 0) {
-                        const size = formatBytes(entry.total_size || 0);
-                        metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
-                    }
+                    metaHtml = renderDirCountsMeta(entry);
                 } else if (isVideo) {
                     const vi = entry.video_info;
                     const codec = vi.video_codec?.toLowerCase() || '';
@@ -2679,6 +2710,28 @@
                 renderBrowseEntries(sortBrowseEntries(lastBrowseEntries));
                 updateBrowseMenuDisplay();
 
+                // Connect to browse stats SSE for live count updates.
+                // Each browse() call opens a new stream scoped to the
+                // current directory, so we close any previous connection
+                // first. The server filters events to immediate children.
+                if (browseEventSource) {
+                    browseEventSource.close();
+                    browseEventSource = null;
+                }
+                browseEventSource = new EventSource(`/api/browse/stream?path=${encodeURIComponent(data.path)}`);
+                browseEventSource.onmessage = function(e) {
+                    try {
+                        const event = JSON.parse(e.data);
+                        updateBrowseEntry(event);
+                    } catch (err) {
+                        console.error('Browse SSE parse error:', err);
+                    }
+                };
+                browseEventSource.onerror = function() {
+                    // EventSource auto-reconnects; just log
+                    console.warn('Browse stats stream disconnected, reconnecting...');
+                };
+
             } catch (err) {
                 console.error('Browse error:', err);
             }
@@ -2694,7 +2747,7 @@
             btn.classList.add('refreshing');
 
             try {
-                await fetch('/api/cache/clear', { method: 'POST' });
+                await fetch(`/api/browse/reconcile?path=${encodeURIComponent(currentPath)}&recursive=true`, { method: 'POST' });
                 await browse(currentPath);
             } catch (err) {
                 console.error('Refresh error:', err);
@@ -2702,6 +2755,29 @@
                 const elapsed = performance.now() - start;
                 const remaining = Math.max(0, minDuration - elapsed);
                 setTimeout(() => btn.classList.remove('refreshing'), remaining);
+            }
+        }
+
+        // Handle a browse stats SSE event by updating the matching cached
+        // entry and patching the DOM in place (no full re-render needed).
+        function updateBrowseEntry(event) {
+            if (!lastBrowseEntries) return;
+
+            const entry = lastBrowseEntries.find(e => e.path === event.path);
+            if (entry) {
+                entry.file_count = event.file_count;
+                entry.total_size = event.total_size;
+                entry.counts_state = event.counts_state;
+                entry.counts_updated_at = event.counts_updated_at;
+
+                // Patch the DOM element directly instead of re-rendering
+                const row = document.querySelector(`[data-path="${CSS.escape(event.path)}"]`);
+                if (row) {
+                    const metaEl = row.querySelector('.file-meta');
+                    if (metaEl) {
+                        metaEl.innerHTML = renderDirCountsMeta(entry);
+                    }
+                }
             }
         }
 
