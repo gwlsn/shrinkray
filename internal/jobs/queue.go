@@ -536,6 +536,7 @@ func (q *Queue) Requeue(id string) error {
 	job.Speed = 0
 	job.ETA = ""
 	job.TempPath = ""
+	job.Phase = PhaseNone
 	job.StartedAt = time.Time{}
 
 	// Move to front of order (in memory)

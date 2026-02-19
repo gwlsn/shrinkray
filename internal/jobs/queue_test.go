@@ -471,6 +471,40 @@ func TestQueueRequeue(t *testing.T) {
 	_ = job3 // Silence unused variable warning
 }
 
+func TestRequeue_ClearsPhase(t *testing.T) {
+	queue := jobs.NewQueue()
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Add and start a job (must be running to set phase)
+	job, _ := queue.Add(probe.Path, "smartshrink-hevc", probe, "good")
+	if err := queue.StartJob(job.ID, "/tmp/video.tmp.mkv"); err != nil {
+		t.Fatalf("StartJob: %v", err)
+	}
+
+	// Simulate entering the waiting phase
+	if err := queue.UpdateJobPhase(job.ID, jobs.PhaseWaitingAnalysis); err != nil {
+		t.Fatalf("UpdateJobPhase: %v", err)
+	}
+
+	// Requeue (simulates pause or worker scale-down)
+	if err := queue.Requeue(job.ID); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+
+	got := queue.Get(job.ID)
+	if got.Status != jobs.StatusPending {
+		t.Errorf("expected status pending after requeue, got %s", got.Status)
+	}
+	if got.Phase != jobs.PhaseNone {
+		t.Errorf("expected phase cleared after requeue, got %q", got.Phase)
+	}
+}
+
 func TestQueueStats(t *testing.T) {
 	queue := jobs.NewQueue()
 
