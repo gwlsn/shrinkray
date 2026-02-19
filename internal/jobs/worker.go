@@ -19,15 +19,20 @@ import (
 // CacheInvalidator is called when a file is transcoded to invalidate cached probe data
 type CacheInvalidator func(path string)
 
+// FileUpdateNotifier is called after a transcode completes to re-probe the
+// output file and push updated metadata (codec, resolution, size) to SSE clients.
+type FileUpdateNotifier func(path string)
+
 // Worker processes transcoding jobs from the queue
 type Worker struct {
-	id              int
-	pool            *WorkerPool
-	queue           *Queue
-	transcoder      *ffmpeg.Transcoder
-	prober          *ffmpeg.Prober
-	cfg             *config.Config
-	invalidateCache CacheInvalidator
+	id                 int
+	pool               *WorkerPool
+	queue              *Queue
+	transcoder         *ffmpeg.Transcoder
+	prober             *ffmpeg.Prober
+	cfg                *config.Config
+	invalidateCache    CacheInvalidator
+	notifyFileUpdate   FileUpdateNotifier
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -42,12 +47,13 @@ type Worker struct {
 
 // WorkerPool manages multiple workers
 type WorkerPool struct {
-	mu              sync.Mutex
-	workers         []*Worker
-	queue           *Queue
-	cfg             *config.Config
-	invalidateCache CacheInvalidator
-	nextWorkerID    int
+	mu               sync.Mutex
+	workers          []*Worker
+	queue            *Queue
+	cfg              *config.Config
+	invalidateCache  CacheInvalidator
+	notifyFileUpdate FileUpdateNotifier
+	nextWorkerID     int
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -90,7 +96,7 @@ func getSmartShrinkThreshold(quality string) float64 {
 }
 
 // NewWorkerPool creates a new worker pool
-func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator) *WorkerPool {
+func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator, notifyFileUpdate FileUpdateNotifier) *WorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Use configured limit for concurrent VMAF analyses.
@@ -100,14 +106,15 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 	analysisLimit := ClampAnalysisCount(cfg.MaxConcurrentAnalyses)
 
 	pool := &WorkerPool{
-		workers:         make([]*Worker, 0, cfg.Workers),
-		queue:           queue,
-		cfg:             cfg,
-		invalidateCache: invalidateCache,
-		nextWorkerID:    0,
-		ctx:             ctx,
-		cancel:          cancel,
-		analysisLimit:   analysisLimit, // Allow concurrent analysis matching worker count
+		workers:          make([]*Worker, 0, cfg.Workers),
+		queue:            queue,
+		cfg:              cfg,
+		invalidateCache:  invalidateCache,
+		notifyFileUpdate: notifyFileUpdate,
+		nextWorkerID:     0,
+		ctx:              ctx,
+		cancel:           cancel,
+		analysisLimit:    analysisLimit, // Allow concurrent analysis matching worker count
 	}
 
 	// Create workers
@@ -121,13 +128,14 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 // createWorker creates a new worker with the next available ID
 func (p *WorkerPool) createWorker() *Worker {
 	worker := &Worker{
-		id:              p.nextWorkerID,
-		pool:            p,
-		queue:           p.queue,
-		transcoder:      ffmpeg.NewTranscoder(p.cfg.FFmpegPath),
-		prober:          ffmpeg.NewProber(p.cfg.FFprobePath),
-		cfg:             p.cfg,
-		invalidateCache: p.invalidateCache,
+		id:               p.nextWorkerID,
+		pool:             p,
+		queue:            p.queue,
+		transcoder:       ffmpeg.NewTranscoder(p.cfg.FFmpegPath),
+		prober:           ffmpeg.NewProber(p.cfg.FFprobePath),
+		cfg:              p.cfg,
+		invalidateCache:  p.invalidateCache,
+		notifyFileUpdate: p.notifyFileUpdate,
 	}
 	p.nextWorkerID++
 	return worker
@@ -797,6 +805,18 @@ func (w *Worker) processJob(job *Job) {
 		w.invalidateCache(finalPath)
 		// Also invalidate the original path in case it was cached
 		w.invalidateCache(job.InputPath)
+	}
+
+	// Asynchronously re-probe and push updated file metadata to SSE clients.
+	// Runs in a goroutine because NotifyFileUpdate blocks on ffprobe (up to 10s)
+	// and must not delay CompleteJob or next-job pickup.
+	if w.notifyFileUpdate != nil {
+		go func() {
+			w.notifyFileUpdate(finalPath)
+			if finalPath != job.InputPath {
+				w.notifyFileUpdate(job.InputPath)
+			}
+		}()
 	}
 
 	// Calculate stats

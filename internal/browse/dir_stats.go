@@ -81,13 +81,19 @@ func (dc *dirCount) view() dirCountView {
 }
 
 // DirCountEvent is sent to SSE subscribers when a directory's counts update.
+// When Type is "file_update", VideoInfo and Size carry refreshed probe data
+// for a single file (e.g. after transcode completes).
 type DirCountEvent struct {
 	Path      string    `json:"path"`
 	FileCount int       `json:"file_count"`
 	TotalSize int64     `json:"total_size"`
 	State     string    `json:"counts_state"`
 	UpdatedAt time.Time `json:"counts_updated_at"`
-	Type      string    `json:"type,omitempty"` // "totals" for ancestor updates
+	Type      string    `json:"type,omitempty"` // "totals" for ancestor updates, "file_update" for file probe refresh
+
+	// File-level fields (only populated when Type == "file_update")
+	VideoInfo *ffmpeg.ProbeResult `json:"video_info,omitempty"`
+	Size      int64               `json:"size,omitempty"`
 }
 
 // GetDirCount returns an immutable snapshot of the cached directory counts

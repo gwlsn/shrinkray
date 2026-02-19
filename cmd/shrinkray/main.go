@@ -175,7 +175,7 @@ func main() {
 	}
 	queue.SetAllowSameCodec(cfg.AllowSameCodec)
 
-	workerPool := jobs.NewWorkerPool(queue, cfg, browser.InvalidateCache)
+	workerPool := jobs.NewWorkerPool(queue, cfg, browser.InvalidateCache, browser.NotifyFileUpdate)
 
 	// Create API handler
 	handler := api.NewHandler(browser, queue, workerPool, cfg, cfgPath)

@@ -481,6 +481,38 @@ func (b *Browser) InvalidateCache(path string) {
 	}
 }
 
+// NotifyFileUpdate re-probes a file and broadcasts updated metadata to SSE
+// subscribers. Called asynchronously after a transcode job completes so the
+// browse view can update codec badges, resolution, and file size in-place.
+//
+// Separate from InvalidateCache because that method is fire-and-forget and
+// must not block on ffprobe. This method intentionally blocks (up to 10s)
+// so it should always be called from a goroutine.
+func (b *Browser) NotifyFileUpdate(path string) {
+	path = b.normalizePath(path)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return // File gone (e.g. replaced with different extension)
+	}
+
+	if !ffmpeg.IsVideoFile(filepath.Base(path)) {
+		return
+	}
+
+	probeResult := b.getProbeResult(ctx, path)
+	// Broadcast even if probe fails: file size still updates
+	b.broadcast(DirCountEvent{
+		Path:      path,
+		Type:      "file_update",
+		VideoInfo: probeResult, // May be nil
+		Size:      info.Size(),
+	})
+}
+
 // Reconcile marks directory stats as stale for the given path (and subtree
 // if recursive) and enqueues recomputes. Does not delete last-known values.
 // Also transitions error-state entries (they may represent transient failures

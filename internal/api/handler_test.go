@@ -46,7 +46,7 @@ func setupTestHandler(t *testing.T) (*Handler, string) {
 	prober := ffmpeg.NewProber(cfg.FFprobePath)
 	browser := browse.NewBrowser(prober, cfg.MediaPath)
 	queue := jobs.NewQueue()
-	pool := jobs.NewWorkerPool(queue, cfg, nil)
+	pool := jobs.NewWorkerPool(queue, cfg, nil, nil)
 
 	handler := NewHandler(browser, queue, pool, cfg, "")
 

@@ -2468,6 +2468,21 @@
             return `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
         }
 
+        // Render codec badge + resolution for a video file's probe result.
+        // Used both during initial render and for live SSE file_update patches.
+        function renderVideoMeta(vi) {
+            if (!vi) return '';
+            const codec = vi.video_codec?.toLowerCase() || '';
+            let codecClass = 'h264';
+            if (codec.includes('hevc') || codec.includes('h265')) {
+                codecClass = 'hevc';
+            } else if (codec.includes('av1')) {
+                codecClass = 'av1';
+            }
+            const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
+            return `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+        }
+
         function renderBrowseEntries(entries) {
             const list = document.getElementById('file-list');
             const header = document.getElementById('file-list-header');
@@ -2510,16 +2525,7 @@
                 if (entry.is_dir) {
                     metaHtml = renderDirCountsMeta(entry);
                 } else if (isVideo) {
-                    const vi = entry.video_info;
-                    const codec = vi.video_codec?.toLowerCase() || '';
-                    let codecClass = 'h264';
-                    if (codec.includes('hevc') || codec.includes('h265')) {
-                        codecClass = 'hevc';
-                    } else if (codec.includes('av1')) {
-                        codecClass = 'av1';
-                    }
-                    const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
-                    metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+                    metaHtml = renderVideoMeta(entry.video_info);
                 }
 
                 const isSelected = selectedPaths.has(entry.path);
@@ -2756,19 +2762,36 @@
             if (!lastBrowseEntries) return;
 
             const entry = lastBrowseEntries.find(e => e.path === event.path);
-            if (entry) {
-                entry.file_count = event.file_count;
-                entry.total_size = event.total_size;
-                entry.counts_state = event.counts_state;
-                entry.counts_updated_at = event.counts_updated_at;
+            if (!entry) return;
 
-                // Patch the DOM element directly instead of re-rendering
+            // File-level probe update (post-transcode): patch codec badge,
+            // resolution, and file size without a full re-render.
+            if (event.type === 'file_update') {
+                if (event.video_info) entry.video_info = event.video_info;
+                if (event.size != null) entry.size = event.size;
+
                 const row = document.querySelector(`[data-path="${CSS.escape(event.path)}"]`);
                 if (row) {
                     const metaEl = row.querySelector('.file-meta');
-                    if (metaEl) {
-                        metaEl.innerHTML = renderDirCountsMeta(entry);
-                    }
+                    if (metaEl) metaEl.innerHTML = renderVideoMeta(entry.video_info);
+                    const sizeEl = row.querySelector('.file-size');
+                    if (sizeEl) sizeEl.textContent = formatBytes(entry.size);
+                }
+                return; // Don't fall through to directory count update
+            }
+
+            // Directory count update (existing behavior)
+            entry.file_count = event.file_count;
+            entry.total_size = event.total_size;
+            entry.counts_state = event.counts_state;
+            entry.counts_updated_at = event.counts_updated_at;
+
+            // Patch the DOM element directly instead of re-rendering
+            const row = document.querySelector(`[data-path="${CSS.escape(event.path)}"]`);
+            if (row) {
+                const metaEl = row.querySelector('.file-meta');
+                if (metaEl) {
+                    metaEl.innerHTML = renderDirCountsMeta(entry);
                 }
             }
         }
