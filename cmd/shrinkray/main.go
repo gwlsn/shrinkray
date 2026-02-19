@@ -157,6 +157,16 @@ func main() {
 	prober := ffmpeg.NewProber(cfg.FFprobePath)
 	browser := browse.NewBrowser(prober, cfg.MediaPath)
 
+	// Load persisted directory counts for instant display on startup.
+	// Entries are loaded as stale so WarmCountCache revalidates them,
+	// but the UI has data to show immediately instead of zeros.
+	if dirCounts, err := jobStore.LoadDirCounts(); err != nil {
+		logger.Warn("Failed to load directory counts", "error", err)
+	} else if len(dirCounts) > 0 {
+		browser.ImportCounts(dirCounts)
+		logger.Info("Loaded directory counts from database", "entries", len(dirCounts))
+	}
+
 	queue, err := jobs.NewQueueWithStore(jobStore)
 	if err != nil {
 		logger.Error("Failed to initialize job queue", "error", err)
@@ -174,6 +184,23 @@ func main() {
 
 	// Start worker pool
 	workerPool.Start()
+
+	// Periodically save directory counts to SQLite so restarts
+	// can display last-known values immediately.
+	dirCountTicker := time.NewTicker(5 * time.Minute)
+	dirCountDone := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-dirCountTicker.C:
+				if err := jobStore.SaveDirCounts(browser.ExportCounts()); err != nil {
+					logger.Warn("Failed to save directory counts", "error", err)
+				}
+			case <-dirCountDone:
+				return
+			}
+		}
+	}()
 
 	fmt.Printf("  Starting server on port %d\n", *port)
 	fmt.Println()
@@ -208,6 +235,11 @@ func main() {
 		<-sigChan
 		fmt.Println("\n  Shutting down...")
 		logger.Info("Shutdown signal received")
+		dirCountTicker.Stop()
+		close(dirCountDone)
+		if err := jobStore.SaveDirCounts(browser.ExportCounts()); err != nil {
+			logger.Warn("Failed to save directory counts on shutdown", "error", err)
+		}
 		workerPool.Stop()
 		server.Close()
 	}()
