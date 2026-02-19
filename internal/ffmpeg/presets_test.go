@@ -446,8 +446,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 					if hdr.expectP010 {
 						if !strings.Contains(outputStr, "p010") {
 							t.Logf("Output args: %v", outputArgs)
-							// Note: p010 might be in input args filter, not output
-							// This is expected behavior for some encoders
+							// Note: software and VideoToolbox encoders have no scalePixFmt,
+							// so the p010 pixel format is never injected into the filter
+							// chain for those encoders. Only hardware encoders (NVENC, QSV,
+							// VAAPI) with a non-empty scalePixFmt emit p010. This is
+							// intentional: CPU-decoded HDR frames are passed directly to
+							// the software encoder without a format conversion filter.
 						}
 					}
 
@@ -467,10 +471,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 
 					// Check tonemap filter
 					if hdr.expectTonemap {
-						hasTonemap := strings.Contains(outputStr, "tonemap")
-						// Some encoders might not have tonemap filter available
-						// (e.g., software without zscale)
-						t.Logf("Has tonemap filter: %v", hasTonemap)
+						// BuildTonemapFilter always returns a deterministic zscale pipeline
+						// (pure Go, no hardware dependency), so the presence of "tonemap"
+						// in the args is a hard requirement when EnableTonemap is true.
+						if !strings.Contains(outputStr, "tonemap") {
+							t.Errorf("expected tonemap filter in output args, got: %v", outputArgs)
+						}
 					}
 
 					// Check color metadata for SDR output
@@ -482,7 +488,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 								break
 							}
 						}
-						// Tonemap filters handle color space internally, so explicit bt709 not required
+						// Intentionally informational: the BT.709 color space conversion
+						// is handled inside the zscale filter chain itself (e.g., "zscale=p=bt709"),
+						// not via a separate -color_primaries ffmpeg flag. The production code
+						// (BuildPresetArgs) does not add -color_primaries bt709 after tonemapping,
+						// so foundBT709 will always be false here. This log is a sanity check,
+						// not an assertion.
 						t.Logf("Has explicit bt709 metadata: %v", foundBT709)
 					}
 
@@ -551,17 +562,20 @@ func TestBuildPresetArgsHDRFilters(t *testing.T) {
 			inputArgs, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
 			allArgs := strings.Join(append(inputArgs, outputArgs...), " ")
 
-			// Note: Filter availability depends on system, so we just log
 			t.Logf("Args for %s: %s", tt.name, allArgs)
 
 			if tt.enableTonemap {
-				// Tonemap should be in args if filter is available
-				t.Logf("Checking for tonemap-related filter: %s", tt.expectFilter)
+				// BuildTonemapFilter is pure Go and always returns a deterministic
+				// zscale pipeline. No hardware is required, so this is a hard assertion.
+				if !strings.Contains(allArgs, tt.expectFilter) {
+					t.Errorf("expected filter %q in args, got: %s", tt.expectFilter, allArgs)
+				}
 			} else if strings.Contains(tt.expectFilter, "p010") {
-				// HDR preservation - check for p010 format
+				// HDR preservation with a hardware encoder (NVENC/VAAPI): these encoders
+				// have a non-empty scalePixFmt so BuildPresetArgs deterministically injects
+				// p010 into the filter chain. This is a hard assertion for these cases.
 				if !strings.Contains(allArgs, "p010") {
-					// p010 might be substituted dynamically based on HDR state
-					t.Logf("p010 not found, but may be handled dynamically")
+					t.Errorf("expected p010 pixel format in args for hardware HDR preserve, got: %s", allArgs)
 				}
 			}
 		})

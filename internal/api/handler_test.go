@@ -294,6 +294,76 @@ func TestUpdateConfigLogLevelInvalid(t *testing.T) {
 	}
 }
 
+func TestKeepLargerFilesConfig(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	// Verify keep_larger_files appears in GET response (defaults to false)
+	req := httptest.NewRequest("GET", "/api/config", nil)
+	w := httptest.NewRecorder()
+	handler.GetConfig(w, req)
+
+	var cfg map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if _, ok := cfg["keep_larger_files"]; !ok {
+		t.Fatal("keep_larger_files missing from GET /api/config response")
+	}
+	if cfg["keep_larger_files"] != false {
+		t.Errorf("expected keep_larger_files to default to false, got %v", cfg["keep_larger_files"])
+	}
+
+	// Update keep_larger_files to true
+	trueVal := true
+	reqBody := UpdateConfigRequest{
+		KeepLargerFiles: &trueVal,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req = httptest.NewRequest("PUT", "/api/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.UpdateConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify it changed to true
+	req = httptest.NewRequest("GET", "/api/config", nil)
+	w = httptest.NewRecorder()
+	handler.GetConfig(w, req)
+
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if cfg["keep_larger_files"] != true {
+		t.Errorf("expected keep_larger_files true, got %v", cfg["keep_larger_files"])
+	}
+
+	// Update keep_larger_files back to false
+	falseVal := false
+	reqBody = UpdateConfigRequest{
+		KeepLargerFiles: &falseVal,
+	}
+	body, _ = json.Marshal(reqBody)
+
+	req = httptest.NewRequest("PUT", "/api/config", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.UpdateConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify it changed back to false
+	req = httptest.NewRequest("GET", "/api/config", nil)
+	w = httptest.NewRecorder()
+	handler.GetConfig(w, req)
+
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if cfg["keep_larger_files"] != false {
+		t.Errorf("expected keep_larger_files false, got %v", cfg["keep_larger_files"])
+	}
+}
+
 func TestStatsEndpoint(t *testing.T) {
 	handler, _ := setupTestHandler(t)
 

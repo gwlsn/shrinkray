@@ -5,35 +5,19 @@ import (
 	"testing"
 )
 
-func TestBinarySearchCRF(t *testing.T) {
-	// Mock encoder that returns predictable VMAF based on CRF
-	// Lower CRF = higher quality = higher VMAF
-	mockVMAFScores := map[int]float64{
-		18: 98.0,
-		20: 97.0,
-		22: 96.0,
-		24: 95.0,
-		26: 93.0, // Target threshold
-		28: 91.0,
-		30: 88.0,
-		32: 85.0,
-		35: 80.0,
-	}
-
-	// This test verifies the search logic without actual FFmpeg
-	// Real integration tests run in Docker
-
-	qRange := QualityRange{Min: 18, Max: 35}
-	threshold := 93.0
-
-	// For a threshold of 93, we should find CRF 26 or close to it
-	// (the highest CRF that still meets the threshold)
-
-	t.Log("Binary search should find optimal CRF")
-	t.Logf("Mock VMAF scores: %v", mockVMAFScores)
-	t.Logf("Threshold: %.1f, expecting CRF around 26", threshold)
-	t.Logf("Quality range: %d-%d", qRange.Min, qRange.Max)
-}
+// TestBinarySearchCRF is intentionally omitted.
+//
+// BinarySearch cannot be unit tested with a mock because it calls ScoreSamples
+// directly (not through an interface), and ScoreSamples shells out to FFmpeg to
+// compute VMAF scores from real encoded video files. Providing a mock
+// EncodeSampleFunc only controls the encode step; the scoring step would still
+// attempt to open the returned paths with FFmpeg and fail.
+//
+// The search algorithm itself (interpolation, convergence, bounds tracking) is
+// exercised by the pure-function tests below: TestVmafLerpCRF,
+// TestVmafLerpCRFAdjacentValues, TestVmafLerpCRFMidpointFallback, and their
+// bitrate-modifier equivalents. End-to-end coverage lives in the Docker
+// integration suite where a real FFmpeg binary is available.
 
 func TestQualityRangeDefaults(t *testing.T) {
 	// Test that QualityRange struct initializes correctly
