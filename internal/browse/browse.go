@@ -481,6 +481,35 @@ func (b *Browser) InvalidateCache(path string) {
 	}
 }
 
+// Reconcile marks directory stats as stale for the given path (and subtree
+// if recursive) and enqueues recomputes. Does not delete last-known values.
+// Also transitions error-state entries (they may represent transient failures
+// that are now resolved, e.g., NAS back online).
+func (b *Browser) Reconcile(path string, recursive bool) {
+	b.countCacheMu.Lock()
+	if recursive {
+		prefix := path + string(os.PathSeparator)
+		for dir, dc := range b.countCache {
+			if dir == path || strings.HasPrefix(dir, prefix) {
+				if dc.state == stateReady || dc.state == stateError {
+					dc.state = stateStale
+					dc.err = ""
+				}
+			}
+		}
+	} else {
+		if dc, ok := b.countCache[path]; ok {
+			if dc.state == stateReady || dc.state == stateError {
+				dc.state = stateStale
+				dc.err = ""
+			}
+		}
+	}
+	b.countCacheMu.Unlock()
+
+	b.enqueueRecompute(path)
+}
+
 // WarmCountCache pre-computes recursive video counts for all directories
 // under the media root in a single pass. Captures full dirSig for each
 // directory and prunes entries for directories that no longer exist.

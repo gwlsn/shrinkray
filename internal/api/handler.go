@@ -529,6 +529,19 @@ func (h *Handler) ClearCache(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cache cleared"})
 }
 
+// Reconcile handles POST /api/browse/reconcile
+func (h *Handler) Reconcile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = h.cfg.MediaPath
+	}
+
+	recursive := r.URL.Query().Get("recursive") == "1" || r.URL.Query().Get("recursive") == "true"
+
+	h.browser.Reconcile(path, recursive)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reconciling"})
+}
+
 // TestPushover handles POST /api/pushover/test
 func (h *Handler) TestPushover(w http.ResponseWriter, r *http.Request) {
 	if !h.pushover.IsConfigured() {
