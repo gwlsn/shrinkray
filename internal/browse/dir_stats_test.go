@@ -308,3 +308,79 @@ func TestBrowseSSE_FullChannelDoesNotBlock(t *testing.T) {
 		t.Fatal("broadcast blocked on full channel")
 	}
 }
+
+func TestInvalidateCache_PreservesLastKnownValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	videoPath := filepath.Join(subDir, "ep1.mkv")
+	if err := os.WriteFile(videoPath, []byte("fake video"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// Warm cache
+	browser.countVideos(ctx, subDir)
+
+	// Verify cached
+	browser.countCacheMu.RLock()
+	cached, exists := browser.countCache[subDir]
+	browser.countCacheMu.RUnlock()
+	if !exists || cached.fileCount != 1 {
+		t.Fatalf("expected cached count of 1, got exists=%v count=%d", exists, cached.fileCount)
+	}
+
+	// Invalidate
+	browser.InvalidateCache(videoPath)
+
+	// Cache entry must still exist with last-known values
+	browser.countCacheMu.RLock()
+	after, stillExists := browser.countCache[subDir]
+	browser.countCacheMu.RUnlock()
+
+	if !stillExists {
+		t.Fatal("InvalidateCache deleted the cache entry (should mark stale)")
+	}
+	if after.fileCount != 1 {
+		t.Errorf("expected preserved count of 1, got %d", after.fileCount)
+	}
+	if after.state == stateReady {
+		t.Error("expected non-ready state after invalidation")
+	}
+}
+
+func TestClearCache_PreservesLastKnownValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "ep1.mkv"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	browser.countVideos(ctx, subDir)
+
+	// Clear cache
+	browser.ClearCache()
+
+	// Count cache entries must not be deleted
+	browser.countCacheMu.RLock()
+	cached, exists := browser.countCache[subDir]
+	browser.countCacheMu.RUnlock()
+
+	if !exists {
+		t.Fatal("ClearCache deleted count cache entries (should mark stale)")
+	}
+	if cached.fileCount != 1 {
+		t.Errorf("expected preserved count of 1, got %d", cached.fileCount)
+	}
+}

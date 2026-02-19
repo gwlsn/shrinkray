@@ -63,12 +63,6 @@ type Browser struct {
 	// Max concurrent file probes in Browse to avoid overwhelming network shares
 	maxProbes int
 
-	// Prevents stacking multiple background invalidation sweeps.
-	// 0 = idle, 1 = running. If a ClearCache call arrives while running,
-	// dirty is set to 1 so the sweep reruns once with a fresh snapshot.
-	invalidating int32
-	dirty        int32
-
 	// Bounded queue for recompute jobs (consumed by fixed worker pool)
 	recomputeQueue chan string
 
@@ -451,151 +445,65 @@ func (b *Browser) GetVideoFilesWithProgress(ctx context.Context, paths []string,
 	return results, nil
 }
 
-// ClearCache clears the probe cache and selectively invalidates directory
-// count caches using two complementary checks:
-//  1. Directory mtime: detects structural changes (files added/removed) in any
-//     cached directory, even those whose files were never individually probed.
-//  2. Probe signatures: detects file content changes (inode/size) for files
-//     the user previously browsed into.
-//
-// This keeps folder sizes visible for unchanged directories while ensuring
-// changes trigger a fresh count on next browse.
+// ClearCache clears the probe cache and marks all directory count entries
+// as stale. Enqueues a single root-level recompute rather than one per
+// directory (avoids pathological redundant recursive walks).
 func (b *Browser) ClearCache() {
-	// Snapshot the old probe cache so we can detect stale file entries.
-	// This swap is instant (pointer reassignment) so it stays synchronous —
-	// the next Browse call immediately gets a fresh probe cache.
+	// Swap probe cache (instant, existing behavior)
 	b.cacheMu.Lock()
-	oldCache := b.cache
 	b.cache = make(map[string]*ffmpeg.ProbeResult)
 	b.cacheMu.Unlock()
 
-	// Snapshot the count cache for directory mtime checks.
-	b.countCacheMu.RLock()
-	oldCountCache := make(map[string]*dirCount, len(b.countCache))
-	for k, v := range b.countCache {
-		oldCountCache[k] = v
+	// Mark all count entries stale (including error state, which may recover)
+	b.countCacheMu.Lock()
+	for _, dc := range b.countCache {
+		if dc.state == stateReady || dc.state == stateError {
+			dc.state = stateStale
+			dc.err = ""
+		}
 	}
-	b.countCacheMu.RUnlock()
+	b.countCacheMu.Unlock()
 
-	// Run the expensive os.Stat checks in the background so the HTTP handler
-	// returns immediately. If a sweep is already running, mark dirty so it
-	// reruns once with fresh snapshots after the current sweep finishes.
-	if atomic.CompareAndSwapInt32(&b.invalidating, 0, 1) {
-		go b.runInvalidationLoop(oldCache, oldCountCache)
-	} else {
-		// A sweep is already running — signal it to rerun with fresh data.
-		atomic.StoreInt32(&b.dirty, 1)
-	}
+	// Single root-level recompute refreshes all directories efficiently
+	// via WarmCountCache-style walk (one walk, many updates)
+	go b.WarmCountCache(context.Background())
 }
 
-// runInvalidationLoop runs the invalidation sweep, then checks if another
-// ClearCache call arrived during the sweep (dirty flag). If so, takes fresh
-// snapshots and runs one more time to pick up changes that were missed.
-func (b *Browser) runInvalidationLoop(oldCache map[string]*ffmpeg.ProbeResult, oldCountCache map[string]*dirCount) {
-	// Eventual consistency: a ClearCache between the dirty check and this
-	// reset may require one extra refresh to see updated counts.
-	defer atomic.StoreInt32(&b.invalidating, 0)
+// InvalidateCache removes a specific path from the probe cache and marks
+// ancestor directory count entries as stale (triggering background recompute).
+// Last-known values are preserved so the UI never shows blanks.
+// Also transitions error-state ancestors (they may recover after a transcode).
+func (b *Browser) InvalidateCache(path string) {
+	b.cacheMu.Lock()
+	delete(b.cache, path)
+	b.cacheMu.Unlock()
 
-	b.invalidateStaleCounts(oldCache, oldCountCache)
-
-	// If a ClearCache call arrived while we were running, do one more pass
-	// with fresh snapshots. Only one retry — further calls will start a new loop.
-	if atomic.CompareAndSwapInt32(&b.dirty, 1, 0) {
-		b.countCacheMu.RLock()
-		freshCountCache := make(map[string]*dirCount, len(b.countCache))
-		for k, v := range b.countCache {
-			freshCountCache[k] = v
-		}
-		b.countCacheMu.RUnlock()
-
-		// Probe cache was already swapped by the later ClearCache call,
-		// so pass nil — only dir mtime checks matter for the retry.
-		b.invalidateStaleCounts(nil, freshCountCache)
-	}
-}
-
-// invalidateStaleCounts checks directory mtimes and probe signatures to find
-// stale count cache entries and removes them. Called in a background goroutine
-// by ClearCache to avoid blocking the HTTP handler on os.Stat calls.
-func (b *Browser) invalidateStaleCounts(oldCache map[string]*ffmpeg.ProbeResult, oldCountCache map[string]*dirCount) {
-	staleDirs := make(map[string]struct{})
-
-	// Check 1: directory mtime — catches new/deleted files in any cached dir,
-	// even those whose files were never individually probed.
-	for dir, cached := range oldCountCache {
-		info, err := os.Stat(dir)
-		if err != nil {
-			staleDirs[dir] = struct{}{}
-			b.markAncestorsStale(dir, staleDirs)
-			continue
-		}
-		if !info.ModTime().Equal(cached.sig.mtime) {
-			staleDirs[dir] = struct{}{}
-			b.markAncestorsStale(dir, staleDirs)
-		}
-	}
-
-	// Check 2: probe signatures — catches file content changes (re-encodes)
-	// where the file path stays the same but inode/size changed.
-	for path, cached := range oldCache {
-		info, err := os.Stat(path)
-		if err != nil {
-			b.markAncestorsStale(filepath.Dir(path), staleDirs)
-			continue
-		}
-		currentSize := info.Size()
-		var currentInode uint64
-		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-			currentInode = stat.Ino
-		}
-		if cached.Inode != currentInode || cached.Size != currentSize {
-			b.markAncestorsStale(filepath.Dir(path), staleDirs)
-		}
-	}
-
-	if len(staleDirs) > 0 {
-		b.countCacheMu.Lock()
-		for dir := range staleDirs {
-			// Only delete if the entry hasn't been refreshed since our snapshot.
-			// A concurrent Browse/countVideos may have repopulated this entry
-			// with fresh data — deleting it would cause unnecessary flickering.
-			if current, ok := b.countCache[dir]; ok && current == oldCountCache[dir] {
-				delete(b.countCache, dir)
+	dir := filepath.Dir(path)
+	b.countCacheMu.Lock()
+	for b.isUnderRoot(dir) {
+		if cached, ok := b.countCache[dir]; ok {
+			if cached.state == stateReady || cached.state == stateError {
+				cached.state = stateStale
+				cached.err = ""
 			}
 		}
-		b.countCacheMu.Unlock()
-	}
-}
-
-// markAncestorsStale adds dir and all its ancestors up to mediaRoot into the set.
-// Uses the fast lexical check since these paths come from the filesystem/cache.
-func (b *Browser) markAncestorsStale(dir string, set map[string]struct{}) {
-	for b.isUnderRoot(dir) {
-		set[dir] = struct{}{}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
 		dir = parent
 	}
-}
-
-// InvalidateCache removes a specific path from the probe cache and clears
-// directory count caches for all ancestor directories (since their recursive
-// counts include this file).
-func (b *Browser) InvalidateCache(path string) {
-	b.cacheMu.Lock()
-	delete(b.cache, path)
-	b.cacheMu.Unlock()
-
-	staleDirs := make(map[string]struct{})
-	b.markAncestorsStale(filepath.Dir(path), staleDirs)
-
-	b.countCacheMu.Lock()
-	for dir := range staleDirs {
-		delete(b.countCache, dir)
-	}
 	b.countCacheMu.Unlock()
+
+	dir = filepath.Dir(path)
+	for b.isUnderRoot(dir) {
+		b.enqueueRecompute(dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 }
 
 // WarmCountCache pre-computes recursive video counts for all directories
