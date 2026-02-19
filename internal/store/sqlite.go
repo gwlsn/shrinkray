@@ -9,11 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/jobs"
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 const schema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -68,6 +69,13 @@ CREATE TABLE IF NOT EXISTS stats_metadata (
 	key TEXT PRIMARY KEY,
 	value TEXT NOT NULL,
 	updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dir_counts (
+	path TEXT PRIMARY KEY,
+	file_count INTEGER NOT NULL DEFAULT 0,
+	total_size INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
@@ -242,6 +250,21 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 					db.Close()
 					return nil, fmt.Errorf("migration v5->v6 failed: %w", err)
 				}
+			}
+		}
+		if version < 7 {
+			// Migrate v6 -> v7: Add dir_counts table for browse stats persistence
+			_, err = db.Exec(`
+				CREATE TABLE IF NOT EXISTS dir_counts (
+					path TEXT PRIMARY KEY,
+					file_count INTEGER NOT NULL DEFAULT 0,
+					total_size INTEGER NOT NULL DEFAULT 0,
+					updated_at TEXT NOT NULL
+				)
+			`)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("migration v6->v7 failed: %w", err)
 			}
 		}
 		// Update version
@@ -549,6 +572,58 @@ func (s *SQLiteStore) SessionLifetimeStats() (sessionSaved, lifetimeSaved int64,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getSavedStats()
+}
+
+// SaveDirCounts persists directory count entries in a single transaction.
+// Uses INSERT OR REPLACE to upsert, so existing rows are updated cleanly.
+func (s *SQLiteStore) SaveDirCounts(entries []browse.DirCountEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO dir_counts (path, file_count, total_size, updated_at)
+		VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, e := range entries {
+		if _, err := stmt.Exec(e.Path, e.FileCount, e.TotalSize, formatTime(e.UpdatedAt)); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadDirCounts reads all persisted directory counts from the database.
+func (s *SQLiteStore) LoadDirCounts() ([]browse.DirCountEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT path, file_count, total_size, updated_at FROM dir_counts`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []browse.DirCountEntry
+	for rows.Next() {
+		var e browse.DirCountEntry
+		var updatedStr string
+		if err := rows.Scan(&e.Path, &e.FileCount, &e.TotalSize, &updatedStr); err != nil {
+			return nil, err
+		}
+		e.UpdatedAt = parseTime(updatedStr)
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }
 
 // Close closes the database connection.
