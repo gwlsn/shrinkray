@@ -374,7 +374,7 @@ func TestSQLiteStore_ResetRunningJobs(t *testing.T) {
 		job.Progress = 50.0
 		job.Speed = 1.5
 		job.ETA = "10m"
-		job.Phase = jobs.PhaseWaitingAnalysis // add this line
+		job.Phase = jobs.PhaseWaitingAnalysis
 		store.SaveJob(job)
 	}
 
