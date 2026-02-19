@@ -20,9 +20,10 @@ const (
 type Phase string
 
 const (
-	PhaseNone      Phase = ""          // Regular presets or not yet started
-	PhaseAnalyzing Phase = "analyzing" // SmartShrink: sample extraction + binary search
-	PhaseEncoding  Phase = "encoding"  // SmartShrink: full transcode
+	PhaseNone            Phase = ""                // Regular presets or not yet started
+	PhaseWaitingAnalysis Phase = "waiting_analysis" // SmartShrink: queued for analysis slot
+	PhaseAnalyzing       Phase = "analyzing"        // SmartShrink: sample extraction + binary search
+	PhaseEncoding        Phase = "encoding"         // SmartShrink: full transcode
 )
 
 // Job represents a transcoding job
