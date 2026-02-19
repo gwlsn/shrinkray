@@ -1,6 +1,7 @@
 package browse
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,5 +95,146 @@ func TestDirCountStates(t *testing.T) {
 			t.Errorf("duplicate state constant: %s", s)
 		}
 		seen[s] = true
+	}
+}
+
+func TestGetDirCount_CacheMiss(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	// Create a subdirectory with a video file
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "ep1.mkv"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	dc := browser.GetDirCount(ctx, subDir)
+
+	// First access: should be unknown or pending (recompute enqueued)
+	if dc.State != stateUnknown && dc.State != statePending {
+		t.Errorf("expected unknown or pending on cache miss, got %s", dc.State)
+	}
+
+	// Wait for background recompute to finish
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		dc = browser.GetDirCount(ctx, subDir)
+		if dc.State == stateReady {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if dc.State != stateReady {
+		t.Fatalf("expected ready after recompute, got %s", dc.State)
+	}
+	if dc.FileCount != 1 {
+		t.Errorf("expected 1 video, got %d", dc.FileCount)
+	}
+}
+
+func TestGetDirCount_DetectsStaleness(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	// Create subdir with one video
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "ep1.mkv"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// Warm the cache
+	browser.countVideos(ctx, subDir)
+
+	// Verify it's cached and ready
+	dc := browser.GetDirCount(ctx, subDir)
+	if dc.FileCount != 1 {
+		t.Fatalf("expected 1 video after warm, got %d", dc.FileCount)
+	}
+
+	// Add a second video file (changes directory mtime)
+	time.Sleep(1100 * time.Millisecond) // ensure mtime granularity
+	if err := os.WriteFile(filepath.Join(subDir, "ep2.mkv"), []byte("fake2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Next GetDirCount should detect staleness
+	dc = browser.GetDirCount(ctx, subDir)
+	if dc.State == stateReady {
+		t.Error("expected stale or pending after directory change, got ready")
+	}
+	// Last-known values must be preserved (not zeroed)
+	if dc.FileCount != 1 {
+		t.Errorf("expected last-known count of 1 during recompute, got %d", dc.FileCount)
+	}
+
+	// Wait for recompute
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		dc = browser.GetDirCount(ctx, subDir)
+		if dc.State == stateReady && dc.FileCount == 2 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if dc.FileCount != 2 {
+		t.Errorf("expected 2 videos after recompute, got %d", dc.FileCount)
+	}
+}
+
+func TestGetDirCount_DeletedDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	subDir := filepath.Join(tmpDir, "shows")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "ep1.mkv"), []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// Warm cache
+	browser.countVideos(ctx, subDir)
+
+	// Delete the directory
+	if err := os.RemoveAll(subDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetDirCount should handle deletion gracefully
+	dc := browser.GetDirCount(ctx, subDir)
+	if dc.State != stateError {
+		t.Errorf("expected error state for deleted directory, got %s", dc.State)
+	}
+	// Last-known values should still be accessible
+	if dc.FileCount != 1 {
+		t.Errorf("expected preserved count of 1 for deleted dir, got %d", dc.FileCount)
+	}
+}
+
+func TestGetDirCount_NeverDeletedCacheMiss(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	// Ask for a directory that was never cached and doesn't exist
+	dc := browser.GetDirCount(context.Background(), filepath.Join(tmpDir, "nonexistent"))
+	if dc.State != stateError {
+		t.Errorf("expected error for non-existent uncached dir, got %s", dc.State)
+	}
+	if dc.FileCount != 0 {
+		t.Errorf("expected 0 count for never-cached dir, got %d", dc.FileCount)
 	}
 }

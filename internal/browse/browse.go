@@ -68,6 +68,13 @@ type Browser struct {
 	// dirty is set to 1 so the sweep reruns once with a fresh snapshot.
 	invalidating int32
 	dirty        int32
+
+	// Bounded queue for recompute jobs (consumed by fixed worker pool)
+	recomputeQueue chan string
+
+	// Subscribers for directory count update events (SSE)
+	browseSubsMu      sync.RWMutex
+	browseSubscribers map[chan DirCountEvent]struct{}
 }
 
 // NewBrowser creates a new Browser with the given prober and media root
@@ -77,14 +84,18 @@ func NewBrowser(prober *ffmpeg.Prober, mediaRoot string) *Browser {
 	if err != nil {
 		absRoot = mediaRoot
 	}
-	return &Browser{
-		prober:     prober,
-		mediaRoot:  absRoot,
-		cache:      make(map[string]*ffmpeg.ProbeResult),
-		countCache: make(map[string]*dirCount),
-		countSem:   make(chan struct{}, 8),
-		maxProbes:  16,
+	b := &Browser{
+		prober:            prober,
+		mediaRoot:         absRoot,
+		cache:             make(map[string]*ffmpeg.ProbeResult),
+		countCache:        make(map[string]*dirCount),
+		countSem:          make(chan struct{}, 8),
+		maxProbes:         16,
+		browseSubscribers: make(map[chan DirCountEvent]struct{}),
+		recomputeQueue:    make(chan string, 256),
 	}
+	b.startRecomputeWorkers()
+	return b
 }
 
 // isUnderRoot reports whether absPath is equal to or nested under the media root.
