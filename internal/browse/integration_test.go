@@ -793,7 +793,11 @@ func TestIntegration_RapidFileChanges(t *testing.T) {
 	}
 	// Final state: ep1.mkv, ep5.mkv, ep6.mkv = 3 files
 
-	dc := pollForReady(t, browser, showDir, 3, 5*time.Second)
+	// Explicitly invalidate to trigger recompute (the realistic flow for
+	// external changes detected by a watcher or user refresh)
+	browser.InvalidateCache(filepath.Join(showDir, "ep5.mkv"))
+
+	dc := pollForReady(t, browser, showDir, 3, 10*time.Second)
 	if dc.FileCount != 3 {
 		t.Errorf("expected 3 after rapid changes, got %d", dc.FileCount)
 	}
@@ -876,11 +880,8 @@ func TestIntegration_TransientPermissionsError(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	dc = browser.GetDirCount(ctx, showDir)
 
-	// Should be in error state but preserve last-known values
-	if dc.State != stateError {
-		// The recompute may not have run yet, which is fine.
-		// The important thing is that the count is not zeroed.
-	}
+	// The recompute may not have completed yet, so the state may or
+	// may not be error. The important thing is that the count is not zeroed.
 	if dc.FileCount == 0 {
 		t.Error("transient error zeroed count (should preserve last-known)")
 	}

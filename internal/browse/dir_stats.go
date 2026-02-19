@@ -172,7 +172,7 @@ func (b *Browser) startRecomputeWorkers() {
 	for range cap(b.countSem) {
 		go func() {
 			for dirPath := range b.recomputeQueue {
-				b.countGroup.Do(dirPath, func() (interface{}, error) {
+				_, _, _ = b.countGroup.Do(dirPath, func() (interface{}, error) {
 					b.countSem <- struct{}{}
 					defer func() { <-b.countSem }()
 					b.recomputeDirCount(dirPath)
@@ -190,9 +190,8 @@ func (b *Browser) startRecomputeWorkers() {
 func (b *Browser) recomputeDirCount(dirPath string) {
 	var count int
 	var totalSize int64
-	var walkErr error
 
-	walkErr = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err // propagate to capture in walkErr
 		}
@@ -216,7 +215,7 @@ func (b *Browser) recomputeDirCount(dirPath string) {
 
 	if walkErr != nil || sigErr != nil {
 		// Walk or stat failed: preserve last-known values, set error state
-		errMsg := "recompute failed"
+		var errMsg string
 		if walkErr != nil {
 			errMsg = walkErr.Error()
 		} else {
@@ -314,7 +313,7 @@ func (b *Browser) Unsubscribe(ch chan DirCountEvent) {
 // broadcast sends a directory count event to all subscribers.
 // Non-blocking: if a subscriber's channel is full, the event is dropped
 // for that subscriber (they will get the next one).
-func (b *Browser) broadcast(event DirCountEvent) {
+func (b *Browser) broadcast(event DirCountEvent) { //nolint:gocritic // value type matches channel semantics
 	b.browseSubsMu.RLock()
 	defer b.browseSubsMu.RUnlock()
 
