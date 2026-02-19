@@ -486,6 +486,9 @@ func (b *Browser) InvalidateCache(path string) {
 // Also transitions error-state entries (they may represent transient failures
 // that are now resolved, e.g., NAS back online).
 func (b *Browser) Reconcile(path string, recursive bool) {
+	path = b.normalizePath(path)
+	var toRecompute []string
+
 	b.countCacheMu.Lock()
 	if recursive {
 		prefix := path + string(os.PathSeparator)
@@ -494,6 +497,7 @@ func (b *Browser) Reconcile(path string, recursive bool) {
 				if dc.state == stateReady || dc.state == stateError {
 					dc.state = stateStale
 					dc.err = ""
+					toRecompute = append(toRecompute, dir)
 				}
 			}
 		}
@@ -504,10 +508,13 @@ func (b *Browser) Reconcile(path string, recursive bool) {
 				dc.err = ""
 			}
 		}
+		toRecompute = append(toRecompute, path)
 	}
 	b.countCacheMu.Unlock()
 
-	b.enqueueRecompute(path)
+	for _, dir := range toRecompute {
+		b.enqueueRecompute(dir)
+	}
 }
 
 // WarmCountCache pre-computes recursive video counts for all directories

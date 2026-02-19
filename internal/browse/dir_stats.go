@@ -148,6 +148,16 @@ func (b *Browser) GetDirCount(ctx context.Context, dirPath string) dirCountView 
 		return view
 	}
 
+	// Retry stale/unknown entries that may have been dropped from the queue
+	// (enqueueRecompute is non-blocking and drops if the queue is full).
+	// Re-enqueueing on each access ensures these entries eventually converge.
+	if cached.state == stateStale || cached.state == stateUnknown {
+		view := cached.view()
+		b.countCacheMu.Unlock()
+		b.enqueueRecompute(dirPath)
+		return view
+	}
+
 	view := cached.view()
 	b.countCacheMu.Unlock()
 	return view
@@ -226,6 +236,14 @@ func (b *Browser) recomputeDirCount(dirPath string) {
 			cached.err = errMsg
 		}
 		b.countCacheMu.Unlock()
+
+		// Broadcast error so SSE clients can show the transition
+		b.broadcast(DirCountEvent{
+			Path:      dirPath,
+			FileCount: 0,
+			State:     string(stateError),
+			UpdatedAt: now,
+		})
 		return
 	}
 
