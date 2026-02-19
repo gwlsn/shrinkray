@@ -367,13 +367,14 @@ func TestSQLiteStore_ResetRunningJobs(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Create running jobs with progress
+	// Create running jobs with progress and phase set
 	for i := 0; i < 3; i++ {
 		job := createTestJob(string(rune('A' + i)))
 		job.Status = jobs.StatusRunning
 		job.Progress = 50.0
 		job.Speed = 1.5
 		job.ETA = "10m"
+		job.Phase = jobs.PhaseWaitingAnalysis // add this line
 		store.SaveJob(job)
 	}
 
@@ -400,6 +401,9 @@ func TestSQLiteStore_ResetRunningJobs(t *testing.T) {
 		}
 		if job.ID != "pending" && job.Progress != 0 {
 			t.Errorf("job %s: expected progress 0, got %f", job.ID, job.Progress)
+		}
+		if job.ID != "pending" && job.Phase != jobs.PhaseNone {
+			t.Errorf("job %s: expected phase cleared, got %q", job.ID, job.Phase)
 		}
 	}
 }

@@ -449,7 +449,7 @@ func (s *SQLiteStore) ResetRunningJobs() (int, error) {
 
 	result, err := s.db.Exec(`
 		UPDATE jobs
-		SET status = 'pending', progress = 0, speed = 0, eta = NULL
+		SET status = 'pending', progress = 0, speed = 0, eta = NULL, phase = ''
 		WHERE status = 'running'
 	`)
 	if err != nil {
