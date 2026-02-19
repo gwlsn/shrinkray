@@ -607,6 +607,8 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 			"-b:a", "192k",
 			"-ac", "2", // Stereo for wide compatibility
 			"-sn",      // Strip subtitles
+		// Faststart: move moov atom to beginning for streaming/web playback
+		"-movflags", "+faststart",
 		)
 	} else {
 		// MKV: Copy audio, handle subtitles based on subtitleIndices
