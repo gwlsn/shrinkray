@@ -8,8 +8,9 @@ reviews:
   # "assertive" = exhaustive feedback including minor style nits (very noisy).
   profile: "chill"
 
-  # Don't formally block PRs with "Request Changes" state.
-  request_changes_workflow: false
+  # Use GitHub's "Request Changes" review state when issues are found.
+  # Auto-approves when all comments are resolved.
+  request_changes_workflow: true
 
   # Insert a summary into the PR description (replaces @coderabbitai placeholder).
   high_level_summary: true
