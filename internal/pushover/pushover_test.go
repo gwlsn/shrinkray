@@ -54,7 +54,11 @@ func TestSendSuccess(t *testing.T) {
 	// constant) to our test server, we temporarily swap http.DefaultTransport
 	// with a custom RoundTripper. This is a standard Go test pattern for code
 	// that uses http.DefaultClient or top-level http functions like PostForm.
-	var receivedBody url.Values
+	// Use a channel to hand off the parsed body from the server goroutine
+	// to the test goroutine. This avoids a data race: the httptest server
+	// handler runs in its own goroutine, so writing to a shared variable
+	// without synchronization would trip the race detector.
+	bodyCh := make(chan url.Values, 1)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read and parse the form body so we can verify its contents
@@ -64,12 +68,13 @@ func TestSendSuccess(t *testing.T) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		receivedBody, err = url.ParseQuery(string(body))
+		parsed, err := url.ParseQuery(string(body))
 		if err != nil {
 			t.Errorf("failed to parse form body: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		bodyCh <- parsed
 
 		// Return 200 OK (success response)
 		w.WriteHeader(http.StatusOK)
@@ -88,6 +93,9 @@ func TestSendSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send() returned unexpected error: %v", err)
 	}
+
+	// Receive the parsed body from the handler goroutine via the channel.
+	receivedBody := <-bodyCh
 
 	// Verify the request body contained the correct fields.
 	// This confirms Send() is building the POST form data correctly.

@@ -218,7 +218,11 @@ func (r *jobRow) toJob() *jobs.Job {
 
 // insertJobSQL uses named parameters (:field) that sqlx maps to jobRow db tags.
 // Column order in this SQL does not need to match jobRow field order.
-const insertJobSQL = `INSERT OR REPLACE INTO jobs (
+// insertJobSQL uses UPSERT (ON CONFLICT ... DO UPDATE) instead of INSERT OR REPLACE.
+// INSERT OR REPLACE is secretly DELETE+INSERT, which triggers ON DELETE CASCADE
+// on the job_order table and destroys queue position. UPSERT updates in place,
+// preserving the row identity and all foreign key references.
+const insertJobSQL = `INSERT INTO jobs (
 	id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
 	status, progress, speed, eta, error, input_size, output_size, space_saved,
 	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
@@ -230,7 +234,42 @@ const insertJobSQL = `INSERT OR REPLACE INTO jobs (
 	:duration_ms, :bitrate, :width, :height, :frame_rate, :video_codec, :profile, :bit_depth,
 	:is_hdr, :color_transfer, :transcode_secs, :phase, :vmaf_score, :selected_crf, :quality_mod,
 	:skip_reason, :smartshrink_quality, :created_at, :started_at, :completed_at
-)`
+)
+ON CONFLICT(id) DO UPDATE SET
+	input_path          = excluded.input_path,
+	output_path         = excluded.output_path,
+	temp_path           = excluded.temp_path,
+	preset_id           = excluded.preset_id,
+	encoder             = excluded.encoder,
+	is_hardware         = excluded.is_hardware,
+	status              = excluded.status,
+	progress            = excluded.progress,
+	speed               = excluded.speed,
+	eta                 = excluded.eta,
+	error               = excluded.error,
+	input_size          = excluded.input_size,
+	output_size         = excluded.output_size,
+	space_saved         = excluded.space_saved,
+	duration_ms         = excluded.duration_ms,
+	bitrate             = excluded.bitrate,
+	width               = excluded.width,
+	height              = excluded.height,
+	frame_rate          = excluded.frame_rate,
+	video_codec         = excluded.video_codec,
+	profile             = excluded.profile,
+	bit_depth           = excluded.bit_depth,
+	is_hdr              = excluded.is_hdr,
+	color_transfer      = excluded.color_transfer,
+	transcode_secs      = excluded.transcode_secs,
+	phase               = excluded.phase,
+	vmaf_score          = excluded.vmaf_score,
+	selected_crf        = excluded.selected_crf,
+	quality_mod         = excluded.quality_mod,
+	skip_reason         = excluded.skip_reason,
+	smartshrink_quality = excluded.smartshrink_quality,
+	created_at          = excluded.created_at,
+	started_at          = excluded.started_at,
+	completed_at        = excluded.completed_at`
 
 // NewSQLiteStore creates a new SQLite-backed store.
 // The database file is created if it doesn't exist.
@@ -675,6 +714,39 @@ func (s *SQLiteStore) SessionLifetimeStats() (sessionSaved, lifetimeSaved int64,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.getSavedStats()
+}
+
+// GetNotifyOnComplete reads the notify-when-done checkbox state from the DB.
+// Returns false if the key has never been set.
+func (s *SQLiteStore) GetNotifyOnComplete() (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'notify_on_complete'`).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return value == "1", nil
+}
+
+// SetNotifyOnComplete persists the notify-when-done checkbox state to the DB.
+func (s *SQLiteStore) SetNotifyOnComplete(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO stats_metadata (key, value, updated_at)
+		VALUES ('notify_on_complete', ?, datetime('now'))
+	`, value)
+	return err
 }
 
 // SaveDirCounts persists directory count entries in a single transaction.

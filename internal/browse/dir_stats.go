@@ -242,10 +242,17 @@ func (b *Browser) recomputeDirCount(dirPath string) {
 		}
 		b.countCacheMu.Unlock()
 
-		// Broadcast error so SSE clients can show the transition
+		// Broadcast error using last-known values so the UI doesn't blank
+		fileCount := 0
+		var size int64
+		if exists {
+			fileCount = cached.fileCount
+			size = cached.totalSize
+		}
 		b.broadcast(DirCountEvent{
 			Path:      dirPath,
-			FileCount: 0,
+			FileCount: fileCount,
+			TotalSize: size,
 			State:     string(stateError),
 			UpdatedAt: now,
 		})
