@@ -65,7 +65,7 @@ func (h *Handler) SetStore(store StatsStore) {
 }
 
 // SetNotifyStore sets the store for persisting the notify-when-done checkbox state.
-// When set, notify state is read from and written to the DB instead of config.
+// When nil (e.g., in tests), getNotifyOnComplete returns false and setNotifyOnComplete no-ops.
 func (h *Handler) SetNotifyStore(store NotifySettingStore) {
 	h.notifyStore = store
 }

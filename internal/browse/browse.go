@@ -504,7 +504,7 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 	var videoCount int
 	var walkHadErrors bool
 
-	_ = filepath.WalkDir(b.mediaRoot, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(b.mediaRoot, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return filepath.SkipAll
 		}
@@ -554,7 +554,10 @@ func (b *Browser) WarmCountCache(ctx context.Context) {
 			dir = parent
 		}
 		return nil
-	})
+	}); err != nil {
+		walkHadErrors = true
+		logger.Warn("WarmCountCache walk failed", "error", err)
+	}
 
 	if ctx.Err() == nil {
 		// Populate cache in chunks to avoid holding the lock for too long

@@ -96,17 +96,19 @@ func (t *Transcoder) Transcode(
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
 
-	// Ensure progress channel is closed exactly once, regardless of exit path.
-	// Early returns (before scanner goroutine starts) would otherwise leak
-	// the consumer goroutine that's waiting on range progressCh.
+	// closeProgress closes progressCh exactly once. Called explicitly on early
+	// return paths (before the scanner goroutine starts) and via defer inside
+	// the scanner goroutine itself. We intentionally do NOT defer it here:
+	// the goroutine sends on progressCh, so closing from the main goroutine
+	// would race with those sends and panic.
 	closeProgress := sync.OnceFunc(func() {
 		close(progressCh)
 	})
-	defer closeProgress()
 
 	// Get input file size
 	inputInfo, err := os.Stat(inputPath)
 	if err != nil {
+		closeProgress()
 		return nil, fmt.Errorf("failed to stat input file: %w", err)
 	}
 	inputSize := inputInfo.Size()
@@ -146,6 +148,7 @@ func (t *Transcoder) Transcode(
 	// Capture stdout for progress
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		closeProgress()
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
@@ -155,6 +158,7 @@ func (t *Transcoder) Transcode(
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		closeProgress()
 		return nil, fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 

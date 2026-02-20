@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gwlsn/shrinkray/internal/ffmpeg"
@@ -209,6 +210,13 @@ func (b *Browser) recomputeDirCount(dirPath string) {
 	walkErr := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err // propagate to capture in walkErr
+		}
+		// Skip hidden entries (consistent with WarmCountCache and Browse)
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil

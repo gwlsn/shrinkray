@@ -2773,7 +2773,10 @@
             btn.classList.add('refreshing');
 
             try {
-                await fetch(`/api/browse/reconcile?path=${encodeURIComponent(currentPath)}&recursive=true`, { method: 'POST' });
+                const resp = await fetch(`/api/browse/reconcile?path=${encodeURIComponent(currentPath)}&recursive=true`, { method: 'POST' });
+                if (!resp.ok) {
+                    console.error('Reconcile failed:', resp.status);
+                }
                 await browse(currentPath);
             } catch (err) {
                 console.error('Refresh error:', err);

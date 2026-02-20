@@ -622,6 +622,9 @@ func (q *Queue) Unsubscribe(ch chan JobEvent) {
 // Used by the notification worker to push server-to-client messages
 // (e.g., notify_sent) without coupling to a specific SSE connection.
 func (q *Queue) BroadcastEvent(event JobEvent) {
+	if event.Job != nil {
+		event.Job = event.Job.Copy()
+	}
 	q.broadcast(event)
 }
 
