@@ -51,6 +51,9 @@ feature/*     ●─●   ●─●          (short-lived branches)
 **Day-to-day:** Branch from develop → work → merge to develop → delete branch.
 **Releases:** Merge develop into main → tag → CI builds Docker image. Use `/release` slash command.
 
+## Pull Requests
+- Always write a manual PR summary. Never use `@coderabbitai summary` placeholder.
+
 ## Constraints
 - Never use goto
 - Don't use em dashes and en dashes in prose. Use commas, periods, or colons. This a hard rule.

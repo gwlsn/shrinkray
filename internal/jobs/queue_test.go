@@ -471,6 +471,40 @@ func TestQueueRequeue(t *testing.T) {
 	_ = job3 // Silence unused variable warning
 }
 
+func TestRequeue_ClearsPhase(t *testing.T) {
+	queue := jobs.NewQueue()
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Add and start a job (must be running to set phase)
+	job, _ := queue.Add(probe.Path, "smartshrink-hevc", probe, "good")
+	if err := queue.StartJob(job.ID, "/tmp/video.tmp.mkv"); err != nil {
+		t.Fatalf("StartJob: %v", err)
+	}
+
+	// Simulate entering the waiting phase
+	if err := queue.UpdateJobPhase(job.ID, jobs.PhaseWaitingAnalysis); err != nil {
+		t.Fatalf("UpdateJobPhase: %v", err)
+	}
+
+	// Requeue (simulates pause or worker scale-down)
+	if err := queue.Requeue(job.ID); err != nil {
+		t.Fatalf("Requeue: %v", err)
+	}
+
+	got := queue.Get(job.ID)
+	if got.Status != jobs.StatusPending {
+		t.Errorf("expected status pending after requeue, got %s", got.Status)
+	}
+	if got.Phase != jobs.PhaseNone {
+		t.Errorf("expected phase cleared after requeue, got %q", got.Phase)
+	}
+}
+
 func TestQueueStats(t *testing.T) {
 	queue := jobs.NewQueue()
 
@@ -680,6 +714,132 @@ func TestQueueSkipJobClearsPhase(t *testing.T) {
 	got := queue.Get(job.ID)
 	if got.Phase != jobs.PhaseNone {
 		t.Errorf("expected Phase to be cleared, got %s", got.Phase)
+	}
+}
+
+// TestNewJobSetsAllFields verifies that every field newJob() is responsible for
+// populating is non-zero when given a fully-populated ProbeResult. This is a
+// safety net: if someone adds a new field to Job and wires it in newJob(), they
+// must also add an assertion here, making the omission immediately visible.
+//
+// Fields intentionally left zero by newJob() (set later in the job lifecycle):
+//   - OutputPath, TempPath  -- set by StartJob/CompleteJob
+//   - OutputSize, SpaceSaved -- set by CompleteJob
+//   - Progress, Speed, ETA  -- set by UpdateProgress
+//   - StartedAt, CompletedAt, TranscodeTime -- set by lifecycle methods
+//   - Phase, VMafScore, SelectedCRF, QualityMod -- set by SmartShrink methods
+//   - Error, SkipReason     -- only set when skipReason != ""
+//   - IsHardware            -- false for software presets (encoder == "none")
+//
+// Fields newJob() IS responsible for (all checked below):
+//   ID, InputPath, PresetID, Encoder, Status, InputSize, Duration,
+//   Bitrate, Width, Height, FrameRate, VideoCodec, Profile, BitDepth,
+//   IsHDR, ColorTransfer, SmartShrinkQuality, CreatedAt
+func TestNewJobSetsAllFields(t *testing.T) {
+	// InitPresets so the preset lookup inside Add() resolves correctly.
+	ffmpeg.InitPresets()
+
+	// Build a probe with every field newJob() reads set to a non-zero value.
+	probe := &ffmpeg.ProbeResult{
+		Path:          "/media/test/sample.mkv",
+		Size:          1_234_567_890,
+		Duration:      90 * time.Minute,
+		VideoCodec:    "h264",
+		AudioCodec:    "aac",
+		Width:         1920,
+		Height:        1080,
+		Bitrate:       8_000_000,
+		FrameRate:     23.976,
+		Profile:       "High",
+		BitDepth:      10,
+		ColorTransfer: "smpte2084",
+		IsHDR:         true,
+	}
+
+	// Use a software preset so we exercise a known, stable code path.
+	// "compress-hevc" maps to HWAccelNone, so IsHardware will be false --
+	// that is expected and is documented above.
+	queue := jobs.NewQueue()
+	job, err := queue.Add(probe.Path, "compress-hevc", probe, "good")
+	if err != nil {
+		t.Fatalf("Add() returned unexpected error: %v", err)
+	}
+
+	// --- Fields set by newJob() ---
+
+	if job.ID == "" {
+		t.Error("ID: expected non-empty string")
+	}
+
+	if job.InputPath != probe.Path {
+		t.Errorf("InputPath: got %q, want %q", job.InputPath, probe.Path)
+	}
+
+	if job.PresetID != "compress-hevc" {
+		t.Errorf("PresetID: got %q, want %q", job.PresetID, "compress-hevc")
+	}
+
+	// Encoder is derived from the preset; it must not be empty.
+	if job.Encoder == "" {
+		t.Error("Encoder: expected non-empty string (should be set from preset)")
+	}
+
+	// Status must be either Pending or Skipped -- never the zero value "".
+	if job.Status != jobs.StatusPending && job.Status != jobs.StatusSkipped {
+		t.Errorf("Status: got %q, want %q or %q", job.Status, jobs.StatusPending, jobs.StatusSkipped)
+	}
+
+	if job.InputSize != probe.Size {
+		t.Errorf("InputSize: got %d, want %d", job.InputSize, probe.Size)
+	}
+
+	wantDurationMs := probe.Duration.Milliseconds()
+	if job.Duration != wantDurationMs {
+		t.Errorf("Duration: got %d ms, want %d ms", job.Duration, wantDurationMs)
+	}
+
+	if job.Bitrate != probe.Bitrate {
+		t.Errorf("Bitrate: got %d, want %d", job.Bitrate, probe.Bitrate)
+	}
+
+	if job.Width != probe.Width {
+		t.Errorf("Width: got %d, want %d", job.Width, probe.Width)
+	}
+
+	if job.Height != probe.Height {
+		t.Errorf("Height: got %d, want %d", job.Height, probe.Height)
+	}
+
+	if job.FrameRate != probe.FrameRate {
+		t.Errorf("FrameRate: got %f, want %f", job.FrameRate, probe.FrameRate)
+	}
+
+	if job.VideoCodec != probe.VideoCodec {
+		t.Errorf("VideoCodec: got %q, want %q", job.VideoCodec, probe.VideoCodec)
+	}
+
+	if job.Profile != probe.Profile {
+		t.Errorf("Profile: got %q, want %q", job.Profile, probe.Profile)
+	}
+
+	if job.BitDepth != probe.BitDepth {
+		t.Errorf("BitDepth: got %d, want %d", job.BitDepth, probe.BitDepth)
+	}
+
+	if job.IsHDR != probe.IsHDR {
+		t.Errorf("IsHDR: got %v, want %v", job.IsHDR, probe.IsHDR)
+	}
+
+	if job.ColorTransfer != probe.ColorTransfer {
+		t.Errorf("ColorTransfer: got %q, want %q", job.ColorTransfer, probe.ColorTransfer)
+	}
+
+	if job.SmartShrinkQuality != "good" {
+		t.Errorf("SmartShrinkQuality: got %q, want %q", job.SmartShrinkQuality, "good")
+	}
+
+	if job.CreatedAt.IsZero() {
+		t.Error("CreatedAt: expected non-zero time")
 	}
 }
 

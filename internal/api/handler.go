@@ -25,21 +25,29 @@ type StatsStore interface {
 	ResetSession() error
 }
 
+// NotifySettingStore reads and writes the notify-when-done checkbox state.
+// Implemented by store.SQLiteStore; nil means fall back to in-memory config.
+type NotifySettingStore interface {
+	GetNotifyOnComplete() (bool, error)
+	SetNotifyOnComplete(enabled bool) error
+}
+
 // Handler provides HTTP API handlers
 type Handler struct {
-	browser    *browse.Browser
-	queue      *jobs.Queue
-	workerPool *jobs.WorkerPool
-	cfg        *config.Config
-	cfgPath    string
-	pushover   *pushover.Client
-	notifyMu   sync.Mutex // Protects notification sending to prevent duplicates
-	store      StatsStore // For stats operations (may be nil)
+	browser      *browse.Browser
+	queue        *jobs.Queue
+	workerPool   *jobs.WorkerPool
+	cfg          *config.Config
+	cfgPath      string
+	pushover     *pushover.Client
+	notifyMu     sync.Mutex        // Protects notification sending to prevent duplicates
+	store        StatsStore        // For stats operations (may be nil)
+	notifyStore  NotifySettingStore // Persists notify checkbox state; nil = use cfg
 }
 
 // NewHandler creates a new API handler
 func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.WorkerPool, cfg *config.Config, cfgPath string) *Handler {
-	return &Handler{
+	h := &Handler{
 		browser:    browser,
 		queue:      queue,
 		workerPool: workerPool,
@@ -47,11 +55,44 @@ func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.Wor
 		cfgPath:    cfgPath,
 		pushover:   pushover.NewClient(cfg.PushoverUserKey, cfg.PushoverAppToken),
 	}
+	h.startNotificationWorker()
+	return h
 }
 
 // SetStore sets the stats store for session/lifetime stats operations.
 func (h *Handler) SetStore(store StatsStore) {
 	h.store = store
+}
+
+// SetNotifyStore sets the store for persisting the notify-when-done checkbox state.
+// When nil (e.g., in tests), getNotifyOnComplete returns false and setNotifyOnComplete no-ops.
+func (h *Handler) SetNotifyStore(store NotifySettingStore) {
+	h.notifyStore = store
+}
+
+// getNotifyOnComplete reads the notify-on-complete flag from the DB.
+// Returns false if no store is configured (e.g., in tests).
+func (h *Handler) getNotifyOnComplete() bool {
+	if h.notifyStore == nil {
+		return false
+	}
+	v, err := h.notifyStore.GetNotifyOnComplete()
+	if err != nil {
+		logger.Warn("Failed to read notify_on_complete", "error", err)
+		return false
+	}
+	return v
+}
+
+// setNotifyOnComplete writes the notify-on-complete flag to the DB.
+// No-ops if no store is configured (e.g., in tests).
+func (h *Handler) setNotifyOnComplete(enabled bool) {
+	if h.notifyStore == nil {
+		return
+	}
+	if err := h.notifyStore.SetNotifyOnComplete(enabled); err != nil {
+		logger.Warn("Failed to persist notify_on_complete", "error", err)
+	}
 }
 
 // response helpers
@@ -78,9 +119,9 @@ func validateQuality(value int, codec string) string {
 	var min, max int
 	switch codec {
 	case "hevc":
-		min, max = 16, 30
+		min, max = ffmpeg.HEVCQualityMin, ffmpeg.HEVCQualityMax
 	case "av1":
-		min, max = 18, 35
+		min, max = ffmpeg.AV1QualityMin, ffmpeg.AV1QualityMax
 	default:
 		return fmt.Sprintf("unknown codec: %s", codec)
 	}
@@ -245,6 +286,8 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelJob handles DELETE /api/jobs/:id
+// For running/pending jobs: cancels the job.
+// For terminal jobs (complete/failed/cancelled/skipped): removes from queue.
 func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -258,6 +301,13 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Terminal jobs: remove from queue entirely
+	if job.IsTerminal() {
+		h.queue.Remove(id)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"removed": true})
+		return
+	}
+
 	// If job is running, cancel it via worker pool
 	if job.Status == jobs.StatusRunning {
 		h.workerPool.CancelJob(id)
@@ -265,7 +315,6 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 
 	// Cancel in queue
 	if err := h.queue.CancelJob(id); err != nil {
-		// Might already be cancelled/completed
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -331,7 +380,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"pushover_user_key":       h.cfg.PushoverUserKey,
 		"pushover_app_token":      h.cfg.PushoverAppToken,
 		"pushover_configured":     h.pushover.IsConfigured(),
-		"notify_on_complete":      h.cfg.NotifyOnComplete,
+		"notify_on_complete":      h.getNotifyOnComplete(),
 		"quality_hevc":            h.cfg.QualityHEVC,
 		"quality_av1":             h.cfg.QualityAV1,
 		"default_quality_hevc":    defaultHEVC,
@@ -347,6 +396,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"max_concurrent_analyses": h.cfg.MaxConcurrentAnalyses,
 		"log_level":               h.cfg.LogLevel,
 		"allow_same_codec":        h.cfg.AllowSameCodec,
+		"keep_larger_files":       h.cfg.KeepLargerFiles,
 	})
 }
 
@@ -368,6 +418,7 @@ type UpdateConfigRequest struct {
 	MaxConcurrentAnalyses *int    `json:"max_concurrent_analyses,omitempty"`
 	LogLevel              *string `json:"log_level,omitempty"`
 	AllowSameCodec        *bool   `json:"allow_same_codec,omitempty"`
+	KeepLargerFiles       *bool   `json:"keep_larger_files,omitempty"`
 }
 
 // UpdateConfig handles PUT /api/config
@@ -403,7 +454,7 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		h.pushover.AppToken = *req.PushoverAppToken
 	}
 	if req.NotifyOnComplete != nil {
-		h.cfg.NotifyOnComplete = *req.NotifyOnComplete
+		h.setNotifyOnComplete(*req.NotifyOnComplete)
 	}
 
 	// Handle quality settings
@@ -480,6 +531,10 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		h.queue.SetAllowSameCodec(*req.AllowSameCodec)
 	}
 
+	if req.KeepLargerFiles != nil {
+		h.cfg.KeepLargerFiles = *req.KeepLargerFiles
+	}
+
 	// Handle log level
 	if req.LogLevel != nil {
 		val := strings.ToLower(*req.LogLevel)
@@ -527,6 +582,19 @@ func (h *Handler) ResetSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ClearCache(w http.ResponseWriter, r *http.Request) {
 	h.browser.ClearCache()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cache cleared"})
+}
+
+// Reconcile handles POST /api/browse/reconcile
+func (h *Handler) Reconcile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = h.cfg.MediaPath
+	}
+
+	recursive := r.URL.Query().Get("recursive") == "1" || r.URL.Query().Get("recursive") == "true"
+
+	h.browser.Reconcile(path, recursive)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reconciling"})
 }
 
 // TestPushover handles POST /api/pushover/test

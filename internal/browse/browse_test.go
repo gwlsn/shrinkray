@@ -2,6 +2,7 @@ package browse
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,9 +132,17 @@ func TestBrowser(t *testing.T) {
 	t.Logf("TV Shows browse (cached): %d entries", len(result.Entries))
 
 	// Test browsing into Season 1
-	result, err = browser.Browse(ctx, seasonDir)
-	if err != nil {
-		t.Fatalf("Browse Season 1 failed: %v", err)
+	// VideoCount now comes from GetDirCount (async), so poll until ready
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err = browser.Browse(ctx, seasonDir)
+		if err != nil {
+			t.Fatalf("Browse Season 1 failed: %v", err)
+		}
+		if result.VideoCount == 3 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// Should have 3 video files (txt file should be included but not counted as video)
@@ -342,5 +351,73 @@ func TestGetVideoFilesWithProgress_PreservesPathOrder(t *testing.T) {
 	}
 	if !seenSecondDir {
 		t.Error("expected files from second directory (vmaf_samples)")
+	}
+}
+
+func TestBrowseAPI_AlwaysIncludesCountFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	// Create an empty subdirectory (0 videos)
+	emptyDir := filepath.Join(tmpDir, "empty_show")
+	if err := os.MkdirAll(emptyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	result, err := browser.Browse(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("Browse failed: %v", err)
+	}
+
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(result.Entries))
+	}
+
+	entry := result.Entries[0]
+	if !entry.IsDir {
+		t.Fatal("expected directory entry")
+	}
+
+	// CountsState must be set for directories
+	if entry.CountsState == "" {
+		t.Error("expected non-empty CountsState for directory")
+	}
+
+	// Verify BrowseResult has CountsState
+	if result.CountsState == "" {
+		t.Error("expected non-empty CountsState on BrowseResult")
+	}
+}
+
+func TestBrowseAPI_ZeroCountNotOmitted(t *testing.T) {
+	tmpDir := t.TempDir()
+	browser := NewBrowser(nil, tmpDir)
+
+	emptyDir := filepath.Join(tmpDir, "empty_show")
+	if err := os.MkdirAll(emptyDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Warm so the entry is ready with 0 videos
+	browser.WarmCountCache(context.Background())
+
+	ctx := context.Background()
+	result, err := browser.Browse(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("Browse failed: %v", err)
+	}
+
+	entry := result.Entries[0]
+
+	// Marshal to JSON and verify file_count is present even when 0
+	data, _ := json.Marshal(entry)
+	jsonStr := string(data)
+
+	if !strings.Contains(jsonStr, `"file_count":0`) {
+		t.Errorf("expected file_count:0 in JSON, got: %s", jsonStr)
+	}
+	if !strings.Contains(jsonStr, `"total_size":0`) {
+		t.Errorf("expected total_size:0 in JSON, got: %s", jsonStr)
 	}
 }

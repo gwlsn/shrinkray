@@ -169,6 +169,7 @@
         .stat-item.success .stat-value { color: var(--success); }
         .stat-item.running .stat-value { color: var(--accent); }
         .stat-item.error .stat-value { color: var(--error); }
+        .stat-item.skipped .stat-value { color: var(--warning); }
 
         /* Queue stat dropdown */
         .stat-queue-wrapper {
@@ -646,6 +647,15 @@
             gap: 12px;
         }
 
+        .counts-pending {
+            opacity: 0.6;
+            font-style: italic;
+        }
+        .counts-error {
+            color: var(--danger, #e74c3c);
+            font-style: italic;
+        }
+
         .file-size {
             font-variant-numeric: tabular-nums;
             color: var(--text-tertiary);
@@ -1064,6 +1074,7 @@
         }
 
         .job-item {
+            position: relative;
             padding: 16px 20px;
             border-bottom: 1px solid var(--border);
         }
@@ -1078,6 +1089,7 @@
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 8px;
+            padding-right: 10px;
         }
 
         .job-name {
@@ -1134,6 +1146,11 @@
         .job-badge.initializing {
             background: var(--purple-light);
             color: var(--purple);
+        }
+
+        .job-badge.waiting-analysis {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
         }
 
         .job-badge.analyzing {
@@ -1271,6 +1288,27 @@
 
         .job-actions {
             margin-top: 12px;
+        }
+
+        .btn-remove-job {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            opacity: 0.4;
+            cursor: pointer;
+            padding: 0px 4px;
+            font-size: 1.25rem;
+            line-height: 1;
+            border-radius: 3px;
+            transition: color 0.15s, background 0.15s, opacity 0.15s;
+        }
+
+        .btn-remove-job:hover {
+            color: var(--text-primary);
+            opacity: 1;
         }
 
         .queue-empty {
@@ -1885,6 +1923,10 @@
                         <span class="stat-value" id="stat-complete">0</span>
                         <span class="stat-label">complete</span>
                     </div>
+                    <div class="stat-item skipped">
+                        <span class="stat-value" id="stat-skipped">0</span>
+                        <span class="stat-label">skipped</span>
+                    </div>
                     <div class="stat-item error" id="stat-failed-wrapper">
                         <span class="stat-value" id="stat-failed">0</span>
                         <span class="stat-label">failed</span>
@@ -2378,6 +2420,7 @@
         let browseSortAsc = false;
         let lastBrowseEntries = [];
         let eventSource = null;
+        let browseEventSource = null;
 
         // Preset dropdown state
         let allPresets = [];
@@ -2385,7 +2428,7 @@
         let selectedQuality = 'good';
 
         function formatBytes(bytes) {
-            if (bytes === 0) return '0';
+            if (bytes === 0) return '0 B';
             if (bytes < 0) return '0';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -2436,6 +2479,38 @@
             return sorted;
         }
 
+        // Build the metadata HTML for a directory entry based on its counts_state.
+        // Always renders something: "calculating..." when unknown, counts when
+        // available, or "error" on failure.
+        function renderDirCountsMeta(entry) {
+            const count = entry.file_count || 0;
+            const size = formatBytes(entry.total_size || 0);
+            const state = entry.counts_state || 'unknown';
+
+            if (state === 'unknown' || (state === 'pending' && count === 0)) {
+                return '<span class="counts-pending">calculating\u2026</span>';
+            }
+            if (state === 'error') {
+                return '<span class="counts-error">error</span>';
+            }
+            return `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
+        }
+
+        // Render codec badge + resolution for a video file's probe result.
+        // Used both during initial render and for live SSE file_update patches.
+        function renderVideoMeta(vi) {
+            if (!vi) return '';
+            const codec = vi.video_codec?.toLowerCase() || '';
+            let codecClass = 'h264';
+            if (codec.includes('hevc') || codec.includes('h265')) {
+                codecClass = 'hevc';
+            } else if (codec.includes('av1')) {
+                codecClass = 'av1';
+            }
+            const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
+            return `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+        }
+
         function renderBrowseEntries(entries) {
             const list = document.getElementById('file-list');
             const header = document.getElementById('file-list-header');
@@ -2476,22 +2551,9 @@
                 // For folders, file_count is the number of videos inside; for videos it's 1
                 const fileCount = entry.is_dir ? (entry.file_count || 0) : (isVideo ? 1 : 0);
                 if (entry.is_dir) {
-                    const count = entry.file_count || 0;
-                    if (count > 0) {
-                        const size = formatBytes(entry.total_size || 0);
-                        metaHtml = `<span>${count} video${count !== 1 ? 's' : ''}</span><span>${size}</span>`;
-                    }
+                    metaHtml = renderDirCountsMeta(entry);
                 } else if (isVideo) {
-                    const vi = entry.video_info;
-                    const codec = vi.video_codec?.toLowerCase() || '';
-                    let codecClass = 'h264';
-                    if (codec.includes('hevc') || codec.includes('h265')) {
-                        codecClass = 'hevc';
-                    } else if (codec.includes('av1')) {
-                        codecClass = 'av1';
-                    }
-                    const hdrBadge = vi.is_hdr ? '<span class="codec-badge hdr">HDR</span>' : '';
-                    metaHtml = `<span class="codec-badge ${codecClass}">${vi.video_codec}</span>${hdrBadge}<span>${vi.width}x${vi.height}</span>`;
+                    metaHtml = renderVideoMeta(entry.video_info);
                 }
 
                 const isSelected = selectedPaths.has(entry.path);
@@ -2674,6 +2736,28 @@
                 renderBrowseEntries(sortBrowseEntries(lastBrowseEntries));
                 updateBrowseMenuDisplay();
 
+                // Connect to browse stats SSE for live count updates.
+                // Each browse() call opens a new stream scoped to the
+                // current directory, so we close any previous connection
+                // first. The server filters events to immediate children.
+                if (browseEventSource) {
+                    browseEventSource.close();
+                    browseEventSource = null;
+                }
+                browseEventSource = new EventSource(`/api/browse/stream?path=${encodeURIComponent(data.path)}`);
+                browseEventSource.onmessage = function(e) {
+                    try {
+                        const event = JSON.parse(e.data);
+                        updateBrowseEntry(event);
+                    } catch (err) {
+                        console.error('Browse SSE parse error:', err);
+                    }
+                };
+                browseEventSource.onerror = function() {
+                    // EventSource auto-reconnects; just log
+                    console.warn('Browse stats stream disconnected, reconnecting...');
+                };
+
             } catch (err) {
                 console.error('Browse error:', err);
             }
@@ -2689,7 +2773,10 @@
             btn.classList.add('refreshing');
 
             try {
-                await fetch('/api/cache/clear', { method: 'POST' });
+                const resp = await fetch(`/api/browse/reconcile?path=${encodeURIComponent(currentPath)}&recursive=true`, { method: 'POST' });
+                if (!resp.ok) {
+                    console.error('Reconcile failed:', resp.status);
+                }
                 await browse(currentPath);
             } catch (err) {
                 console.error('Refresh error:', err);
@@ -2697,6 +2784,46 @@
                 const elapsed = performance.now() - start;
                 const remaining = Math.max(0, minDuration - elapsed);
                 setTimeout(() => btn.classList.remove('refreshing'), remaining);
+            }
+        }
+
+        // Handle a browse stats SSE event by updating the matching cached
+        // entry and patching the DOM in place (no full re-render needed).
+        function updateBrowseEntry(event) {
+            if (!lastBrowseEntries) return;
+
+            const entry = lastBrowseEntries.find(e => e.path === event.path);
+            if (!entry) return;
+
+            // File-level probe update (post-transcode): patch codec badge,
+            // resolution, and file size without a full re-render.
+            if (event.type === 'file_update') {
+                if (event.video_info) entry.video_info = event.video_info;
+                if (event.size != null) entry.size = event.size;
+
+                const row = document.querySelector(`[data-path="${CSS.escape(event.path)}"]`);
+                if (row) {
+                    const metaEl = row.querySelector('.file-meta');
+                    if (metaEl) metaEl.innerHTML = renderVideoMeta(entry.video_info);
+                    const sizeEl = row.querySelector('.file-size');
+                    if (sizeEl) sizeEl.textContent = formatBytes(entry.size);
+                }
+                return; // Don't fall through to directory count update
+            }
+
+            // Directory count update (existing behavior)
+            entry.file_count = event.file_count;
+            entry.total_size = event.total_size;
+            entry.counts_state = event.counts_state;
+            entry.counts_updated_at = event.counts_updated_at;
+
+            // Patch the DOM element directly instead of re-rendering
+            const row = document.querySelector(`[data-path="${CSS.escape(event.path)}"]`);
+            if (row) {
+                const metaEl = row.querySelector('.file-meta');
+                if (metaEl) {
+                    metaEl.innerHTML = renderDirCountsMeta(entry);
+                }
             }
         }
 
@@ -2785,7 +2912,11 @@
 
             const summary = document.getElementById('selection-summary');
             if (hasSelection) {
-                summary.textContent = `${selectedPaths.size} file${selectedPaths.size > 1 ? 's' : ''} selected`;
+                let totalFiles = 0;
+                for (const count of selectedFileCounts.values()) {
+                    totalFiles += count;
+                }
+                summary.textContent = `${totalFiles} file${totalFiles !== 1 ? 's' : ''} selected`;
             } else {
                 summary.textContent = '';
             }
@@ -2880,6 +3011,11 @@
             } catch (err) {
                 console.error('Retry error:', err);
             }
+        }
+
+        // Same DELETE endpoint as cancelJob; backend differentiates by job state
+        async function removeJob(id) {
+            return cancelJob(id);
         }
 
         function clearQueue() {
@@ -3004,14 +3140,17 @@
         // Helper to render a single job's HTML
         function renderJobHTML(job) {
             const filename = job.input_path.split('/').pop();
+            const isWaitingAnalysis = job.status === 'running' && job.phase === 'waiting_analysis';
             const isAnalyzing = job.status === 'running' && job.phase === 'analyzing';
-            const isInitializing = job.status === 'running' && !isAnalyzing && job.progress === 0 && job.speed === 0;
-            const statusClass = isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : job.status);
-            const statusLabel = isAnalyzing ? 'Analyzing' : (isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1));
+            const isInitializing = job.status === 'running' && !isWaitingAnalysis && !isAnalyzing && job.progress === 0 && job.speed === 0;
+            const statusClass = isWaitingAnalysis ? 'waiting-analysis' : (isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : job.status));
+            const statusLabel = isWaitingAnalysis ? 'Pending Analysis' : (isAnalyzing ? 'Analyzing' : (isInitializing ? 'Initializing' : job.status.charAt(0).toUpperCase() + job.status.slice(1)));
 
             let detailsHtml = '';
             if (job.status === 'running') {
-                if (isAnalyzing) {
+                if (isWaitingAnalysis) {
+                    detailsHtml = '<span class="job-detail">Waiting for analysis slot...</span>';
+                } else if (isAnalyzing) {
                     detailsHtml = '<span class="job-detail">Finding optimal quality...</span>';
                 } else if (isInitializing) {
                     detailsHtml = '<span class="job-detail">Starting encoder...</span>';
@@ -3041,11 +3180,12 @@
                             <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
                             <span class="job-badge ${statusClass}">${statusLabel}</span>
                         </div>
+                    ${job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'skipped' ? `<button class="btn-remove-job" onclick="event.stopPropagation(); removeJob('${job.id}')" title="Remove job">&times;</button>` : ''}
                     </div>
                     ${job.status === 'running' ? `
                         <div class="job-progress">
                             <div class="progress-bar">
-                                <div class="progress-fill ${isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : '')}" style="width: ${(isAnalyzing || isInitializing) ? 100 : job.progress}%"></div>
+                                <div class="progress-fill ${isAnalyzing ? 'analyzing' : (isInitializing ? 'initializing' : '')}" style="width: ${(isAnalyzing || isInitializing) ? 100 : (isWaitingAnalysis ? 0 : job.progress)}%"></div>
                             </div>
                         </div>
                     ` : ''}
@@ -3084,11 +3224,10 @@
 
             // Get current job state
             const job = allSortedJobs.find(j => j.id === jobId);
-            const wasAnalyzing = job && job.phase === 'analyzing';
-            const isAnalyzing = phase === 'analyzing';
+            const wasPhase = job ? job.phase : null;
 
-            // If phase changed (entering or leaving analyzing), do a full re-render
-            if (wasAnalyzing !== isAnalyzing) {
+            // If phase changed at all, do a full re-render (handles waiting_analysis <-> analyzing <-> encoding transitions)
+            if (wasPhase !== phase) {
                 if (job) {
                     job.progress = progress;
                     job.speed = speed;
@@ -3101,8 +3240,8 @@
                 return;
             }
 
-            // If analyzing, don't update progress further - keep the analyzing state
-            if (isAnalyzing) {
+            // If in a non-progress phase, don't update progress bar - keep the current state
+            if (phase === 'analyzing' || phase === 'waiting_analysis') {
                 return;
             }
 
@@ -3675,6 +3814,9 @@
 
             // Complete count
             document.getElementById('stat-complete').textContent = stats.complete || 0;
+
+            // Skipped count
+            document.getElementById('stat-skipped').textContent = stats.skipped || 0;
 
             // Failed count
             document.getElementById('stat-failed').textContent = stats.failed || 0;

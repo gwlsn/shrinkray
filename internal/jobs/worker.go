@@ -19,15 +19,20 @@ import (
 // CacheInvalidator is called when a file is transcoded to invalidate cached probe data
 type CacheInvalidator func(path string)
 
+// FileUpdateNotifier is called after a transcode completes to re-probe the
+// output file and push updated metadata (codec, resolution, size) to SSE clients.
+type FileUpdateNotifier func(path string)
+
 // Worker processes transcoding jobs from the queue
 type Worker struct {
-	id              int
-	pool            *WorkerPool
-	queue           *Queue
-	transcoder      *ffmpeg.Transcoder
-	prober          *ffmpeg.Prober
-	cfg             *config.Config
-	invalidateCache CacheInvalidator
+	id                 int
+	pool               *WorkerPool
+	queue              *Queue
+	transcoder         *ffmpeg.Transcoder
+	prober             *ffmpeg.Prober
+	cfg                *config.Config
+	invalidateCache    CacheInvalidator
+	notifyFileUpdate   FileUpdateNotifier
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -42,12 +47,13 @@ type Worker struct {
 
 // WorkerPool manages multiple workers
 type WorkerPool struct {
-	mu              sync.Mutex
-	workers         []*Worker
-	queue           *Queue
-	cfg             *config.Config
-	invalidateCache CacheInvalidator
-	nextWorkerID    int
+	mu               sync.Mutex
+	workers          []*Worker
+	queue            *Queue
+	cfg              *config.Config
+	invalidateCache  CacheInvalidator
+	notifyFileUpdate FileUpdateNotifier
+	nextWorkerID     int
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -68,6 +74,12 @@ const (
 	vmafAcceptable = 85.0
 	vmafGood       = 90.0
 	vmafExcellent  = 94.0
+
+	// Polling intervals for the worker loop
+	pausePollInterval    = 500 * time.Millisecond // How often to check when paused
+	jobPollInterval      = 500 * time.Millisecond // How often to poll for new jobs
+	schedulePollInterval = 30 * time.Second       // How often to recheck schedule
+	analysisPollInterval = 100 * time.Millisecond // How often to poll for analysis slot
 )
 
 // runningJob tracks a job being processed by a worker.
@@ -90,7 +102,7 @@ func getSmartShrinkThreshold(quality string) float64 {
 }
 
 // NewWorkerPool creates a new worker pool
-func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator) *WorkerPool {
+func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvalidator, notifyFileUpdate FileUpdateNotifier) *WorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Use configured limit for concurrent VMAF analyses.
@@ -100,14 +112,15 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 	analysisLimit := ClampAnalysisCount(cfg.MaxConcurrentAnalyses)
 
 	pool := &WorkerPool{
-		workers:         make([]*Worker, 0, cfg.Workers),
-		queue:           queue,
-		cfg:             cfg,
-		invalidateCache: invalidateCache,
-		nextWorkerID:    0,
-		ctx:             ctx,
-		cancel:          cancel,
-		analysisLimit:   analysisLimit, // Allow concurrent analysis matching worker count
+		workers:          make([]*Worker, 0, cfg.Workers),
+		queue:            queue,
+		cfg:              cfg,
+		invalidateCache:  invalidateCache,
+		notifyFileUpdate: notifyFileUpdate,
+		nextWorkerID:     0,
+		ctx:              ctx,
+		cancel:           cancel,
+		analysisLimit:    analysisLimit, // Allow concurrent analysis matching worker count
 	}
 
 	// Create workers
@@ -121,13 +134,14 @@ func NewWorkerPool(queue *Queue, cfg *config.Config, invalidateCache CacheInvali
 // createWorker creates a new worker with the next available ID
 func (p *WorkerPool) createWorker() *Worker {
 	worker := &Worker{
-		id:              p.nextWorkerID,
-		pool:            p,
-		queue:           p.queue,
-		transcoder:      ffmpeg.NewTranscoder(p.cfg.FFmpegPath),
-		prober:          ffmpeg.NewProber(p.cfg.FFprobePath),
-		cfg:             p.cfg,
-		invalidateCache: p.invalidateCache,
+		id:               p.nextWorkerID,
+		pool:             p,
+		queue:            p.queue,
+		transcoder:       ffmpeg.NewTranscoder(p.cfg.FFmpegPath),
+		prober:           ffmpeg.NewProber(p.cfg.FFprobePath),
+		cfg:              p.cfg,
+		invalidateCache:  p.invalidateCache,
+		notifyFileUpdate: p.notifyFileUpdate,
 	}
 	p.nextWorkerID++
 	return worker
@@ -375,7 +389,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(500 * time.Millisecond):
+				case <-time.After(pausePollInterval):
 					continue
 				}
 			}
@@ -385,7 +399,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(30 * time.Second):
+				case <-time.After(schedulePollInterval):
 					continue
 				}
 			}
@@ -397,7 +411,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(500 * time.Millisecond):
+				case <-time.After(jobPollInterval):
 					continue
 				}
 			}
@@ -429,26 +443,15 @@ func (w *Worker) isScheduleAllowed() bool {
 
 // tryEncoderFallbacks attempts to transcode using fallback encoders after the primary encoder failed.
 // It tries each fallback encoder with HW decode (if appropriate), then SW decode, before moving to the next.
-//
-// Parameters:
-//   - priorError: the error from the failed primary encoder (preserved if no fallbacks work)
-//   - job, preset, etc: transcode parameters
-//
 // Returns the successful result, or priorError if all fallbacks fail.
 func (w *Worker) tryEncoderFallbacks(
 	jobCtx context.Context,
 	job *Job,
-	preset *ffmpeg.Preset,
+	opts ffmpeg.TranscodeOptions, //nolint:gocritic // by value: fallback loop copies and mutates per encoder
 	tempPath string,
-	duration time.Duration,
-	qualityHEVC, qualityAV1 int,
-	qualityMod float64,
-	totalFrames int64,
-	tonemapParams *ffmpeg.TonemapParams,
 	priorError error,
-	subtitleIndices []int,
 ) (*ffmpeg.TranscodeResult, error) {
-	currentEncoder := preset.Encoder
+	currentEncoder := opts.Preset.Encoder
 	lastError := priorError
 
 	for {
@@ -457,7 +460,7 @@ func (w *Worker) tryEncoderFallbacks(
 			return nil, context.Canceled
 		}
 
-		fallback := ffmpeg.GetFallbackEncoder(currentEncoder, preset.Codec)
+		fallback := ffmpeg.GetFallbackEncoder(currentEncoder, opts.Preset.Codec)
 		if fallback == nil {
 			// No more fallbacks available - return the last error we saw
 			return nil, lastError
@@ -468,8 +471,10 @@ func (w *Worker) tryEncoderFallbacks(
 			"failed_encoder", currentEncoder,
 			"fallback_encoder", fallback.Accel)
 
-		// Create fallback preset
-		fallbackPreset := preset.WithEncoder(fallback.Accel)
+		// Build fallback opts: swap encoder, recompute SW decode requirement.
+		// Value copy ensures the caller's opts is unmodified.
+		fallbackOpts := opts
+		fallbackOpts.Preset = opts.Preset.WithEncoder(fallback.Accel)
 
 		// Recompute whether this fallback encoder needs software decode
 		// (each encoder has different decode capabilities)
@@ -478,8 +483,8 @@ func (w *Worker) tryEncoderFallbacks(
 
 		// Try with HW decode first (unless this encoder requires SW decode)
 		if !fallbackNeedsSWDecode {
-			result, err := w.attemptTranscode(jobCtx, job, fallbackPreset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, false, subtitleIndices)
+			fallbackOpts.SoftwareDecode = false
+			result, err := w.attemptTranscode(jobCtx, job, fallbackOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Fallback encoder succeeded", "job_id", job.ID, "encoder", fallback.Accel)
@@ -495,8 +500,8 @@ func (w *Worker) tryEncoderFallbacks(
 
 		// Try SW decode with fallback encoder (unless it's software encoder - no point)
 		if shouldRetryWithSoftwareDecode(fallback.Accel) {
-			result, err := w.attemptTranscode(jobCtx, job, fallbackPreset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, true, subtitleIndices)
+			fallbackOpts.SoftwareDecode = true
+			result, err := w.attemptTranscode(jobCtx, job, fallbackOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Fallback encoder succeeded with SW decode", "job_id", job.ID, "encoder", fallback.Accel)
@@ -520,15 +525,8 @@ func (w *Worker) tryEncoderFallbacks(
 func (w *Worker) attemptTranscode(
 	jobCtx context.Context,
 	job *Job,
-	preset *ffmpeg.Preset,
+	opts ffmpeg.TranscodeOptions, //nolint:gocritic // by value: forwarded to Transcode which also takes by value
 	tempPath string,
-	duration time.Duration,
-	qualityHEVC, qualityAV1 int,
-	qualityMod float64,
-	totalFrames int64,
-	tonemapParams *ffmpeg.TonemapParams,
-	softwareDecode bool,
-	subtitleIndices []int,
 ) (*ffmpeg.TranscodeResult, error) {
 	// Create fresh progress channel (Transcode closes it when done)
 	progressCh := make(chan ffmpeg.Progress, 10)
@@ -539,13 +537,11 @@ func (w *Worker) attemptTranscode(
 		}
 	}()
 
-	return w.transcoder.Transcode(jobCtx, job.InputPath, tempPath,
-		preset, duration, job.Bitrate, job.Width, job.Height,
-		qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh,
-		softwareDecode, w.cfg.OutputFormat, tonemapParams, subtitleIndices)
+	return w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, opts, progressCh)
 }
 
-// processJob handles a single transcoding job
+// processJob handles a single transcoding job by orchestrating four phases:
+// prepare, build options, execute transcode, and finalize results.
 func (w *Worker) processJob(job *Job) {
 	startTime := time.Now()
 
@@ -570,25 +566,57 @@ func (w *Worker) processJob(job *Job) {
 		w.currentJobMu.Unlock()
 	}()
 
-	// Get the preset
-	preset := ffmpeg.GetPreset(job.PresetID)
-	if preset == nil {
-		logger.Error("Job failed", "job_id", job.ID, "error", "unknown preset", "preset", job.PresetID)
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("unknown preset: %s", job.PresetID))
+	// Phase 1: Validate preset, build temp path, mark job started
+	preset, tempPath, err := w.prepareJob(job)
+	if err != nil {
 		return
 	}
 
-	// Build temp output path
-	tempDir := w.cfg.GetTempDir(job.InputPath)
+	// Phase 2: Run SmartShrink analysis (if applicable), resolve quality/decode/HDR/subtitle params
+	opts, err := w.buildTranscodeOpts(jobCtx, job, preset)
+	if err != nil {
+		return
+	}
+
+	// Phase 3: Execute transcode with recovery strategies (SW decode, encoder fallbacks)
+	result, transcodeErr := w.executeTranscode(jobCtx, job, opts, tempPath)
+
+	// Phase 4: Handle result (cancellation, failure, size check, file move, completion)
+	w.finalizeJob(jobCtx, job, result, transcodeErr, tempPath, startTime)
+}
+
+// prepareJob validates the preset, builds the temp output path, and marks the job as started.
+// Returns the preset and temp path on success. On error, the job status is already updated
+// (failed or claimed by another worker) and the caller should return without further action.
+func (w *Worker) prepareJob(job *Job) (*ffmpeg.Preset, string, error) {
+	preset := ffmpeg.GetPreset(job.PresetID)
+	if preset == nil {
+		logger.Error("Job failed", "job_id", job.ID, "error", "unknown preset", "preset", job.PresetID)
+		if err := w.queue.FailJob(job.ID, fmt.Sprintf("unknown preset: %s", job.PresetID)); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
+		return nil, "", fmt.Errorf("unknown preset: %s", job.PresetID)
+	}
+
+	tempDir := w.cfg.GetTempDir()
 	tempPath := ffmpeg.BuildTempPath(job.InputPath, tempDir, w.cfg.OutputFormat)
 
 	// Mark job as started (first worker to call this wins)
 	if err := w.queue.StartJob(job.ID, tempPath); err != nil {
 		// Another worker claimed this job, or it was cancelled
-		return
+		return nil, "", err
 	}
 
 	logger.Info("Job started", "job_id", job.ID, "file", job.InputPath, "preset", job.PresetID)
+	return preset, tempPath, nil
+}
+
+// buildTranscodeOpts resolves quality settings (including SmartShrink analysis if applicable),
+// detects hardware/software decode requirements, sets up HDR tonemapping, filters subtitles,
+// and constructs the TranscodeOptions struct. On error, the job status is already updated
+// (SmartShrink skip/cancel/fail) and the caller should return without further action.
+func (w *Worker) buildTranscodeOpts(jobCtx context.Context, job *Job, preset *ffmpeg.Preset) (ffmpeg.TranscodeOptions, error) {
+	var zero ffmpeg.TranscodeOptions
 
 	// Initialize quality settings (may be overridden by SmartShrink analysis)
 	qualityHEVC := w.cfg.QualityHEVC
@@ -606,33 +634,40 @@ func (w *Worker) processJob(job *Job) {
 		if err != nil {
 			// Check if context was cancelled (user cancel or shutdown)
 			if jobCtx.Err() != nil {
-				// Job will be handled appropriately:
-				// - User cancel: jobCtx cancelled but w.ctx still active
-				// - Shutdown: w.ctx also cancelled, job left as running for restart
 				if w.ctx.Err() == nil {
 					logger.Info("Job cancelled during analysis", "job_id", job.ID)
-					_ = w.queue.CancelJob(job.ID)
+					if err := w.queue.CancelJob(job.ID); err != nil {
+						logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CancelJob", "error", err)
+					}
 				} else {
 					logger.Info("Job interrupted by shutdown during analysis", "job_id", job.ID)
 				}
-				return
+				return zero, fmt.Errorf("analysis interrupted")
 			}
 			logger.Error("SmartShrink analysis failed", "job_id", job.ID, "error", err.Error())
-			_ = w.queue.FailJob(job.ID, err.Error())
-			return
+			if err := w.queue.FailJob(job.ID, err.Error()); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+			}
+			return zero, fmt.Errorf("analysis failed")
 		}
 
 		if shouldSkip {
 			logger.Info("Job skipped by SmartShrink", "job_id", job.ID, "reason", skipReason)
-			_ = w.queue.SkipJob(job.ID, skipReason)
-			return
+			if err := w.queue.SkipJob(job.ID, skipReason); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "SkipJob", "error", err)
+			}
+			return zero, fmt.Errorf("job skipped")
 		}
 
 		// Store VMAF results
-		_ = w.queue.UpdateJobVMAFResult(job.ID, vmafScore, selectedCRF, qualityMod)
+		if err := w.queue.UpdateJobVMAFResult(job.ID, vmafScore, selectedCRF, qualityMod); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobVMAFResult", "error", err)
+		}
 
 		// Update phase to encoding
-		_ = w.queue.UpdateJobPhase(job.ID, PhaseEncoding)
+		if err := w.queue.UpdateJobPhase(job.ID, PhaseEncoding); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
 
 		// Set quality overrides for transcode
 		if selectedCRF > 0 {
@@ -653,24 +688,12 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	// Create progress channel
-	progressCh := make(chan ffmpeg.Progress, 10)
-
-	// Start progress forwarding
-	go func() {
-		for progress := range progressCh {
-			eta := util.FormatDuration(progress.ETA)
-			w.queue.UpdateProgress(job.ID, progress.Percent, progress.Speed, eta)
-		}
-	}()
-
-	// Run the transcode
+	// Compute transcode parameters
 	duration := time.Duration(job.Duration) * time.Millisecond
 	// Calculate total frames for frame-based progress fallback (VAAPI reports N/A for time)
 	totalFrames := int64(float64(job.Duration) / 1000.0 * job.FrameRate)
 
 	// Proactive check: does this file require software decode?
-	// This detects known-unsupported formats (e.g., H.264 10-bit) before wasting time on a failed attempt
 	useSoftwareDecode := ffmpeg.RequiresSoftwareDecode(job.VideoCodec, job.Profile, job.BitDepth, preset.Encoder)
 	if useSoftwareDecode {
 		logger.Debug("Using software decode for unsupported codec/profile",
@@ -696,10 +719,8 @@ func (w *Worker) processJob(job *Job) {
 	}
 
 	// For MKV output, filter incompatible subtitle codecs to avoid muxing failures.
-	// Only applies to MKV - other formats (mp4, webm, etc.) have different rules.
 	var subtitleIndices []int // nil = map all (default)
 	if w.cfg.OutputFormat == "mkv" {
-		// Use a short timeout for subtitle probing to avoid stalling the job
 		probeCtx, probeCancel := context.WithTimeout(jobCtx, 10*time.Second)
 		subtitleStreams, err := w.prober.ProbeSubtitles(probeCtx, job.InputPath)
 		probeCancel()
@@ -707,9 +728,6 @@ func (w *Worker) processJob(job *Job) {
 		if err != nil {
 			logger.Warn("Failed to probe subtitles, using default mapping",
 				"job_id", job.ID, "error", err)
-			// subtitleIndices stays nil = map all (fallback to prior behavior).
-			// This preserves subtitles if probe fails, but may still fail on
-			// incompatible codecs. Better than silently dropping all subtitles.
 		} else if len(subtitleStreams) > 0 {
 			compatible, dropped := ffmpeg.FilterMKVCompatible(subtitleStreams)
 			if len(dropped) > 0 {
@@ -722,17 +740,55 @@ func (w *Worker) processJob(job *Job) {
 		}
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams, subtitleIndices)
+	return ffmpeg.TranscodeOptions{
+		Preset:          preset,
+		SourceBitrate:   job.Bitrate,
+		SourceWidth:     job.Width,
+		SourceHeight:    job.Height,
+		Duration:        duration,
+		TotalFrames:     totalFrames,
+		QualityHEVC:     qualityHEVC,
+		QualityAV1:      qualityAV1,
+		QualityMod:      qualityMod,
+		SoftwareDecode:  useSoftwareDecode,
+		OutputFormat:    w.cfg.OutputFormat,
+		Tonemap:         tonemapParams,
+		SubtitleIndices: subtitleIndices,
+	}, nil
+}
+
+// executeTranscode runs the primary transcode attempt and, if the hardware encoder fails,
+// tries recovery strategies: software decode fallback, then encoder fallback chain.
+// Returns the result and any error. Does NOT update job status (the caller handles that).
+func (w *Worker) executeTranscode(
+	jobCtx context.Context,
+	job *Job,
+	opts ffmpeg.TranscodeOptions, //nolint:gocritic // by value: recovery strategies copy and mutate opts
+	tempPath string,
+) (*ffmpeg.TranscodeResult, error) {
+	// Create progress channel for the primary transcode attempt
+	progressCh := make(chan ffmpeg.Progress, 10)
+
+	// Start progress forwarding
+	go func() {
+		for progress := range progressCh {
+			eta := util.FormatDuration(progress.ETA)
+			w.queue.UpdateProgress(job.ID, progress.Percent, progress.Speed, eta)
+		}
+	}()
+
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, opts, progressCh)
 
 	// Recovery strategies for hardware encoder failures
-	if err != nil && jobCtx.Err() != context.Canceled && preset.Encoder != ffmpeg.HWAccelNone {
+	if err != nil && jobCtx.Err() != context.Canceled && opts.Preset.Encoder != ffmpeg.HWAccelNone {
 		// Strategy 1: If we used HW decode, retry with SW decode (same encoder)
-		if !useSoftwareDecode && shouldRetryWithSoftwareDecode(preset.Encoder) {
+		if !opts.SoftwareDecode && shouldRetryWithSoftwareDecode(opts.Preset.Encoder) {
 			logger.Warn("Hardware transcode failed, retrying with software decode",
 				"job_id", job.ID, "error", err.Error())
 
-			result, err = w.attemptTranscode(jobCtx, job, preset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, true, subtitleIndices)
+			retryOpts := opts
+			retryOpts.SoftwareDecode = true
+			result, err = w.attemptTranscode(jobCtx, job, retryOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Software decode fallback succeeded", "job_id", job.ID)
@@ -742,19 +798,35 @@ func (w *Worker) processJob(job *Job) {
 		// Strategy 2: Try fallback encoders (only if still failing)
 		if err != nil && jobCtx.Err() != context.Canceled {
 			logger.Warn("Primary encoder failed, trying fallback encoders",
-				"job_id", job.ID, "encoder", preset.Encoder, "error", err.Error())
+				"job_id", job.ID, "encoder", opts.Preset.Encoder, "error", err.Error())
 
-			result, err = w.tryEncoderFallbacks(jobCtx, job, preset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, err, subtitleIndices)
+			result, err = w.tryEncoderFallbacks(jobCtx, job, opts, tempPath, err)
 		}
 	}
 
-	// Handle cancellation (could happen at any point above)
+	return result, err
+}
+
+// finalizeJob handles the transcode outcome: cancellation cleanup, failure reporting,
+// output size check, file finalization (move/rename), cache invalidation, and job completion.
+func (w *Worker) finalizeJob(
+	jobCtx context.Context,
+	job *Job,
+	result *ffmpeg.TranscodeResult,
+	transcodeErr error,
+	tempPath string,
+	startTime time.Time,
+) {
+	// Handle cancellation (could happen at any point during transcode)
 	if jobCtx.Err() == context.Canceled {
-		os.Remove(tempPath)
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
 		if w.ctx.Err() != context.Canceled && job.Status == StatusRunning {
 			logger.Info("Job cancelled", "job_id", job.ID)
-			_ = w.queue.CancelJob(job.ID)
+			if err := w.queue.CancelJob(job.ID); err != nil {
+				logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CancelJob", "error", err)
+			}
 		} else if w.ctx.Err() == context.Canceled {
 			logger.Info("Job interrupted by shutdown", "job_id", job.ID)
 		}
@@ -762,20 +834,28 @@ func (w *Worker) processJob(job *Job) {
 	}
 
 	// Handle final failure (after all recovery strategies exhausted)
-	if err != nil {
-		os.Remove(tempPath)
-		logger.Error("Job failed", "job_id", job.ID, "error", err.Error())
-		_ = w.queue.FailJob(job.ID, err.Error())
+	if transcodeErr != nil {
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
+		logger.Error("Job failed", "job_id", job.ID, "error", transcodeErr.Error())
+		if err := w.queue.FailJob(job.ID, transcodeErr.Error()); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
 		return
 	}
 
 	// Check if transcoded file is larger than original
 	if result.OutputSize >= job.InputSize && !w.cfg.KeepLargerFiles {
-		// Delete the temp file and skip the job (not fail - this is expected behavior)
-		os.Remove(tempPath)
+		// Delete the temp file and skip the job (not fail, this is expected behavior)
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
+		}
 		logger.Warn("Job skipped - output larger than input", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
-		_ = w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
-			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize)))
+		if err := w.queue.SkipJob(job.ID, fmt.Sprintf("Output larger than original (%s > %s)",
+			util.FormatBytes(result.OutputSize), util.FormatBytes(job.InputSize))); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "SkipJob", "error", err)
+		}
 		return
 	} else if result.OutputSize >= job.InputSize {
 		logger.Warn("Output larger than input but keeping (keep_larger_files enabled)", "job_id", job.ID, "input_size", util.FormatBytes(job.InputSize), "output_size", util.FormatBytes(result.OutputSize))
@@ -786,9 +866,13 @@ func (w *Worker) processJob(job *Job) {
 	finalPath, err := ffmpeg.FinalizeTranscode(job.InputPath, tempPath, w.cfg.OutputFormat, replace)
 	if err != nil {
 		// Try to clean up
-		os.Remove(tempPath)
+		if removeErr := os.Remove(tempPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", removeErr)
+		}
 		logger.Error("Job failed - finalization error", "job_id", job.ID, "error", err.Error())
-		_ = w.queue.FailJob(job.ID, fmt.Sprintf("failed to finalize: %v", err))
+		if err := w.queue.FailJob(job.ID, fmt.Sprintf("failed to finalize: %v", err)); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "FailJob", "error", err)
+		}
 		return
 	}
 
@@ -799,6 +883,16 @@ func (w *Worker) processJob(job *Job) {
 		w.invalidateCache(job.InputPath)
 	}
 
+	// Asynchronously re-probe and push updated file metadata to SSE clients.
+	if w.notifyFileUpdate != nil {
+		go func() {
+			w.notifyFileUpdate(finalPath)
+			if finalPath != job.InputPath {
+				w.notifyFileUpdate(job.InputPath)
+			}
+		}()
+	}
+
 	// Calculate stats
 	elapsed := time.Since(startTime)
 	saved := job.InputSize - result.OutputSize
@@ -806,7 +900,9 @@ func (w *Worker) processJob(job *Job) {
 	logger.Info("Job complete", "job_id", job.ID, "duration", util.FormatDuration(elapsed), "saved", util.FormatBytes(saved))
 
 	// Mark job complete
-	_ = w.queue.CompleteJob(job.ID, finalPath, result.OutputSize)
+	if err := w.queue.CompleteJob(job.ID, finalPath, result.OutputSize); err != nil {
+		logger.Warn("Failed to update job state", "job_id", job.ID, "op", "CompleteJob", "error", err)
+	}
 }
 
 // CancelCurrentJob cancels the job if it matches the given ID.
@@ -856,25 +952,38 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 		return true, "SmartShrink does not support HDR content. Use a Compress preset or tonemap to SDR first", 0, 0, 0, nil
 	}
 
-	// Update phase immediately so UI shows "Analyzing" while waiting for slot
-	_ = wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing)
-
-	// Acquire analysis slot (limited to prevent CPU saturation from concurrent VMAF)
-	for {
-		wp.analysisMu.Lock()
-		if wp.analysisCount < wp.analysisLimit {
-			wp.analysisCount++
-			wp.analysisMu.Unlock()
-			break
-		}
+	// TryAcquire: if a slot is immediately available, go straight to analyzing (no flicker).
+	// If contended, show waiting state until a slot is released.
+	wp.analysisMu.Lock()
+	if wp.analysisCount < wp.analysisLimit {
+		wp.analysisCount++
 		wp.analysisMu.Unlock()
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
+	} else {
+		wp.analysisMu.Unlock()
+		// Slot contended - show waiting state, then spin until one is free
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseWaitingAnalysis); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
+		}
+		for {
+			wp.analysisMu.Lock()
+			if wp.analysisCount < wp.analysisLimit {
+				wp.analysisCount++
+				wp.analysisMu.Unlock()
+				break
+			}
+			wp.analysisMu.Unlock()
 
-		// At limit, wait with context check
-		select {
-		case <-ctx.Done():
-			return false, "", 0, 0, 0, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-			// Retry
+			select {
+			case <-ctx.Done():
+				return false, "", 0, 0, 0, ctx.Err()
+			case <-time.After(analysisPollInterval):
+			}
+		}
+		if err := wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing); err != nil {
+			logger.Warn("Failed to update job state", "job_id", job.ID, "op", "UpdateJobPhase", "error", err)
 		}
 	}
 
@@ -893,8 +1002,7 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 	// Get quality range for this encoder
 	qRange := ffmpeg.GetQualityRange(preset.Encoder, preset.Codec)
 
-	// Get temp directory for analysis
-	tempDir := wp.cfg.GetTempDir(job.InputPath)
+	tempDir := wp.cfg.GetTempDir()
 
 	// Get threshold from job's quality tier
 	threshold := getSmartShrinkThreshold(job.SmartShrinkQuality)
@@ -904,11 +1012,16 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 
 	// Create encode callback
 	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
-		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
-			preset, job.Width, job.Height,
-			quality, modifier,
-			true, // Force software decode for FFV1 samples
-		)
+		sampleOpts := ffmpeg.TranscodeOptions{
+			Preset:         preset,
+			SourceWidth:    job.Width,
+			SourceHeight:   job.Height,
+			QualityHEVC:    quality,
+			QualityAV1:     quality,
+			QualityMod:     modifier,
+			SoftwareDecode: true, // Force software decode for FFV1 samples
+		}
+		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(sampleOpts)
 
 		outputPath := samplePath + ".encoded.mkv"
 

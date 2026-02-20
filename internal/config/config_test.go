@@ -72,16 +72,16 @@ func TestLoadAndSave(t *testing.T) {
 }
 
 func TestGetTempDir(t *testing.T) {
-	// With TempPath set
+	// With TempPath set, uses configured path
 	cfg := &Config{TempPath: "/tmp/shrinkray"}
-	if dir := cfg.GetTempDir("/media/video.mkv"); dir != "/tmp/shrinkray" {
+	if dir := cfg.GetTempDir(); dir != "/tmp/shrinkray" {
 		t.Errorf("expected /tmp/shrinkray, got %s", dir)
 	}
 
-	// Without TempPath set
+	// Without TempPath, falls back to OS temp dir
 	cfg = &Config{TempPath: ""}
-	if dir := cfg.GetTempDir("/media/movies/video.mkv"); dir != "/media/movies" {
-		t.Errorf("expected /media/movies, got %s", dir)
+	if dir := cfg.GetTempDir(); dir != os.TempDir() {
+		t.Errorf("expected %s, got %s", os.TempDir(), dir)
 	}
 }
 

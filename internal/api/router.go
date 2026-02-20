@@ -10,6 +10,8 @@ import (
 func registerAPIRoutes(mux *http.ServeMux, h *Handler) {
 	// Browse and presets
 	mux.HandleFunc("GET /api/browse", h.Browse)
+	mux.HandleFunc("GET /api/browse/stream", h.BrowseStream)
+	mux.HandleFunc("POST /api/browse/reconcile", h.Reconcile)
 	mux.HandleFunc("GET /api/presets", h.Presets)
 	mux.HandleFunc("GET /api/encoders", h.Encoders)
 

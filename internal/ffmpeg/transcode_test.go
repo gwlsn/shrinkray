@@ -4,43 +4,45 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestBuildTempPath(t *testing.T) {
 	tests := []struct {
-		input    string
-		tempDir  string
-		format   string
-		expected string
+		input   string
+		tempDir string
+		format  string
+		wantDir string
+		prefix  string
+		suffix  string
 	}{
-		{
-			"/media/movie.mkv",
-			"/tmp",
-			"mkv",
-			"/tmp/movie.shrinkray.tmp.mkv",
-		},
-		{
-			"/media/tv/show/episode.mp4",
-			"/media/tv/show",
-			"mkv",
-			"/media/tv/show/episode.shrinkray.tmp.mkv",
-		},
-		{
-			"/data/video.avi",
-			"/data",
-			"mp4",
-			"/data/video.shrinkray.tmp.mp4",
-		},
+		{"/media/movie.mkv", "/tmp", "mkv", "/tmp", "movie.", ".shrinkray.tmp.mkv"},
+		{"/media/tv/show/episode.mp4", "/media/tv/show", "mkv", "/media/tv/show", "episode.", ".shrinkray.tmp.mkv"},
+		{"/data/video.avi", "/data", "mp4", "/data", "video.", ".shrinkray.tmp.mp4"},
 	}
 
 	for _, tt := range tests {
 		result := BuildTempPath(tt.input, tt.tempDir, tt.format)
-		if result != tt.expected {
-			t.Errorf("BuildTempPath(%s, %s, %s) = %s, expected %s",
-				tt.input, tt.tempDir, tt.format, result, tt.expected)
+		dir := filepath.Dir(result)
+		base := filepath.Base(result)
+		if dir != tt.wantDir {
+			t.Errorf("BuildTempPath(%s, %s, %s): dir = %s, want %s", tt.input, tt.tempDir, tt.format, dir, tt.wantDir)
 		}
+		if !strings.HasPrefix(base, tt.prefix) {
+			t.Errorf("BuildTempPath(%s, %s, %s): base %s missing prefix %s", tt.input, tt.tempDir, tt.format, base, tt.prefix)
+		}
+		if !strings.HasSuffix(base, tt.suffix) {
+			t.Errorf("BuildTempPath(%s, %s, %s): base %s missing suffix %s", tt.input, tt.tempDir, tt.format, base, tt.suffix)
+		}
+	}
+
+	// Verify uniqueness: same input produces different paths (random suffix)
+	a := BuildTempPath("/media/movie.mkv", "/tmp", "mkv")
+	b := BuildTempPath("/media/movie.mkv", "/tmp", "mkv")
+	if a == b {
+		t.Errorf("expected unique paths, got identical: %s", a)
 	}
 }
 
@@ -88,7 +90,15 @@ func TestTranscode(t *testing.T) {
 	}()
 
 	totalFrames := int64(probeResult.Duration.Seconds() * probeResult.FrameRate)
-	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, 0, totalFrames, progressCh, false, "mkv", nil, nil)
+	result, err := transcoder.Transcode(ctx, testFile, outputPath, TranscodeOptions{
+		Preset:        preset,
+		SourceBitrate: probeResult.Bitrate,
+		SourceWidth:   probeResult.Width,
+		SourceHeight:  probeResult.Height,
+		Duration:      probeResult.Duration,
+		TotalFrames:   totalFrames,
+		OutputFormat:  "mkv",
+	}, progressCh)
 	<-done
 
 	if err != nil {
@@ -286,17 +296,15 @@ func TestTranscode_ClosesChannelOnEarlyError(t *testing.T) {
 		ctx,
 		"/nonexistent/path/to/file.mp4",
 		"/tmp/out.mkv",
-		&Preset{Encoder: HWAccelNone, Codec: CodecHEVC},
-		time.Minute,
-		0,
-		1920, 1080,
-		0, 0, 0,
-		1000,
+		TranscodeOptions{
+			Preset:       &Preset{Encoder: HWAccelNone, Codec: CodecHEVC},
+			Duration:     time.Minute,
+			SourceWidth:  1920,
+			SourceHeight: 1080,
+			TotalFrames:  1000,
+			OutputFormat: "mkv",
+		},
 		progressCh,
-		false,
-		"mkv",
-		nil,
-		nil,
 	)
 
 	// Should error

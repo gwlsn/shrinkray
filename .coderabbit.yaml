@@ -1,0 +1,256 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+reviews:
+  # "chill" = fewer, higher-signal comments focused on bugs and logic errors.
+  # "assertive" = exhaustive feedback including minor style nits (very noisy).
+  profile: "chill"
+
+  # Use GitHub's "Request Changes" review state when issues are found.
+  # Auto-approves when all comments are resolved.
+  request_changes_workflow: true
+
+  # Summary goes in CodeRabbit's walkthrough comment, not the PR description.
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+
+  # Walkthrough of what changed, collapsed by default to reduce noise.
+  collapse_walkthrough: true
+  changed_files_summary: true
+
+  # Useful context: sequence diagrams for complex flows, related issues/PRs.
+  sequence_diagrams: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+
+  # Suggest labels and reviewers but don't auto-apply.
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+
+  # Commit status shows as a GitHub check on the PR.
+  # review_status disabled to suppress the "Currently processing" comments and tips.
+  review_status: false
+  commit_status: true
+  fail_commit_status: false
+
+  # Disable the fluff.
+  poem: false
+  in_progress_fortune: false
+
+  # Cancel review if PR is closed mid-review.
+  abort_on_close: true
+
+  # --- What to review ---
+
+  path_filters:
+    - "**/*.go"
+    - "**/*.html"
+    - "**/*.js"
+    - "**/*.css"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/Dockerfile*"
+    - "**/*.md"
+    - "!**/vendor/**"
+    - "!**/testdata/**"
+    - "!go.sum"
+
+  # --- Per-path review instructions ---
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Never use goto. Check for silently ignored errors and resource leaks
+        (unclosed files, HTTP bodies, database rows). The project has only
+        4 direct dependencies by design; new dependencies need justification.
+        modernc.org/sqlite is used specifically to enable CGO_ENABLED=0 builds,
+        do not suggest mattn/go-sqlite3.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer table-driven tests with t.Run subtests. Tests must be isolated
+        and not depend on external state or ordering. The golangci-lint config
+        excludes errcheck for test files, so unchecked errors in tests are
+        acceptable for setup/teardown calls.
+
+    - path: "**/cmd/shrinkray/**"
+      instructions: |
+        Initialization order is critical: DetectEncoders, then DetectVMAF,
+        then InitPresets. Reordering breaks SmartShrink preset visibility.
+        The periodic dir count save goroutine uses a dirCountDone channel;
+        shutdown sequence must close it before jobStore.Close(). The explicit
+        jobStore.Close() before os.Exit(1) is intentional because defer does
+        not run after os.Exit.
+
+    - path: "**/internal/api/**"
+      instructions: |
+        Uses Go 1.22+ ServeMux pattern matching (e.g. "GET /api/jobs/{id}")
+        with r.PathValue() for URL params. New endpoints must be added to both
+        registerAPIRoutes in router.go and have handler methods in handler.go.
+        SSE endpoints must set Content-Type text/event-stream before any writes
+        and use non-blocking channel sends to prevent slow subscribers from
+        blocking broadcasts. CreateJobs uses context.Background() (not request
+        context) for its background goroutine so it survives after the HTTP
+        response; this is intentional. Check that UpdateConfig validates all
+        fields before persisting to disk.
+
+    - path: "**/internal/browse/**"
+      instructions: |
+        Cache entries follow a state machine: unknown -> ready -> stale -> ready
+        (or any -> error, which preserves last-known values). Lock ordering
+        matters: countCacheMu must never be held when calling enqueueRecompute.
+        InvalidateCache walks ancestors in two passes (mark stale, then enqueue)
+        to avoid holding the lock during enqueue. WarmCountCache assumes WalkDir
+        visits parents before children (guaranteed by filepath.WalkDir). The
+        normalizePath function is a security boundary preventing directory
+        traversal outside the media root. Build tags: dir_sig_linux.go and
+        dir_sig_other.go must keep the dirSig struct in sync. Probe cache uses
+        inode+size (not mtime) because mtime is preserved after transcoding.
+
+    - path: "**/internal/config/**"
+      instructions: |
+        New config fields must be added in four places: struct definition,
+        DefaultConfig(), Load() with fallback, and the UpdateConfig handler.
+        Missing any one causes subtle bugs. Quality values of 0 mean "use
+        encoder-specific default" (resolved at the API layer). Config is
+        mutated in-place by the API handler, not copy-on-write. The
+        MaxConcurrentAnalyses clamp (1-3) in Load() must stay in sync with
+        the validation in jobs.IsValidAnalysisCount().
+
+    - path: "**/internal/ffmpeg/*.go"
+      instructions: |
+        BuildPresetArgs has three code paths: tonemapping, software decode,
+        and hardware decode. Changes must be tested against all hardware
+        backends. VideoToolbox uses bitrate modifiers (0.0-1.0) not CRF; the
+        usesBitrate flag controls which path is taken. TranscodeOptions is
+        passed by value so callees can safely mutate their copy. The
+        first-frame watchdog is only for hardware decode (software decode via
+        libsvtav1 can legitimately take >10s). RequiresSoftwareDecode has
+        encoder-specific rules for codec/profile/bit-depth that may change
+        with new GPU generations. FinalizeTranscode uses copy-then-delete
+        (not rename) to support cross-filesystem moves.
+
+    - path: "**/internal/ffmpeg/vmaf/**"
+      instructions: |
+        Uses an interpolated binary search (ab-av1 style) with early
+        termination via increasing tolerance. Separate implementations for
+        CRF-based (integer, higher=worse) and bitrate-modifier-based (float,
+        higher=better) encoders. The EncodeSampleFunc callback creates tight
+        coupling with the worker; changes to preset args must be reflected in
+        sample encoding. Temp files are per-analysis directories cleaned up
+        via defer os.RemoveAll; ensure context cancellation propagates to
+        prevent zombie FFmpeg processes. SDR only: HDR files are rejected at
+        the worker level before reaching VMAF analysis.
+
+    - path: "**/internal/jobs/**"
+      instructions: |
+        The queue is in-memory with write-through to SQLite. Progress updates
+        are NOT persisted (intentional: too expensive at update frequency).
+        All SSE broadcasts must use job.Copy() to avoid data races. StartJob
+        is the concurrency control: first worker to call it wins, second gets
+        an error. Requeue moves jobs to the front of the order (correct for
+        pause/resize). Worker count is clamped to 1-6, analysis count to 1-3;
+        bounds are enforced at both API validation and worker pool layers.
+        The encoder fallback loop tries each fallback with HW decode first,
+        then SW decode, checking for context cancellation between attempts.
+
+    - path: "**/internal/store/**"
+      instructions: |
+        Uses WAL mode with 5s busy timeout. The jobRow struct bridges between
+        the domain Job type and SQL nullable columns via sqlx struct scanning.
+        Schema migrations use ALTER TABLE ADD COLUMN which cannot be rolled
+        back in SQLite. The toNullInt64/toNullFloat64 helpers treat zero as
+        NULL, so genuinely zero values are stored as NULL. SQL queries must
+        use parameterized arguments, never string interpolation. New migrations
+        must bump the schema version constant and add a versioned migration
+        block.
+
+    - path: "**/internal/pushover/**"
+      instructions: |
+        Uses http.PostForm with the default HTTP client (no timeout set).
+        No retry logic; failures are logged but do not affect job processing.
+
+    - path: "**/web/templates/**"
+      instructions: |
+        This is a monolithic single-page application (all HTML, CSS, JS in
+        one file, no build step, no framework). CSS custom properties handle
+        theming. SSE event handlers must match event types from the Go backend
+        (added, jobs_added, progress, complete, failed, skipped, cancelled,
+        removed, notify_sent, discovery_progress). CSS class names and HTML
+        IDs are the contract between JS logic and the template; renaming
+        breaks functionality. New API endpoints need corresponding fetch()
+        calls with error handling.
+
+    - path: "**/Dockerfile"
+      instructions: |
+        CGO_ENABLED=0 is required (matches the pure-Go SQLite driver).
+        Runtime base is linuxserver/ffmpeg which includes s6-overlay and
+        hardware acceleration. The s6 service definitions live in the root/
+        directory. Entrypoint is /init (s6-overlay), not the binary directly.
+
+    - path: "**/version.go"
+      instructions: |
+        Version is a string constant, not injected via ldflags. It must be
+        manually bumped before releases. It appears in the startup banner,
+        API config response, and Docker image tags.
+
+    - path: "**/go.mod"
+      instructions: |
+        Only 4 direct dependencies by design (sqlx, x/sync, yaml.v3,
+        modernc.org/sqlite). New dependencies should be justified. Do not
+        replace modernc.org/sqlite with CGO-dependent alternatives.
+
+  # --- Automatic review triggers ---
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "wip"
+      - "draft"
+      - "do not merge"
+    base_branches:
+      - "^develop$"
+      - "^main$"
+
+  # --- Don't auto-generate docstrings or tests ---
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+  # --- Static analysis tools ---
+  # golangci-lint is disabled here because it already runs in CI (lint.yml).
+  # Enabling it in both places produces duplicate findings.
+
+  tools:
+    golangci-lint:
+      enabled: false
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+
+chat:
+  auto_reply: true
+  art: false
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  learnings:
+    scope: "local"

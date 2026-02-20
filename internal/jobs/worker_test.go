@@ -72,7 +72,7 @@ func TestWorkerPoolIntegration(t *testing.T) {
 	t.Logf("Added job: %s", job.ID)
 
 	// Create and start worker pool
-	pool := NewWorkerPool(queue, cfg, nil)
+	pool := NewWorkerPool(queue, cfg, nil, nil)
 	pool.Start()
 	defer pool.Stop()
 
@@ -144,7 +144,7 @@ func TestWorkerPoolCancel(t *testing.T) {
 	}
 
 	queue := NewQueue()
-	pool := NewWorkerPool(queue, cfg, nil)
+	pool := NewWorkerPool(queue, cfg, nil, nil)
 
 	// Start and immediately stop
 	pool.Start()
@@ -161,7 +161,7 @@ func TestWorkerPoolResize(t *testing.T) {
 	}
 
 	queue := NewQueue()
-	pool := NewWorkerPool(queue, cfg, nil)
+	pool := NewWorkerPool(queue, cfg, nil, nil)
 	pool.Start()
 	defer pool.Stop()
 
@@ -209,7 +209,7 @@ func TestWorkerPoolResizeDown(t *testing.T) {
 	}
 
 	queue := NewQueue()
-	pool := NewWorkerPool(queue, cfg, nil)
+	pool := NewWorkerPool(queue, cfg, nil, nil)
 	pool.Start()
 	defer pool.Stop()
 

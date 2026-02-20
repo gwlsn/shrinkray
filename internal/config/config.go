@@ -12,12 +12,12 @@ type Config struct {
 	// MediaPath is the root directory to browse for media files
 	MediaPath string `yaml:"media_path"`
 
-	// TempPath is where temp files are written during transcoding
-	// If empty, temp files go in the same directory as the source
+	// TempPath is where temp files are written during transcoding.
+	// If empty, defaults to os.TempDir().
 	TempPath string `yaml:"temp_path"`
 
 	// OriginalHandling determines what happens to original files after transcoding
-	// Options: "replace" (rename original to .old), "keep" (keep original, new file replaces)
+	// Options: "replace" (delete original, transcoded file takes its place), "keep" (rename original to .old, transcoded file takes its place)
 	OriginalHandling string `yaml:"original_handling"`
 
 	// Workers is the number of concurrent transcode jobs (default 1)
@@ -34,9 +34,6 @@ type Config struct {
 
 	// PushoverAppToken is the Pushover application token for notifications
 	PushoverAppToken string `yaml:"pushover_app_token"`
-
-	// NotifyOnComplete triggers a Pushover notification when all jobs finish
-	NotifyOnComplete bool `yaml:"notify_on_complete"`
 
 	// QualityHEVC is the CRF value for HEVC encoding (lower = higher quality, default 26)
 	QualityHEVC int `yaml:"quality_hevc"`
@@ -88,7 +85,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		MediaPath:         "/media",
-		TempPath:          "", // same directory as source
+		TempPath:          "", // defaults to os.TempDir()
 		OriginalHandling:  "replace",
 		Workers:           1,
 		FFmpegPath:        "ffmpeg",
@@ -101,7 +98,7 @@ func DefaultConfig() *Config {
 		LogLevel:          "info",
 		OutputFormat:      "mkv",
 		TonemapHDR:            false,   // HDR passthrough by default; enable for SDR conversion (uses CPU)
-		TonemapAlgorithm:      "hable", // Filmic tonemapping, good for movies
+		TonemapAlgorithm:      DefaultTonemapAlgorithm,
 		MaxConcurrentAnalyses: 1,       // Conservative default for media servers
 	}
 }
@@ -177,11 +174,12 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// GetTempDir returns the directory for temp files
-// If TempPath is set, returns that; otherwise returns the directory of the source file
-func (c *Config) GetTempDir(sourcePath string) string {
+// GetTempDir returns the directory for temp files.
+// If TempPath is set, returns that; otherwise defaults to os.TempDir()
+// to avoid writing temp files to slow or unreliable media filesystems (#103).
+func (c *Config) GetTempDir() string {
 	if c.TempPath != "" {
 		return c.TempPath
 	}
-	return filepath.Dir(sourcePath)
+	return os.TempDir()
 }

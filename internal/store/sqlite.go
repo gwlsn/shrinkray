@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/jobs"
+	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 const schema = `
 CREATE TABLE IF NOT EXISTS jobs (
@@ -70,49 +72,204 @@ CREATE TABLE IF NOT EXISTS stats_metadata (
 	updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS dir_counts (
+	path TEXT PRIMARY KEY,
+	file_count INTEGER NOT NULL DEFAULT 0,
+	total_size INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
 `
 
-// jobColumns lists all job table columns for INSERT statements.
-const jobColumns = `id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
-	status, progress, speed, eta, error, input_size, output_size, space_saved,
-	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-	is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
-	smartshrink_quality, created_at, started_at, completed_at`
-
-// jobColumnsAliased lists all job table columns with "j." prefix for JOIN queries.
-const jobColumnsAliased = `j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
-	j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-	j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-	j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
-	j.smartshrink_quality, j.created_at, j.started_at, j.completed_at`
-
-// jobPlaceholders provides the VALUES placeholder string for INSERT statements.
-const jobPlaceholders = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
-
-// jobExecArgs returns the ordered arguments for inserting/updating a job row.
-func jobExecArgs(job *jobs.Job) []interface{} {
-	return []interface{}{
-		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
-		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
-		string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
-		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
-		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-		boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
-		string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
-		nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
-	}
-}
-
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
-	db   *sql.DB
+	db   *sqlx.DB
 	mu   sync.RWMutex // Protects concurrent access
 	path string
 }
+
+// jobRow is the database representation of a Job.
+// Uses sql.Null* types for nullable columns and db tags for sqlx struct scanning.
+// Column names match the jobs table schema exactly.
+type jobRow struct {
+	ID                 string          `db:"id"`
+	InputPath          string          `db:"input_path"`
+	OutputPath         sql.NullString  `db:"output_path"`
+	TempPath           sql.NullString  `db:"temp_path"`
+	PresetID           string          `db:"preset_id"`
+	Encoder            string          `db:"encoder"`
+	IsHardware         int             `db:"is_hardware"`
+	Status             string          `db:"status"`
+	Progress           float64         `db:"progress"`
+	Speed              float64         `db:"speed"`
+	ETA                sql.NullString  `db:"eta"`
+	Error              sql.NullString  `db:"error"`
+	InputSize          int64           `db:"input_size"`
+	OutputSize         sql.NullInt64   `db:"output_size"`
+	SpaceSaved         sql.NullInt64   `db:"space_saved"`
+	DurationMS         sql.NullInt64   `db:"duration_ms"`
+	Bitrate            sql.NullInt64   `db:"bitrate"`
+	Width              sql.NullInt64   `db:"width"`
+	Height             sql.NullInt64   `db:"height"`
+	FrameRate          sql.NullFloat64 `db:"frame_rate"`
+	VideoCodec         sql.NullString  `db:"video_codec"`
+	Profile            sql.NullString  `db:"profile"`
+	BitDepth           sql.NullInt64   `db:"bit_depth"`
+	IsHDR              sql.NullInt64   `db:"is_hdr"`
+	ColorTransfer      sql.NullString  `db:"color_transfer"`
+	TranscodeSecs      sql.NullInt64   `db:"transcode_secs"`
+	Phase              sql.NullString  `db:"phase"`
+	VMafScore          sql.NullFloat64 `db:"vmaf_score"`
+	SelectedCRF        sql.NullInt64   `db:"selected_crf"`
+	QualityMod         sql.NullFloat64 `db:"quality_mod"`
+	SkipReason         sql.NullString  `db:"skip_reason"`
+	SmartShrinkQuality sql.NullString  `db:"smartshrink_quality"`
+	CreatedAt          string          `db:"created_at"`
+	StartedAt          sql.NullString  `db:"started_at"`
+	CompletedAt        sql.NullString  `db:"completed_at"`
+}
+
+// toRow converts a jobs.Job to a jobRow for database operations.
+// Zero values become SQL NULL via sql.Null* types.
+func toRow(j *jobs.Job) jobRow {
+	return jobRow{
+		ID:                 j.ID,
+		InputPath:          j.InputPath,
+		OutputPath:         toNullString(j.OutputPath),
+		TempPath:           toNullString(j.TempPath),
+		PresetID:           j.PresetID,
+		Encoder:            j.Encoder,
+		IsHardware:         boolToInt(j.IsHardware),
+		Status:             string(j.Status),
+		Progress:           j.Progress,
+		Speed:              j.Speed,
+		ETA:                toNullString(j.ETA),
+		Error:              toNullString(j.Error),
+		InputSize:          j.InputSize,
+		OutputSize:         toNullInt64(j.OutputSize),
+		SpaceSaved:         toNullInt64(j.SpaceSaved),
+		DurationMS:         toNullInt64(j.Duration),
+		Bitrate:            toNullInt64(j.Bitrate),
+		Width:              toNullInt64(int64(j.Width)),
+		Height:             toNullInt64(int64(j.Height)),
+		FrameRate:          toNullFloat64(j.FrameRate),
+		VideoCodec:         toNullString(j.VideoCodec),
+		Profile:            toNullString(j.Profile),
+		BitDepth:           toNullInt64(int64(j.BitDepth)),
+		IsHDR:              sql.NullInt64{Int64: int64(boolToInt(j.IsHDR)), Valid: true},
+		ColorTransfer:      toNullString(j.ColorTransfer),
+		TranscodeSecs:      toNullInt64(j.TranscodeTime),
+		Phase:              toNullString(string(j.Phase)),
+		VMafScore:          toNullFloat64(j.VMafScore),
+		SelectedCRF:        toNullInt64(int64(j.SelectedCRF)),
+		QualityMod:         toNullFloat64(j.QualityMod),
+		SkipReason:         toNullString(j.SkipReason),
+		SmartShrinkQuality: toNullString(j.SmartShrinkQuality),
+		CreatedAt:          formatTime(j.CreatedAt),
+		StartedAt:          toNullTime(j.StartedAt),
+		CompletedAt:        toNullTime(j.CompletedAt),
+	}
+}
+
+// toJob converts a jobRow back to a jobs.Job.
+// SQL NULL values (sql.Null*.Valid == false) become Go zero values.
+func (r *jobRow) toJob() *jobs.Job {
+	return &jobs.Job{
+		ID:                 r.ID,
+		InputPath:          r.InputPath,
+		OutputPath:         r.OutputPath.String,
+		TempPath:           r.TempPath.String,
+		PresetID:           r.PresetID,
+		Encoder:            r.Encoder,
+		IsHardware:         r.IsHardware != 0,
+		Status:             jobs.Status(r.Status),
+		Progress:           r.Progress,
+		Speed:              r.Speed,
+		ETA:                r.ETA.String,
+		Error:              r.Error.String,
+		InputSize:          r.InputSize,
+		OutputSize:         r.OutputSize.Int64,
+		SpaceSaved:         r.SpaceSaved.Int64,
+		Duration:           r.DurationMS.Int64,
+		Bitrate:            r.Bitrate.Int64,
+		Width:              int(r.Width.Int64),
+		Height:             int(r.Height.Int64),
+		FrameRate:          r.FrameRate.Float64,
+		VideoCodec:         r.VideoCodec.String,
+		Profile:            r.Profile.String,
+		BitDepth:           int(r.BitDepth.Int64),
+		IsHDR:              r.IsHDR.Int64 != 0,
+		ColorTransfer:      r.ColorTransfer.String,
+		TranscodeTime:      r.TranscodeSecs.Int64,
+		Phase:              jobs.Phase(r.Phase.String),
+		VMafScore:          r.VMafScore.Float64,
+		SelectedCRF:        int(r.SelectedCRF.Int64),
+		QualityMod:         r.QualityMod.Float64,
+		SkipReason:         r.SkipReason.String,
+		SmartShrinkQuality: r.SmartShrinkQuality.String,
+		CreatedAt:          parseTime(r.CreatedAt),
+		StartedAt:          parseNullTime(r.StartedAt),
+		CompletedAt:        parseNullTime(r.CompletedAt),
+	}
+}
+
+// insertJobSQL uses named parameters (:field) that sqlx maps to jobRow db tags.
+// Column order in this SQL does not need to match jobRow field order.
+// insertJobSQL uses UPSERT (ON CONFLICT ... DO UPDATE) instead of INSERT OR REPLACE.
+// INSERT OR REPLACE is secretly DELETE+INSERT, which triggers ON DELETE CASCADE
+// on the job_order table and destroys queue position. UPSERT updates in place,
+// preserving the row identity and all foreign key references.
+const insertJobSQL = `INSERT INTO jobs (
+	id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
+	status, progress, speed, eta, error, input_size, output_size, space_saved,
+	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+	is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod,
+	skip_reason, smartshrink_quality, created_at, started_at, completed_at
+) VALUES (
+	:id, :input_path, :output_path, :temp_path, :preset_id, :encoder, :is_hardware,
+	:status, :progress, :speed, :eta, :error, :input_size, :output_size, :space_saved,
+	:duration_ms, :bitrate, :width, :height, :frame_rate, :video_codec, :profile, :bit_depth,
+	:is_hdr, :color_transfer, :transcode_secs, :phase, :vmaf_score, :selected_crf, :quality_mod,
+	:skip_reason, :smartshrink_quality, :created_at, :started_at, :completed_at
+)
+ON CONFLICT(id) DO UPDATE SET
+	input_path          = excluded.input_path,
+	output_path         = excluded.output_path,
+	temp_path           = excluded.temp_path,
+	preset_id           = excluded.preset_id,
+	encoder             = excluded.encoder,
+	is_hardware         = excluded.is_hardware,
+	status              = excluded.status,
+	progress            = excluded.progress,
+	speed               = excluded.speed,
+	eta                 = excluded.eta,
+	error               = excluded.error,
+	input_size          = excluded.input_size,
+	output_size         = excluded.output_size,
+	space_saved         = excluded.space_saved,
+	duration_ms         = excluded.duration_ms,
+	bitrate             = excluded.bitrate,
+	width               = excluded.width,
+	height              = excluded.height,
+	frame_rate          = excluded.frame_rate,
+	video_codec         = excluded.video_codec,
+	profile             = excluded.profile,
+	bit_depth           = excluded.bit_depth,
+	is_hdr              = excluded.is_hdr,
+	color_transfer      = excluded.color_transfer,
+	transcode_secs      = excluded.transcode_secs,
+	phase               = excluded.phase,
+	vmaf_score          = excluded.vmaf_score,
+	selected_crf        = excluded.selected_crf,
+	quality_mod         = excluded.quality_mod,
+	skip_reason         = excluded.skip_reason,
+	smartshrink_quality = excluded.smartshrink_quality,
+	created_at          = excluded.created_at,
+	started_at          = excluded.started_at,
+	completed_at        = excluded.completed_at`
 
 // NewSQLiteStore creates a new SQLite-backed store.
 // The database file is created if it doesn't exist.
@@ -124,7 +281,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	}
 
 	// Open database with WAL mode for better concurrency
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -244,6 +401,21 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 				}
 			}
 		}
+		if version < 7 {
+			// Migrate v6 -> v7: Add dir_counts table for browse stats persistence
+			_, err = db.Exec(`
+				CREATE TABLE IF NOT EXISTS dir_counts (
+					path TEXT PRIMARY KEY,
+					file_count INTEGER NOT NULL DEFAULT 0,
+					total_size INTEGER NOT NULL DEFAULT 0,
+					updated_at TEXT NOT NULL
+				)
+			`)
+			if err != nil {
+				db.Close()
+				return nil, fmt.Errorf("migration v6->v7 failed: %w", err)
+			}
+		}
 		// Update version
 		_, err = db.Exec("INSERT INTO schema_version (version) VALUES (?)", schemaVersion)
 		if err != nil {
@@ -264,10 +436,7 @@ func (s *SQLiteStore) SaveJob(job *jobs.Job) error {
 }
 
 func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
-	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO jobs (`+jobColumns+`) VALUES (`+jobPlaceholders+`)`,
-		jobExecArgs(job)...,
-	)
+	_, err := s.db.NamedExec(insertJobSQL, toRow(job))
 	return err
 }
 
@@ -280,8 +449,14 @@ func (s *SQLiteStore) GetJob(id string) (*jobs.Job, error) {
 }
 
 func (s *SQLiteStore) getJobLocked(id string) (*jobs.Job, error) {
-	row := s.db.QueryRow(`SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id)
-	return scanJob(row)
+	var row jobRow
+	if err := s.db.Get(&row, `SELECT * FROM jobs WHERE id = ?`, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return row.toJob(), nil
 }
 
 // DeleteJob removes a job by ID.
@@ -299,22 +474,20 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.Beginx()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.Prepare(
-		`INSERT OR REPLACE INTO jobs (` + jobColumns + `) VALUES (` + jobPlaceholders + `)`,
-	)
+	stmt, err := tx.PrepareNamed(insertJobSQL)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
 	for _, job := range jobList {
-		if _, err := stmt.Exec(jobExecArgs(job)...); err != nil {
+		if _, err := stmt.Exec(toRow(job)); err != nil {
 			return err
 		}
 	}
@@ -327,29 +500,23 @@ func (s *SQLiteStore) GetAllJobs() ([]*jobs.Job, []string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Get jobs in order
-	rows, err := s.db.Query(`SELECT ` + jobColumnsAliased + `
+	var rows []jobRow
+	err := s.db.Select(&rows, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		ORDER BY o.position ASC, j.created_at ASC`)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
 
-	var jobList []*jobs.Job
-	var order []string
-
-	for rows.Next() {
-		job, err := scanJobRows(rows)
-		if err != nil {
-			return nil, nil, err
-		}
-		jobList = append(jobList, job)
-		order = append(order, job.ID)
+	jobList := make([]*jobs.Job, len(rows))
+	order := make([]string, len(rows))
+	for i := range rows {
+		jobList[i] = rows[i].toJob()
+		order[i] = rows[i].ID
 	}
 
-	return jobList, order, rows.Err()
+	return jobList, order, nil
 }
 
 // GetJobsByStatus returns all jobs with the given status.
@@ -357,7 +524,8 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query(`SELECT `+jobColumnsAliased+`
+	var rows []jobRow
+	err := s.db.Select(&rows, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = ?
@@ -365,18 +533,13 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var jobList []*jobs.Job
-	for rows.Next() {
-		job, err := scanJobRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		jobList = append(jobList, job)
+	jobList := make([]*jobs.Job, len(rows))
+	for i := range rows {
+		jobList[i] = rows[i].toJob()
 	}
 
-	return jobList, rows.Err()
+	return jobList, nil
 }
 
 // GetNextPendingJob returns the first pending job in queue order.
@@ -384,18 +547,20 @@ func (s *SQLiteStore) GetNextPendingJob() (*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	row := s.db.QueryRow(`SELECT ` + jobColumnsAliased + `
+	var row jobRow
+	err := s.db.Get(&row, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = 'pending'
 		ORDER BY o.position ASC, j.created_at ASC
 		LIMIT 1`)
-
-	job, err := scanJob(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	return job, err
+	if err != nil {
+		return nil, err
+	}
+	return row.toJob(), nil
 }
 
 // AppendToOrder adds a job ID to the end of the queue.
@@ -449,7 +614,7 @@ func (s *SQLiteStore) ResetRunningJobs() (int, error) {
 
 	result, err := s.db.Exec(`
 		UPDATE jobs
-		SET status = 'pending', progress = 0, speed = 0, eta = NULL
+		SET status = 'pending', progress = 0, speed = 0, eta = NULL, phase = ''
 		WHERE status = 'running'
 	`)
 	if err != nil {
@@ -551,6 +716,91 @@ func (s *SQLiteStore) SessionLifetimeStats() (sessionSaved, lifetimeSaved int64,
 	return s.getSavedStats()
 }
 
+// GetNotifyOnComplete reads the notify-when-done checkbox state from the DB.
+// Returns false if the key has never been set.
+func (s *SQLiteStore) GetNotifyOnComplete() (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM stats_metadata WHERE key = 'notify_on_complete'`).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return value == "1", nil
+}
+
+// SetNotifyOnComplete persists the notify-when-done checkbox state to the DB.
+func (s *SQLiteStore) SetNotifyOnComplete(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO stats_metadata (key, value, updated_at)
+		VALUES ('notify_on_complete', ?, datetime('now'))
+	`, value)
+	return err
+}
+
+// SaveDirCounts persists directory count entries in a single transaction.
+// Uses INSERT OR REPLACE to upsert, so existing rows are updated cleanly.
+func (s *SQLiteStore) SaveDirCounts(entries []browse.DirCountEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO dir_counts (path, file_count, total_size, updated_at)
+		VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, e := range entries {
+		if _, err := stmt.Exec(e.Path, e.FileCount, e.TotalSize, formatTime(e.UpdatedAt)); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// LoadDirCounts reads all persisted directory counts from the database.
+func (s *SQLiteStore) LoadDirCounts() ([]browse.DirCountEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT path, file_count, total_size, updated_at FROM dir_counts`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []browse.DirCountEntry
+	for rows.Next() {
+		var e browse.DirCountEntry
+		var updatedStr string
+		if err := rows.Scan(&e.Path, &e.FileCount, &e.TotalSize, &updatedStr); err != nil {
+			return nil, err
+		}
+		e.UpdatedAt = parseTime(updatedStr)
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // Close closes the database connection.
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
@@ -561,107 +811,7 @@ func (s *SQLiteStore) Path() string {
 	return s.path
 }
 
-// Helper functions for scanning rows
-
-type rowScanner interface {
-	Scan(dest ...interface{}) error
-}
-
-func scanJob(row rowScanner) (*jobs.Job, error) {
-	var job jobs.Job
-	var outputPath, tempPath, eta, errStr sql.NullString
-	var videoCodec, profile sql.NullString
-	var colorTransfer sql.NullString
-	var phase, skipReason sql.NullString
-	var smartShrinkQuality sql.NullString
-	var outputSize, spaceSaved, duration, bitrate, transcodeTime sql.NullInt64
-	var width, height, bitDepth, selectedCRF sql.NullInt64
-	var isHDR sql.NullInt64
-	var frameRate, vmafScore, qualityMod sql.NullFloat64
-	var isHardware int
-	var status string
-	var createdAt, startedAt, completedAt sql.NullString
-
-	err := row.Scan(
-		&job.ID, &job.InputPath, &outputPath, &tempPath,
-		&job.PresetID, &job.Encoder, &isHardware,
-		&status, &job.Progress, &job.Speed, &eta, &errStr,
-		&job.InputSize, &outputSize, &spaceSaved,
-		&duration, &bitrate, &width, &height, &frameRate,
-		&videoCodec, &profile, &bitDepth,
-		&isHDR, &colorTransfer, &transcodeTime,
-		&phase, &vmafScore, &selectedCRF, &qualityMod, &skipReason,
-		&smartShrinkQuality, &createdAt, &startedAt, &completedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	job.OutputPath = outputPath.String
-	job.TempPath = tempPath.String
-	job.ETA = eta.String
-	job.Error = errStr.String
-	job.IsHardware = isHardware != 0
-	job.Status = jobs.Status(status)
-	job.OutputSize = outputSize.Int64
-	job.SpaceSaved = spaceSaved.Int64
-	job.Duration = duration.Int64
-	job.Bitrate = bitrate.Int64
-	job.Width = int(width.Int64)
-	job.Height = int(height.Int64)
-	job.FrameRate = frameRate.Float64
-	job.VideoCodec = videoCodec.String
-	job.Profile = profile.String
-	job.BitDepth = int(bitDepth.Int64)
-	job.IsHDR = isHDR.Int64 != 0
-	job.ColorTransfer = colorTransfer.String
-	job.TranscodeTime = transcodeTime.Int64
-	job.Phase = jobs.Phase(phase.String)
-	job.VMafScore = vmafScore.Float64
-	job.SelectedCRF = int(selectedCRF.Int64)
-	job.QualityMod = qualityMod.Float64
-	job.SkipReason = skipReason.String
-	job.SmartShrinkQuality = smartShrinkQuality.String
-	job.CreatedAt = parseTime(createdAt.String)
-	job.StartedAt = parseTime(startedAt.String)
-	job.CompletedAt = parseTime(completedAt.String)
-
-	return &job, nil
-}
-
-func scanJobRows(rows *sql.Rows) (*jobs.Job, error) {
-	return scanJob(rows)
-}
-
 // Helper functions for SQL values
-
-func nullString(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nullInt(i int) interface{} {
-	if i == 0 {
-		return nil
-	}
-	return i
-}
-
-func nullInt64(i int64) interface{} {
-	if i == 0 {
-		return nil
-	}
-	return i
-}
-
-func nullFloat64(f float64) interface{} {
-	if f == 0 {
-		return nil
-	}
-	return f
-}
 
 func boolToInt(b bool) int {
 	if b {
@@ -677,11 +827,37 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func formatTimePtr(t time.Time) interface{} {
+// toNullString converts a string to sql.NullString (empty string = NULL).
+func toNullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// toNullInt64 converts an int64 to sql.NullInt64 (zero = NULL).
+func toNullInt64(i int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: i, Valid: i != 0}
+}
+
+// toNullFloat64 converts a float64 to sql.NullFloat64 (zero = NULL).
+func toNullFloat64(f float64) sql.NullFloat64 {
+	return sql.NullFloat64{Float64: f, Valid: f != 0}
+}
+
+// toNullTime converts a time.Time to sql.NullString for database storage (zero time = NULL).
+func toNullTime(t time.Time) sql.NullString {
 	if t.IsZero() {
-		return nil
+		return sql.NullString{}
 	}
-	return t.UTC().Format(time.RFC3339)
+	return sql.NullString{String: t.UTC().Format(time.RFC3339), Valid: true}
+}
+
+// parseNullTime converts a sql.NullString from the database back to time.Time.
+// Returns zero time on NULL or malformed input, consistent with parseTime.
+func parseNullTime(ns sql.NullString) time.Time {
+	if !ns.Valid || ns.String == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339, ns.String)
+	return t
 }
 
 func parseTime(s string) time.Time {

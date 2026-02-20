@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	appconfig "github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 )
 
@@ -69,6 +70,22 @@ func (es *encoderSettings) buildUploadPipeline(pixFmt string) string {
 	return fmt.Sprintf("format=%s,%s", pixFmt, es.uploadFilter)
 }
 
+// Quality range constants define the valid CRF/QP bounds for each codec.
+// These are used both by the encoder configs and by the API validation layer
+// to ensure consistent range enforcement across the codebase.
+const (
+	// HEVCQualityMin is the best-quality (lowest compression) CRF for HEVC.
+	HEVCQualityMin = 16
+	// HEVCQualityMax is the most-compressed (highest) CRF for HEVC.
+	HEVCQualityMax = 30
+
+	// AV1QualityMin is the best-quality CRF for AV1.
+	// AV1 is more efficient than HEVC, so its range starts slightly higher.
+	AV1QualityMin = 18
+	// AV1QualityMax is the most-compressed CRF for AV1.
+	AV1QualityMax = 35
+)
+
 // Bitrate constraints for dynamic bitrate calculation (VideoToolbox).
 // These bounds prevent extreme compression artifacts or excessive file sizes.
 const (
@@ -91,8 +108,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		quality:     "22",
 		extraArgs:   []string{"-preset", "medium"},
 		scaleFilter: "scale",
-		qualityMin:  16,
-		qualityMax:  30,
+		qualityMin:  HEVCQualityMin,
+		qualityMax:  HEVCQualityMax,
 	},
 	{HWAccelVideoToolbox, CodecHEVC}: {
 		// VideoToolbox uses bitrate control (-b:v) with dynamic calculation.
@@ -118,8 +135,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  16,
-		qualityMax:  30,
+		qualityMin:  HEVCQualityMin,
+		qualityMax:  HEVCQualityMax,
 	},
 	{HWAccelQSV, CodecHEVC}: {
 		encoder:       "hevc_qsv",
@@ -131,8 +148,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    16,
-		qualityMax:    30,
+		qualityMin:    HEVCQualityMin,
+		qualityMax:    HEVCQualityMax,
 	},
 	{HWAccelVAAPI, CodecHEVC}: {
 		encoder:       "hevc_vaapi",
@@ -144,8 +161,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    16,
-		qualityMax:    30,
+		qualityMin:    HEVCQualityMin,
+		qualityMax:    HEVCQualityMax,
 	},
 
 	// AV1 encoders
@@ -156,8 +173,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		quality:     "25",
 		extraArgs:   []string{"-preset", "6"},
 		scaleFilter: "scale",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  AV1QualityMin,
+		qualityMax:  AV1QualityMax,
 	},
 	{HWAccelVideoToolbox, CodecAV1}: {
 		// VideoToolbox AV1 (M3+ chips) uses bitrate control.
@@ -184,8 +201,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		// hwaccelArgs generated dynamically by getHwaccelInputArgs()
 		scaleFilter: "scale_cuda",
 		scalePixFmt: "nv12",
-		qualityMin:  18,
-		qualityMax:  35,
+		qualityMin:  AV1QualityMin,
+		qualityMax:  AV1QualityMax,
 	},
 	{HWAccelQSV, CodecAV1}: {
 		encoder:       "av1_qsv",
@@ -197,8 +214,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "qsv",
 		uploadFilter:  "hwupload=extra_hw_frames=64",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    AV1QualityMin,
+		qualityMax:    AV1QualityMax,
 	},
 	{HWAccelVAAPI, CodecAV1}: {
 		encoder:       "av1_vaapi",
@@ -210,8 +227,8 @@ var encoderConfigs = map[EncoderKey]encoderSettings{
 		scalePixFmt:   "nv12",
 		hwFrameSuffix: "vaapi",
 		uploadFilter:  "hwupload",
-		qualityMin:    18,
-		qualityMax:    35,
+		qualityMin:    AV1QualityMin,
+		qualityMax:    AV1QualityMax,
 	},
 }
 
@@ -289,9 +306,9 @@ func GetQualityRange(hwaccel HWAccel, codec Codec) vmaf.QualityRange {
 	if !ok {
 		// Fallback defaults
 		if codec == CodecAV1 {
-			return vmaf.QualityRange{Min: 18, Max: 35}
+			return vmaf.QualityRange{Min: AV1QualityMin, Max: AV1QualityMax}
 		}
-		return vmaf.QualityRange{Min: 16, Max: 30}
+		return vmaf.QualityRange{Min: HEVCQualityMin, Max: HEVCQualityMax}
 	}
 
 	return vmaf.QualityRange{
@@ -413,46 +430,34 @@ type TonemapParams struct {
 	Algorithm      string // Tonemapping algorithm: hable, bt2390, reinhard, etc.
 }
 
-// BuildPresetArgs builds FFmpeg arguments for a preset with the specified encoder
-// sourceBitrate is the source video bitrate in bits/second (used for dynamic bitrate calculation)
-// sourceWidth/sourceHeight are the source video dimensions (for calculating scaled output)
-// qualityHEVC/qualityAV1 are optional CRF overrides (0 = use default)
-// qualityMod is an optional bitrate modifier for VideoToolbox (0 = use default)
-// softwareDecode: if true, skip hardware decode args and use software decode filter
-// outputFormat: "mkv" preserves audio/subs, "mp4" transcodes to AAC and strips subtitles
-// tonemap: optional tonemapping parameters (nil = no tonemapping)
-// subtitleIndices controls subtitle mapping for MKV output:
-//   - nil: map all subtitles (-map 0:s?)
-//   - empty slice: map no subtitles (all incompatible)
-//   - populated slice: map specific stream indices (-map 0:2 -map 0:4)
-//
-// Returns (inputArgs, outputArgs) - inputArgs go before -i, outputArgs go after
-func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHeight int, qualityHEVC, qualityAV1 int, qualityMod float64, softwareDecode bool, outputFormat string, tonemap *TonemapParams, subtitleIndices []int) (inputArgs []string, outputArgs []string) {
-	key := EncoderKey{preset.Encoder, preset.Codec}
+// BuildPresetArgs builds FFmpeg arguments from encoding options.
+// Returns (inputArgs, outputArgs): inputArgs go before -i, outputArgs go after.
+func BuildPresetArgs(opts TranscodeOptions) (inputArgs []string, outputArgs []string) { //nolint:gocritic // by value: callers rely on safe copy semantics
+	key := EncoderKey{opts.Preset.Encoder, opts.Preset.Codec}
 	config, ok := encoderConfigs[key]
 	if !ok {
 		// Fallback to software encoder for the target codec
-		config = encoderConfigs[EncoderKey{HWAccelNone, preset.Codec}]
+		config = encoderConfigs[EncoderKey{HWAccelNone, opts.Preset.Codec}]
 	}
 
 	// Check if we need tonemapping
-	needsTonemap := tonemap != nil && tonemap.IsHDR && tonemap.EnableTonemap
+	needsTonemap := opts.Tonemap != nil && opts.Tonemap.IsHDR && opts.Tonemap.EnableTonemap
 	// Check if we need to preserve HDR (HDR source, tonemapping disabled)
-	preserveHDR := tonemap != nil && tonemap.IsHDR && !tonemap.EnableTonemap
+	preserveHDR := opts.Tonemap != nil && opts.Tonemap.IsHDR && !opts.Tonemap.EnableTonemap
 	var tonemapFilter string
 	if needsTonemap {
-		algorithm := tonemap.Algorithm
+		algorithm := opts.Tonemap.Algorithm
 		if algorithm == "" {
-			algorithm = "hable"
+			algorithm = appconfig.DefaultTonemapAlgorithm
 		}
 		tonemapFilter, _ = BuildTonemapFilter(algorithm)
 		// Software tonemapping requires software decode
-		softwareDecode = true
+		opts.SoftwareDecode = true
 	}
 
 	// Input args: hardware acceleration for decoding
 	// Generated dynamically based on encoder type
-	inputArgs = getHwaccelInputArgs(preset.Encoder, softwareDecode)
+	inputArgs = getHwaccelInputArgs(opts.Preset.Encoder, opts.SoftwareDecode)
 
 	// Output args
 	outputArgs = []string{}
@@ -469,20 +474,20 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	if needsTonemap && tonemapFilter != "" {
 		// TONEMAPPING PATH: zscale on CPU, optional CPU scale, then hwupload
 		filterParts = []string{tonemapFilter}
-		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+		if opts.Preset.MaxHeight > 0 && opts.SourceHeight > opts.Preset.MaxHeight {
 			filterParts = append(filterParts,
-				fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
+				fmt.Sprintf("scale=-2:'min(ih,%d)'", opts.Preset.MaxHeight))
 		}
 		if upload := config.buildUploadPipeline("nv12"); upload != "" {
 			filterParts = append(filterParts, upload)
 		}
-	} else if softwareDecode {
+	} else if opts.SoftwareDecode {
 		// SOFTWARE DECODE PATH: CPU scale first (frames are in system memory),
 		// then upload to GPU. Scaling must happen before hwupload because the
 		// CPU scale filter cannot operate on hardware surfaces.
-		if preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight {
+		if opts.Preset.MaxHeight > 0 && opts.SourceHeight > opts.Preset.MaxHeight {
 			filterParts = append(filterParts,
-				fmt.Sprintf("scale=-2:'min(ih,%d)'", preset.MaxHeight))
+				fmt.Sprintf("scale=-2:'min(ih,%d)'", opts.Preset.MaxHeight))
 		}
 		if upload := config.buildUploadPipeline(pixFmt); upload != "" {
 			filterParts = append(filterParts, upload)
@@ -496,8 +501,8 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		if config.uploadFilter != "" {
 			filterParts = append(filterParts, config.uploadFilter)
 		}
-		needsResize := preset.MaxHeight > 0 && sourceHeight > preset.MaxHeight
-		if scaleStr := config.buildScaleFilter(preset.MaxHeight, needsResize, pixFmt); scaleStr != "" {
+		needsResize := opts.Preset.MaxHeight > 0 && opts.SourceHeight > opts.Preset.MaxHeight
+		if scaleStr := config.buildScaleFilter(opts.Preset.MaxHeight, needsResize, pixFmt); scaleStr != "" {
 			filterParts = append(filterParts, scaleStr)
 		}
 	}
@@ -513,19 +518,19 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	// Determine quality value - use override if provided, otherwise use default
 	var qualityStr string
 	qualityOverride := 0
-	if preset.Codec == CodecHEVC && qualityHEVC > 0 {
-		qualityOverride = qualityHEVC
-	} else if preset.Codec == CodecAV1 && qualityAV1 > 0 {
-		qualityOverride = qualityAV1
+	if opts.Preset.Codec == CodecHEVC && opts.QualityHEVC > 0 {
+		qualityOverride = opts.QualityHEVC
+	} else if opts.Preset.Codec == CodecAV1 && opts.QualityAV1 > 0 {
+		qualityOverride = opts.QualityAV1
 	}
 
 	// For encoders that use dynamic bitrate calculation (VideoToolbox)
 	if config.usesBitrate {
-		// Derive modifier from qualityMod, CRF conversion, or default
+		// Derive modifier from QualityMod, CRF conversion, or default
 		var modifier float64
-		if qualityMod > 0 {
+		if opts.QualityMod > 0 {
 			// Use VMAF-optimized bitrate modifier directly
-			modifier = qualityMod
+			modifier = opts.QualityMod
 		} else if qualityOverride > 0 {
 			// Convert CRF override to bitrate modifier
 			modifier = crfToBitrateModifier(qualityOverride)
@@ -545,8 +550,8 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 
 		// Use source bitrate if available, otherwise use 10Mbps reference
 		// (consistent with BuildSampleEncodeArgs behavior)
-		refKbps := int64(sourceBitrate / 1000)
-		if sourceBitrate <= 0 {
+		refKbps := int64(opts.SourceBitrate / 1000)
+		if opts.SourceBitrate <= 0 {
 			refKbps = 10000 // 10 Mbps reference bitrate
 		}
 
@@ -581,7 +586,7 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 	// - Color metadata for HDR10 (BT.2020 colorspace, PQ transfer)
 	if preserveHDR && !needsTonemap {
 		// Set 10-bit profile for HDR HEVC (works for all encoders)
-		if preset.Codec == CodecHEVC {
+		if opts.Preset.Codec == CodecHEVC {
 			outputArgs = append(outputArgs, "-profile:v", "main10")
 		}
 		// Add HDR10 color metadata to preserve HDR signaling
@@ -600,33 +605,35 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 		"-map", "0:a?",  // All audio streams (optional)
 	)
 
-	if outputFormat == "mp4" {
+	if opts.OutputFormat == "mp4" {
 		// MP4: Transcode audio to AAC for web compatibility, strip subtitles (PGS breaks MP4)
 		outputArgs = append(outputArgs,
 			"-c:a", "aac",
 			"-b:a", "192k",
 			"-ac", "2", // Stereo for wide compatibility
 			"-sn",      // Strip subtitles
+		// Faststart: move moov atom to beginning for streaming/web playback
+		"-movflags", "+faststart",
 		)
 	} else {
-		// MKV: Copy audio, handle subtitles based on subtitleIndices
+		// MKV: Copy audio, handle subtitles based on SubtitleIndices
 		outputArgs = append(outputArgs, "-c:a", "copy")
 
 		switch {
-		case subtitleIndices == nil:
+		case opts.SubtitleIndices == nil:
 			// nil = map all subtitles (default/fallback behavior)
 			outputArgs = append(outputArgs,
 				"-map", "0:s?", // All subtitle streams (optional)
 				"-c:s", "copy",
 			)
-		case len(subtitleIndices) == 0:
+		case len(opts.SubtitleIndices) == 0:
 			// empty = no subtitles to map (all were incompatible)
 			// Don't add any subtitle mapping
 		default:
 			// specific indices = map only compatible streams by absolute stream index
 			// (from ffprobe's stream.index field, not subtitle-relative ordinal)
 			// Use ? suffix for safety in case indices become stale
-			for _, idx := range subtitleIndices {
+			for _, idx := range opts.SubtitleIndices {
 				outputArgs = append(outputArgs, "-map", fmt.Sprintf("0:%d?", idx))
 			}
 			outputArgs = append(outputArgs, "-c:s", "copy")
@@ -638,19 +645,20 @@ func BuildPresetArgs(preset *Preset, sourceBitrate int64, sourceWidth, sourceHei
 
 // BuildSampleEncodeArgs builds FFmpeg arguments for encoding a sample.
 // Similar to BuildPresetArgs but video-only (no audio/subtitles).
-// For VideoToolbox (bitrate-based encoders), modifierOverride sets the bitrate
-// as a fraction of a reference bitrate (e.g., 0.52 = 52% of 10Mbps = 5.2Mbps).
-func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
-	qualityOverride int, modifierOverride float64, softwareDecode bool) (inputArgs []string, outputArgs []string) {
+// opts is received by value so we can safely override fields for sample encoding
+// (e.g., zero SourceBitrate, force MKV, clear Tonemap) without affecting the caller.
+func BuildSampleEncodeArgs(opts TranscodeOptions) (inputArgs []string, outputArgs []string) { //nolint:gocritic // by value: mutates copy for sample overrides
+	// Override fields for sample-specific behavior (safe: value copy)
+	opts.SourceBitrate = 0      // Use 10Mbps reference bitrate
+	opts.OutputFormat = "mkv"   // Samples always MKV
+	opts.Tonemap = nil          // Samples stay in native format (VMAF is SDR-only)
+	opts.SubtitleIndices = nil   // No subtitles for samples
 
 	// Get base args from BuildPresetArgs
-	// We pass modifierOverride as qualityMod. For bitrate-based encoders (VideoToolbox),
-	// BuildPresetArgs uses a 10Mbps reference when sourceBitrate=0 and applies the modifier.
-	// When modifierOverride > 0, we also replace -b:v below for explicit control.
-	// Pass nil for subtitleIndices (samples don't use subtitles anyway - we strip them below)
-	// Pass nil for tonemap - samples stay in native format (VMAF is SDR-only)
-	inputArgs, outputArgs = BuildPresetArgs(preset, 0, sourceWidth, sourceHeight,
-		qualityOverride, qualityOverride, modifierOverride, softwareDecode, "mkv", nil, nil)
+	// For bitrate-based encoders (VideoToolbox), BuildPresetArgs uses a 10Mbps
+	// reference when SourceBitrate=0 and applies the QualityMod modifier.
+	// When QualityMod > 0, we also replace -b:v below for explicit control.
+	inputArgs, outputArgs = BuildPresetArgs(opts)
 
 	// Remove audio/subtitle mapping and replace with video-only
 	filteredArgs := make([]string, 0, len(outputArgs))
@@ -674,13 +682,13 @@ func BuildSampleEncodeArgs(preset *Preset, sourceWidth, sourceHeight int,
 		filteredArgs = append(filteredArgs, arg)
 	}
 
-	// For bitrate-based encoders (VideoToolbox), replace bitrate when modifierOverride > 0
+	// For bitrate-based encoders (VideoToolbox), replace bitrate when QualityMod > 0
 	// BuildPresetArgs already calculated a bitrate, but we replace it here for explicit control.
-	if modifierOverride > 0 {
-		key := EncoderKey{preset.Encoder, preset.Codec}
+	if opts.QualityMod > 0 {
+		key := EncoderKey{opts.Preset.Encoder, opts.Preset.Codec}
 		if config, ok := encoderConfigs[key]; ok && config.usesBitrate {
 			// Clamp modifier to encoder's valid range (consistent with BuildPresetArgs)
-			modifier := modifierOverride
+			modifier := opts.QualityMod
 			if config.modMin > 0 && modifier < config.modMin {
 				modifier = config.modMin
 			}

@@ -47,3 +47,8 @@ ghcr.sh
 CLAUDE.md
 HANDOFF.md
 **/plans/
+todo
+
+# Claude Code / MCP (local config)
+.claude/
+.mcp.json

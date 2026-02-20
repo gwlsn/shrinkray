@@ -18,7 +18,7 @@ func TestBuildPresetArgsDynamicBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	inputArgs, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: sourceBitrate, OutputFormat: "mkv"})
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -59,7 +59,7 @@ func TestBuildPresetArgsDynamicBitrateAV1(t *testing.T) {
 		Codec:   CodecAV1,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	inputArgs, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: sourceBitrate, OutputFormat: "mkv"})
 
 	// Should have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -91,7 +91,7 @@ func TestBuildPresetArgsQualityModOverride(t *testing.T) {
 	}
 
 	// With qualityMod=0.5, target should be 10000 * 0.5 = 5000k
-	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0.5, false, "mkv", nil, nil)
+	_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: sourceBitrate, QualityMod: 0.5, OutputFormat: "mkv"})
 
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
@@ -118,7 +118,7 @@ func TestBuildPresetArgsQualityModIgnoredForCRFEncoders(t *testing.T) {
 	}
 
 	// qualityMod should be ignored for NVENC (CRF-based)
-	_, outputArgs := BuildPresetArgs(preset, sourceBitrate, 0, 0, 0, 0, 0.5, false, "mkv", nil, nil)
+	_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: sourceBitrate, QualityMod: 0.5, OutputFormat: "mkv"})
 
 	// Should use -cq (constant quality) not -b:v
 	for i, arg := range outputArgs {
@@ -143,7 +143,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs := BuildPresetArgs(presetLow, lowBitrate, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: presetLow, SourceBitrate: lowBitrate, OutputFormat: "mkv"})
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -164,7 +164,7 @@ func TestBuildPresetArgsBitrateConstraints(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	_, outputArgs = BuildPresetArgs(presetHigh, highBitrate, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	_, outputArgs = BuildPresetArgs(TranscodeOptions{Preset: presetHigh, SourceBitrate: highBitrate, OutputFormat: "mkv"})
 	for i, arg := range outputArgs {
 		if arg == "-b:v" && i+1 < len(outputArgs) {
 			bitrate := outputArgs[i+1]
@@ -187,7 +187,7 @@ func TestBuildPresetArgsNonBitrateEncoder(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetSoftware, sourceBitrate, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	inputArgs, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: presetSoftware, SourceBitrate: sourceBitrate, OutputFormat: "mkv"})
 
 	// Software encoder should have no hwaccel input args
 	if len(inputArgs) != 0 {
@@ -228,7 +228,7 @@ func TestBuildPresetArgsZeroBitrate(t *testing.T) {
 		Codec:   CodecHEVC,
 	}
 
-	inputArgs, outputArgs := BuildPresetArgs(presetVT, 0, 0, 0, 0, 0, 0, false, "mkv", nil, nil)
+	inputArgs, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: presetVT, OutputFormat: "mkv"})
 
 	// Should still have hwaccel input args
 	if len(inputArgs) == 0 {
@@ -294,7 +294,7 @@ func TestQSVPresetFilterChain(t *testing.T) {
 				Codec:   tt.codec,
 			}
 
-			_, outputArgs := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 1000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv"})
 
 			// Find -vf argument
 			for i, arg := range outputArgs {
@@ -324,10 +324,10 @@ func TestBuildPresetArgsSoftwareDecode(t *testing.T) {
 	}
 
 	// Hardware decode (softwareDecode=false)
-	inputArgsHW, _ := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+	inputArgsHW, _ := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 1000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv"})
 
 	// Software decode (softwareDecode=true)
-	inputArgsSW, outputArgsSW := BuildPresetArgs(preset, 1000000, 1920, 1080, 0, 0, 0, true, "mkv", nil, nil)
+	inputArgsSW, outputArgsSW := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 1000000, SourceWidth: 1920, SourceHeight: 1080, SoftwareDecode: true, OutputFormat: "mkv"})
 
 	// Hardware decode should have -hwaccel
 	hasHwaccelHW := false
@@ -438,7 +438,7 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 						}
 					}
 
-					_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+					_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv", Tonemap: tonemap})
 
 					outputStr := strings.Join(outputArgs, " ")
 
@@ -446,8 +446,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 					if hdr.expectP010 {
 						if !strings.Contains(outputStr, "p010") {
 							t.Logf("Output args: %v", outputArgs)
-							// Note: p010 might be in input args filter, not output
-							// This is expected behavior for some encoders
+							// Note: software and VideoToolbox encoders have no scalePixFmt,
+							// so the p010 pixel format is never injected into the filter
+							// chain for those encoders. Only hardware encoders (NVENC, QSV,
+							// VAAPI) with a non-empty scalePixFmt emit p010. This is
+							// intentional: CPU-decoded HDR frames are passed directly to
+							// the software encoder without a format conversion filter.
 						}
 					}
 
@@ -467,10 +471,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 
 					// Check tonemap filter
 					if hdr.expectTonemap {
-						hasTonemap := strings.Contains(outputStr, "tonemap")
-						// Some encoders might not have tonemap filter available
-						// (e.g., software without zscale)
-						t.Logf("Has tonemap filter: %v", hasTonemap)
+						// BuildTonemapFilter always returns a deterministic zscale pipeline
+						// (pure Go, no hardware dependency), so the presence of "tonemap"
+						// in the args is a hard requirement when EnableTonemap is true.
+						if !strings.Contains(outputStr, "tonemap") {
+							t.Errorf("expected tonemap filter in output args, got: %v", outputArgs)
+						}
 					}
 
 					// Check color metadata for SDR output
@@ -482,7 +488,12 @@ func TestBuildPresetArgsHDRPermutations(t *testing.T) {
 								break
 							}
 						}
-						// Tonemap filters handle color space internally, so explicit bt709 not required
+						// Intentionally informational: the BT.709 color space conversion
+						// is handled inside the zscale filter chain itself (e.g., "zscale=p=bt709"),
+						// not via a separate -color_primaries ffmpeg flag. The production code
+						// (BuildPresetArgs) does not add -color_primaries bt709 after tonemapping,
+						// so foundBT709 will always be false here. This log is a sanity check,
+						// not an assertion.
 						t.Logf("Has explicit bt709 metadata: %v", foundBT709)
 					}
 
@@ -548,20 +559,23 @@ func TestBuildPresetArgsHDRFilters(t *testing.T) {
 				Algorithm:     "hable",
 			}
 
-			inputArgs, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+			inputArgs, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv", Tonemap: tonemap})
 			allArgs := strings.Join(append(inputArgs, outputArgs...), " ")
 
-			// Note: Filter availability depends on system, so we just log
 			t.Logf("Args for %s: %s", tt.name, allArgs)
 
 			if tt.enableTonemap {
-				// Tonemap should be in args if filter is available
-				t.Logf("Checking for tonemap-related filter: %s", tt.expectFilter)
+				// BuildTonemapFilter is pure Go and always returns a deterministic
+				// zscale pipeline. No hardware is required, so this is a hard assertion.
+				if !strings.Contains(allArgs, tt.expectFilter) {
+					t.Errorf("expected filter %q in args, got: %s", tt.expectFilter, allArgs)
+				}
 			} else if strings.Contains(tt.expectFilter, "p010") {
-				// HDR preservation - check for p010 format
+				// HDR preservation with a hardware encoder (NVENC/VAAPI): these encoders
+				// have a non-empty scalePixFmt so BuildPresetArgs deterministically injects
+				// p010 into the filter chain. This is a hard assertion for these cases.
 				if !strings.Contains(allArgs, "p010") {
-					// p010 might be substituted dynamically based on HDR state
-					t.Logf("p010 not found, but may be handled dynamically")
+					t.Errorf("expected p010 pixel format in args for hardware HDR preserve, got: %s", allArgs)
 				}
 			}
 		})
@@ -769,7 +783,7 @@ func TestBuildPresetArgsSubtitleMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, outputArgs := BuildPresetArgs(preset, 0, 1920, 1080, 0, 0, 0, false, tt.outputFormat, nil, tt.subtitleIndices)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: tt.outputFormat, SubtitleIndices: tt.subtitleIndices})
 			argsStr := strings.Join(outputArgs, " ")
 
 			for _, want := range tt.wantContains {
@@ -838,7 +852,7 @@ func TestBuildPresetArgsDownscaleSingleHWScaler(t *testing.T) {
 			}
 
 			// sourceHeight=1080 triggers downscaling to 720
-			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv"})
 
 			// Find the -vf argument
 			vfFilter := ""
@@ -912,7 +926,7 @@ func TestBuildPresetArgsDownscaleHDRPreservation(t *testing.T) {
 				EnableTonemap: false, // preserve HDR
 			}
 
-			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv", Tonemap: tonemap})
 
 			vfFilter := ""
 			for i, arg := range outputArgs {
@@ -990,7 +1004,7 @@ func TestBuildPresetArgsTonemapDownscale(t *testing.T) {
 			}
 
 			// sourceHeight=1080 triggers downscaling to 720
-			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", tonemap, nil)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv", Tonemap: tonemap})
 
 			vfFilter := ""
 			for i, arg := range outputArgs {
@@ -1055,7 +1069,7 @@ func TestBuildPresetArgsSoftwareDecodeDownscale(t *testing.T) {
 			}
 
 			// softwareDecode=true, sourceHeight=1080 triggers downscaling
-			_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, true, "mkv", nil, nil)
+			_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, SoftwareDecode: true, OutputFormat: "mkv"})
 
 			vfFilter := ""
 			for i, arg := range outputArgs {
@@ -1090,7 +1104,7 @@ func TestBuildPresetArgsCompressNoScale(t *testing.T) {
 		// MaxHeight=0 means no scaling
 	}
 
-	_, outputArgs := BuildPresetArgs(preset, 10000000, 1920, 1080, 0, 0, 0, false, "mkv", nil, nil)
+	_, outputArgs := BuildPresetArgs(TranscodeOptions{Preset: preset, SourceBitrate: 10000000, SourceWidth: 1920, SourceHeight: 1080, OutputFormat: "mkv"})
 
 	vfFilter := ""
 	for i, arg := range outputArgs {
