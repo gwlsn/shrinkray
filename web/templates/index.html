@@ -1074,6 +1074,7 @@
         }
 
         .job-item {
+            position: relative;
             padding: 16px 20px;
             border-bottom: 1px solid var(--border);
         }
@@ -1088,6 +1089,7 @@
             justify-content: space-between;
             gap: 12px;
             margin-bottom: 8px;
+            padding-right: 10px;
         }
 
         .job-name {
@@ -1289,20 +1291,24 @@
         }
 
         .btn-remove-job {
+            position: absolute;
+            top: 8px;
+            right: 8px;
             background: none;
             border: none;
             color: var(--text-secondary);
+            opacity: 0.4;
             cursor: pointer;
-            padding: 2px 6px;
-            font-size: 1rem;
+            padding: 0px 4px;
+            font-size: 1.25rem;
             line-height: 1;
-            border-radius: 4px;
-            transition: color 0.15s, background 0.15s;
+            border-radius: 3px;
+            transition: color 0.15s, background 0.15s, opacity 0.15s;
         }
 
         .btn-remove-job:hover {
-            color: #EF4444;
-            background: rgba(239, 68, 68, 0.1);
+            color: var(--text-primary);
+            opacity: 1;
         }
 
         .queue-empty {
@@ -3170,8 +3176,8 @@
                             ${job.is_hdr ? '<span class="job-badge hdr">HDR</span>' : ''}
                             <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
                             <span class="job-badge ${statusClass}">${statusLabel}</span>
-                            ${job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'skipped' ? `<button class="btn-remove-job" onclick="event.stopPropagation(); removeJob('${job.id}')" title="Remove job">&times;</button>` : ''}
                         </div>
+                    ${job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'skipped' ? `<button class="btn-remove-job" onclick="event.stopPropagation(); removeJob('${job.id}')" title="Remove job">&times;</button>` : ''}
                     </div>
                     ${job.status === 'running' ? `
                         <div class="job-progress">
