@@ -3,6 +3,7 @@ module github.com/gwlsn/shrinkray
 go 1.25.0
 
 require (
+	github.com/jmoiron/sqlx v1.4.0
 	golang.org/x/sync v0.19.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.34.5

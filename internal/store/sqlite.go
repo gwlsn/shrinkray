@@ -122,6 +122,147 @@ type SQLiteStore struct {
 	path string
 }
 
+// jobRow is the database representation of a Job.
+// Uses sql.Null* types for nullable columns and db tags for sqlx struct scanning.
+// Column names match the jobs table schema exactly.
+type jobRow struct {
+	ID                 string          `db:"id"`
+	InputPath          string          `db:"input_path"`
+	OutputPath         sql.NullString  `db:"output_path"`
+	TempPath           sql.NullString  `db:"temp_path"`
+	PresetID           string          `db:"preset_id"`
+	Encoder            string          `db:"encoder"`
+	IsHardware         int             `db:"is_hardware"`
+	Status             string          `db:"status"`
+	Progress           float64         `db:"progress"`
+	Speed              float64         `db:"speed"`
+	ETA                sql.NullString  `db:"eta"`
+	Error              sql.NullString  `db:"error"`
+	InputSize          int64           `db:"input_size"`
+	OutputSize         sql.NullInt64   `db:"output_size"`
+	SpaceSaved         sql.NullInt64   `db:"space_saved"`
+	DurationMS         sql.NullInt64   `db:"duration_ms"`
+	Bitrate            sql.NullInt64   `db:"bitrate"`
+	Width              sql.NullInt64   `db:"width"`
+	Height             sql.NullInt64   `db:"height"`
+	FrameRate          sql.NullFloat64 `db:"frame_rate"`
+	VideoCodec         sql.NullString  `db:"video_codec"`
+	Profile            sql.NullString  `db:"profile"`
+	BitDepth           sql.NullInt64   `db:"bit_depth"`
+	IsHDR              sql.NullInt64   `db:"is_hdr"`
+	ColorTransfer      sql.NullString  `db:"color_transfer"`
+	TranscodeSecs      sql.NullInt64   `db:"transcode_secs"`
+	Phase              sql.NullString  `db:"phase"`
+	VMafScore          sql.NullFloat64 `db:"vmaf_score"`
+	SelectedCRF        sql.NullInt64   `db:"selected_crf"`
+	QualityMod         sql.NullFloat64 `db:"quality_mod"`
+	SkipReason         sql.NullString  `db:"skip_reason"`
+	SmartShrinkQuality sql.NullString  `db:"smartshrink_quality"`
+	CreatedAt          string          `db:"created_at"`
+	StartedAt          sql.NullString  `db:"started_at"`
+	CompletedAt        sql.NullString  `db:"completed_at"`
+}
+
+// toRow converts a jobs.Job to a jobRow for database operations.
+// Zero values become SQL NULL via sql.Null* types.
+func toRow(j *jobs.Job) jobRow {
+	return jobRow{
+		ID:                 j.ID,
+		InputPath:          j.InputPath,
+		OutputPath:         toNullString(j.OutputPath),
+		TempPath:           toNullString(j.TempPath),
+		PresetID:           j.PresetID,
+		Encoder:            j.Encoder,
+		IsHardware:         boolToInt(j.IsHardware),
+		Status:             string(j.Status),
+		Progress:           j.Progress,
+		Speed:              j.Speed,
+		ETA:                toNullString(j.ETA),
+		Error:              toNullString(j.Error),
+		InputSize:          j.InputSize,
+		OutputSize:         toNullInt64(j.OutputSize),
+		SpaceSaved:         toNullInt64(j.SpaceSaved),
+		DurationMS:         toNullInt64(j.Duration),
+		Bitrate:            toNullInt64(j.Bitrate),
+		Width:              toNullInt64(int64(j.Width)),
+		Height:             toNullInt64(int64(j.Height)),
+		FrameRate:          toNullFloat64(j.FrameRate),
+		VideoCodec:         toNullString(j.VideoCodec),
+		Profile:            toNullString(j.Profile),
+		BitDepth:           toNullInt64(int64(j.BitDepth)),
+		IsHDR:              sql.NullInt64{Int64: int64(boolToInt(j.IsHDR)), Valid: true},
+		ColorTransfer:      toNullString(j.ColorTransfer),
+		TranscodeSecs:      toNullInt64(j.TranscodeTime),
+		Phase:              toNullString(string(j.Phase)),
+		VMafScore:          toNullFloat64(j.VMafScore),
+		SelectedCRF:        toNullInt64(int64(j.SelectedCRF)),
+		QualityMod:         toNullFloat64(j.QualityMod),
+		SkipReason:         toNullString(j.SkipReason),
+		SmartShrinkQuality: toNullString(j.SmartShrinkQuality),
+		CreatedAt:          formatTime(j.CreatedAt),
+		StartedAt:          toNullTime(j.StartedAt),
+		CompletedAt:        toNullTime(j.CompletedAt),
+	}
+}
+
+// toJob converts a jobRow back to a jobs.Job.
+// SQL NULL values (sql.Null*.Valid == false) become Go zero values.
+func (r *jobRow) toJob() *jobs.Job {
+	return &jobs.Job{
+		ID:                 r.ID,
+		InputPath:          r.InputPath,
+		OutputPath:         r.OutputPath.String,
+		TempPath:           r.TempPath.String,
+		PresetID:           r.PresetID,
+		Encoder:            r.Encoder,
+		IsHardware:         r.IsHardware != 0,
+		Status:             jobs.Status(r.Status),
+		Progress:           r.Progress,
+		Speed:              r.Speed,
+		ETA:                r.ETA.String,
+		Error:              r.Error.String,
+		InputSize:          r.InputSize,
+		OutputSize:         r.OutputSize.Int64,
+		SpaceSaved:         r.SpaceSaved.Int64,
+		Duration:           r.DurationMS.Int64,
+		Bitrate:            r.Bitrate.Int64,
+		Width:              int(r.Width.Int64),
+		Height:             int(r.Height.Int64),
+		FrameRate:          r.FrameRate.Float64,
+		VideoCodec:         r.VideoCodec.String,
+		Profile:            r.Profile.String,
+		BitDepth:           int(r.BitDepth.Int64),
+		IsHDR:              r.IsHDR.Int64 != 0,
+		ColorTransfer:      r.ColorTransfer.String,
+		TranscodeTime:      r.TranscodeSecs.Int64,
+		Phase:              jobs.Phase(r.Phase.String),
+		VMafScore:          r.VMafScore.Float64,
+		SelectedCRF:        int(r.SelectedCRF.Int64),
+		QualityMod:         r.QualityMod.Float64,
+		SkipReason:         r.SkipReason.String,
+		SmartShrinkQuality: r.SmartShrinkQuality.String,
+		CreatedAt:          parseTime(r.CreatedAt),
+		StartedAt:          parseNullTime(r.StartedAt),
+		CompletedAt:        parseNullTime(r.CompletedAt),
+	}
+}
+
+// insertJobSQL uses named parameters (:field) that sqlx maps to jobRow db tags.
+// Column order in this SQL does not need to match jobRow field order.
+const insertJobSQL = `INSERT OR REPLACE INTO jobs (
+	id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
+	status, progress, speed, eta, error, input_size, output_size, space_saved,
+	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
+	is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod,
+	skip_reason, smartshrink_quality, created_at, started_at, completed_at
+) VALUES (
+	:id, :input_path, :output_path, :temp_path, :preset_id, :encoder, :is_hardware,
+	:status, :progress, :speed, :eta, :error, :input_size, :output_size, :space_saved,
+	:duration_ms, :bitrate, :width, :height, :frame_rate, :video_codec, :profile, :bit_depth,
+	:is_hdr, :color_transfer, :transcode_secs, :phase, :vmaf_score, :selected_crf, :quality_mod,
+	:skip_reason, :smartshrink_quality, :created_at, :started_at, :completed_at
+)`
+
 // NewSQLiteStore creates a new SQLite-backed store.
 // The database file is created if it doesn't exist.
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
@@ -757,6 +898,39 @@ func formatTimePtr(t time.Time) interface{} {
 		return nil
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// toNullString converts a string to sql.NullString (empty string = NULL).
+func toNullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// toNullInt64 converts an int64 to sql.NullInt64 (zero = NULL).
+func toNullInt64(i int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: i, Valid: i != 0}
+}
+
+// toNullFloat64 converts a float64 to sql.NullFloat64 (zero = NULL).
+func toNullFloat64(f float64) sql.NullFloat64 {
+	return sql.NullFloat64{Float64: f, Valid: f != 0}
+}
+
+// toNullTime converts a time.Time to sql.NullString for database storage (zero time = NULL).
+func toNullTime(t time.Time) sql.NullString {
+	if t.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.UTC().Format(time.RFC3339), Valid: true}
+}
+
+// parseNullTime converts a sql.NullString from the database back to time.Time.
+// Returns zero time on NULL or malformed input, consistent with parseTime.
+func parseNullTime(ns sql.NullString) time.Time {
+	if !ns.Valid || ns.String == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339, ns.String)
+	return t
 }
 
 func parseTime(s string) time.Time {

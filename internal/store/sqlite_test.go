@@ -28,6 +28,161 @@ func createTestJob(id string) *jobs.Job {
 	}
 }
 
+func TestJobRowRoundTrip(t *testing.T) {
+	// Create a job with ALL fields populated (non-zero values)
+	now := time.Now().Truncate(time.Second)
+	original := &jobs.Job{
+		ID:                 "roundtrip-test",
+		InputPath:          "/media/test.mkv",
+		OutputPath:         "/media/test_out.mkv",
+		TempPath:           "/tmp/test.mkv.tmp",
+		PresetID:           "compress-hevc",
+		Encoder:            "hevc_nvenc",
+		IsHardware:         true,
+		Status:             jobs.StatusComplete,
+		Progress:           100.0,
+		Speed:              2.5,
+		ETA:                "0s",
+		Error:              "encoder failed: hevc_nvenc",
+		InputSize:          1000000000,
+		OutputSize:         500000000,
+		SpaceSaved:         500000000,
+		Duration:           3600000,
+		Bitrate:            5000000,
+		Width:              3840,
+		Height:             2160,
+		FrameRate:          29.97,
+		VideoCodec:         "h264",
+		Profile:            "High",
+		BitDepth:           8,
+		IsHDR:              true,
+		ColorTransfer:      "smpte2084",
+		TranscodeTime:      1800,
+		Phase:              jobs.PhaseEncoding,
+		VMafScore:          94.5,
+		SelectedCRF:        26,
+		QualityMod:         0.35,
+		SkipReason:         "output larger than original",
+		SmartShrinkQuality: "excellent",
+		CreatedAt:          now,
+		StartedAt:          now.Add(time.Minute),
+		CompletedAt:        now.Add(time.Hour),
+	}
+
+	// Convert to row and back
+	row := toRow(original)
+	result := row.toJob()
+
+	// Verify all fields match
+	if result.ID != original.ID {
+		t.Errorf("ID: got %q, want %q", result.ID, original.ID)
+	}
+	if result.InputPath != original.InputPath {
+		t.Errorf("InputPath: got %q, want %q", result.InputPath, original.InputPath)
+	}
+	if result.OutputPath != original.OutputPath {
+		t.Errorf("OutputPath: got %q, want %q", result.OutputPath, original.OutputPath)
+	}
+	if result.TempPath != original.TempPath {
+		t.Errorf("TempPath: got %q, want %q", result.TempPath, original.TempPath)
+	}
+	if result.PresetID != original.PresetID {
+		t.Errorf("PresetID: got %q, want %q", result.PresetID, original.PresetID)
+	}
+	if result.Encoder != original.Encoder {
+		t.Errorf("Encoder: got %q, want %q", result.Encoder, original.Encoder)
+	}
+	if result.IsHardware != original.IsHardware {
+		t.Errorf("IsHardware: got %v, want %v", result.IsHardware, original.IsHardware)
+	}
+	if result.Status != original.Status {
+		t.Errorf("Status: got %q, want %q", result.Status, original.Status)
+	}
+	if result.Progress != original.Progress {
+		t.Errorf("Progress: got %f, want %f", result.Progress, original.Progress)
+	}
+	if result.Speed != original.Speed {
+		t.Errorf("Speed: got %f, want %f", result.Speed, original.Speed)
+	}
+	if result.ETA != original.ETA {
+		t.Errorf("ETA: got %q, want %q", result.ETA, original.ETA)
+	}
+	if result.Error != original.Error {
+		t.Errorf("Error: got %q, want %q", result.Error, original.Error)
+	}
+	if result.InputSize != original.InputSize {
+		t.Errorf("InputSize: got %d, want %d", result.InputSize, original.InputSize)
+	}
+	if result.OutputSize != original.OutputSize {
+		t.Errorf("OutputSize: got %d, want %d", result.OutputSize, original.OutputSize)
+	}
+	if result.SpaceSaved != original.SpaceSaved {
+		t.Errorf("SpaceSaved: got %d, want %d", result.SpaceSaved, original.SpaceSaved)
+	}
+	if result.Duration != original.Duration {
+		t.Errorf("Duration: got %d, want %d", result.Duration, original.Duration)
+	}
+	if result.Bitrate != original.Bitrate {
+		t.Errorf("Bitrate: got %d, want %d", result.Bitrate, original.Bitrate)
+	}
+	if result.Width != original.Width {
+		t.Errorf("Width: got %d, want %d", result.Width, original.Width)
+	}
+	if result.Height != original.Height {
+		t.Errorf("Height: got %d, want %d", result.Height, original.Height)
+	}
+	if result.FrameRate != original.FrameRate {
+		t.Errorf("FrameRate: got %f, want %f", result.FrameRate, original.FrameRate)
+	}
+	if result.VideoCodec != original.VideoCodec {
+		t.Errorf("VideoCodec: got %q, want %q", result.VideoCodec, original.VideoCodec)
+	}
+	if result.Profile != original.Profile {
+		t.Errorf("Profile: got %q, want %q", result.Profile, original.Profile)
+	}
+	if result.BitDepth != original.BitDepth {
+		t.Errorf("BitDepth: got %d, want %d", result.BitDepth, original.BitDepth)
+	}
+	if result.IsHDR != original.IsHDR {
+		t.Errorf("IsHDR: got %v, want %v", result.IsHDR, original.IsHDR)
+	}
+	if result.ColorTransfer != original.ColorTransfer {
+		t.Errorf("ColorTransfer: got %q, want %q", result.ColorTransfer, original.ColorTransfer)
+	}
+	if result.TranscodeTime != original.TranscodeTime {
+		t.Errorf("TranscodeTime: got %d, want %d", result.TranscodeTime, original.TranscodeTime)
+	}
+	if result.Phase != original.Phase {
+		t.Errorf("Phase: got %q, want %q", result.Phase, original.Phase)
+	}
+	if result.VMafScore != original.VMafScore {
+		t.Errorf("VMafScore: got %f, want %f", result.VMafScore, original.VMafScore)
+	}
+	if result.SelectedCRF != original.SelectedCRF {
+		t.Errorf("SelectedCRF: got %d, want %d", result.SelectedCRF, original.SelectedCRF)
+	}
+	if result.QualityMod != original.QualityMod {
+		t.Errorf("QualityMod: got %f, want %f", result.QualityMod, original.QualityMod)
+	}
+	if result.SkipReason != original.SkipReason {
+		t.Errorf("SkipReason: got %q, want %q", result.SkipReason, original.SkipReason)
+	}
+	if result.SmartShrinkQuality != original.SmartShrinkQuality {
+		t.Errorf("SmartShrinkQuality: got %q, want %q", result.SmartShrinkQuality, original.SmartShrinkQuality)
+	}
+
+	// Time comparisons (within 1 second due to format/parse round-trip)
+	if result.CreatedAt.Sub(original.CreatedAt).Abs() > time.Second {
+		t.Errorf("CreatedAt: got %v, want %v", result.CreatedAt, original.CreatedAt)
+	}
+	if result.StartedAt.Sub(original.StartedAt).Abs() > time.Second {
+		t.Errorf("StartedAt: got %v, want %v", result.StartedAt, original.StartedAt)
+	}
+	if result.CompletedAt.Sub(original.CompletedAt).Abs() > time.Second {
+		t.Errorf("CompletedAt: got %v, want %v", result.CompletedAt, original.CompletedAt)
+	}
+}
+
 func TestSQLiteStore_SaveJob_CreatesNew(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
