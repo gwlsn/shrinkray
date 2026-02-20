@@ -128,14 +128,6 @@ func main() {
 	// Logging deferred until after splash screen
 	vmaf.DetectVMAF(cfg.FFmpegPath)
 
-	// Validate max concurrent analyses setting (clamped by jobs package)
-	if cfg.MaxConcurrentAnalyses < jobs.MinConcurrentAnalyses {
-		cfg.MaxConcurrentAnalyses = jobs.MinConcurrentAnalyses
-	}
-	if cfg.MaxConcurrentAnalyses > jobs.MaxConcurrentAnalyses {
-		cfg.MaxConcurrentAnalyses = jobs.MaxConcurrentAnalyses
-	}
-
 	// Initialize presets (depends on encoder AND VMAF detection)
 	ffmpeg.InitPresets()
 

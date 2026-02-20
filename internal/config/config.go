@@ -101,7 +101,7 @@ func DefaultConfig() *Config {
 		LogLevel:          "info",
 		OutputFormat:      "mkv",
 		TonemapHDR:            false,   // HDR passthrough by default; enable for SDR conversion (uses CPU)
-		TonemapAlgorithm:      "hable", // Filmic tonemapping, good for movies
+		TonemapAlgorithm:      DefaultTonemapAlgorithm,
 		MaxConcurrentAnalyses: 1,       // Conservative default for media servers
 	}
 }

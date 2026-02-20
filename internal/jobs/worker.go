@@ -74,6 +74,12 @@ const (
 	vmafAcceptable = 85.0
 	vmafGood       = 90.0
 	vmafExcellent  = 94.0
+
+	// Polling intervals for the worker loop
+	pausePollInterval    = 500 * time.Millisecond // How often to check when paused
+	jobPollInterval      = 500 * time.Millisecond // How often to poll for new jobs
+	schedulePollInterval = 30 * time.Second       // How often to recheck schedule
+	analysisPollInterval = 100 * time.Millisecond // How often to poll for analysis slot
 )
 
 // runningJob tracks a job being processed by a worker.
@@ -383,7 +389,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(500 * time.Millisecond):
+				case <-time.After(pausePollInterval):
 					continue
 				}
 			}
@@ -393,7 +399,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(30 * time.Second):
+				case <-time.After(schedulePollInterval):
 					continue
 				}
 			}
@@ -405,7 +411,7 @@ func (w *Worker) run() {
 				select {
 				case <-w.ctx.Done():
 					return
-				case <-time.After(500 * time.Millisecond):
+				case <-time.After(jobPollInterval):
 					continue
 				}
 			}
@@ -973,7 +979,7 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 			select {
 			case <-ctx.Done():
 				return false, "", 0, 0, 0, ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(analysisPollInterval):
 			}
 		}
 		if err := wp.queue.UpdateJobPhase(job.ID, PhaseAnalyzing); err != nil {

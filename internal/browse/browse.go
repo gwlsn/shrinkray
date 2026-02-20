@@ -17,6 +17,18 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+const (
+	// maxConcurrentCounts limits simultaneous directory-walk goroutines to avoid
+	// overwhelming network shares (NFS, SMB).
+	maxConcurrentCounts = 8
+
+	// maxConcurrentProbes limits simultaneous ffprobe calls per Browse request.
+	maxConcurrentProbes = 16
+
+	// recomputeQueueSize is the buffer size for the background recompute channel.
+	recomputeQueueSize = 256
+)
+
 // ProgressCallback is called during file discovery to report progress
 type ProgressCallback func(probed, total int)
 
@@ -87,10 +99,10 @@ func NewBrowser(prober *ffmpeg.Prober, mediaRoot string) *Browser {
 		mediaRoot:         absRoot,
 		cache:             make(map[string]*ffmpeg.ProbeResult),
 		countCache:        make(map[string]*dirCount),
-		countSem:          make(chan struct{}, 8),
-		maxProbes:         16,
+		countSem:          make(chan struct{}, maxConcurrentCounts),
+		maxProbes:         maxConcurrentProbes,
 		browseSubscribers: make(map[chan DirCountEvent]struct{}),
-		recomputeQueue:    make(chan string, 256),
+		recomputeQueue:    make(chan string, recomputeQueueSize),
 	}
 	b.startRecomputeWorkers()
 	return b

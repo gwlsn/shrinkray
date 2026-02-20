@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	appconfig "github.com/gwlsn/shrinkray/internal/config"
 	"github.com/gwlsn/shrinkray/internal/ffmpeg/vmaf"
 )
 
@@ -447,7 +448,7 @@ func BuildPresetArgs(opts TranscodeOptions) (inputArgs []string, outputArgs []st
 	if needsTonemap {
 		algorithm := opts.Tonemap.Algorithm
 		if algorithm == "" {
-			algorithm = "hable"
+			algorithm = appconfig.DefaultTonemapAlgorithm
 		}
 		tonemapFilter, _ = BuildTonemapFilter(algorithm)
 		// Software tonemapping requires software decode
