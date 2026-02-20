@@ -25,21 +25,29 @@ type StatsStore interface {
 	ResetSession() error
 }
 
+// NotifySettingStore reads and writes the notify-when-done checkbox state.
+// Implemented by store.SQLiteStore; nil means fall back to in-memory config.
+type NotifySettingStore interface {
+	GetNotifyOnComplete() (bool, error)
+	SetNotifyOnComplete(enabled bool) error
+}
+
 // Handler provides HTTP API handlers
 type Handler struct {
-	browser    *browse.Browser
-	queue      *jobs.Queue
-	workerPool *jobs.WorkerPool
-	cfg        *config.Config
-	cfgPath    string
-	pushover   *pushover.Client
-	notifyMu   sync.Mutex // Protects notification sending to prevent duplicates
-	store      StatsStore // For stats operations (may be nil)
+	browser      *browse.Browser
+	queue        *jobs.Queue
+	workerPool   *jobs.WorkerPool
+	cfg          *config.Config
+	cfgPath      string
+	pushover     *pushover.Client
+	notifyMu     sync.Mutex        // Protects notification sending to prevent duplicates
+	store        StatsStore        // For stats operations (may be nil)
+	notifyStore  NotifySettingStore // Persists notify checkbox state; nil = use cfg
 }
 
 // NewHandler creates a new API handler
 func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.WorkerPool, cfg *config.Config, cfgPath string) *Handler {
-	return &Handler{
+	h := &Handler{
 		browser:    browser,
 		queue:      queue,
 		workerPool: workerPool,
@@ -47,11 +55,44 @@ func NewHandler(browser *browse.Browser, queue *jobs.Queue, workerPool *jobs.Wor
 		cfgPath:    cfgPath,
 		pushover:   pushover.NewClient(cfg.PushoverUserKey, cfg.PushoverAppToken),
 	}
+	h.startNotificationWorker()
+	return h
 }
 
 // SetStore sets the stats store for session/lifetime stats operations.
 func (h *Handler) SetStore(store StatsStore) {
 	h.store = store
+}
+
+// SetNotifyStore sets the store for persisting the notify-when-done checkbox state.
+// When set, notify state is read from and written to the DB instead of config.
+func (h *Handler) SetNotifyStore(store NotifySettingStore) {
+	h.notifyStore = store
+}
+
+// getNotifyOnComplete reads the notify-on-complete flag from the DB.
+// Returns false if no store is configured (e.g., in tests).
+func (h *Handler) getNotifyOnComplete() bool {
+	if h.notifyStore == nil {
+		return false
+	}
+	v, err := h.notifyStore.GetNotifyOnComplete()
+	if err != nil {
+		logger.Warn("Failed to read notify_on_complete", "error", err)
+		return false
+	}
+	return v
+}
+
+// setNotifyOnComplete writes the notify-on-complete flag to the DB.
+// No-ops if no store is configured (e.g., in tests).
+func (h *Handler) setNotifyOnComplete(enabled bool) {
+	if h.notifyStore == nil {
+		return
+	}
+	if err := h.notifyStore.SetNotifyOnComplete(enabled); err != nil {
+		logger.Warn("Failed to persist notify_on_complete", "error", err)
+	}
 }
 
 // response helpers
@@ -339,7 +380,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		"pushover_user_key":       h.cfg.PushoverUserKey,
 		"pushover_app_token":      h.cfg.PushoverAppToken,
 		"pushover_configured":     h.pushover.IsConfigured(),
-		"notify_on_complete":      h.cfg.NotifyOnComplete,
+		"notify_on_complete":      h.getNotifyOnComplete(),
 		"quality_hevc":            h.cfg.QualityHEVC,
 		"quality_av1":             h.cfg.QualityAV1,
 		"default_quality_hevc":    defaultHEVC,
@@ -413,7 +454,7 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		h.pushover.AppToken = *req.PushoverAppToken
 	}
 	if req.NotifyOnComplete != nil {
-		h.cfg.NotifyOnComplete = *req.NotifyOnComplete
+		h.setNotifyOnComplete(*req.NotifyOnComplete)
 	}
 
 	// Handle quality settings

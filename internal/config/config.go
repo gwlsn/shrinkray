@@ -35,9 +35,6 @@ type Config struct {
 	// PushoverAppToken is the Pushover application token for notifications
 	PushoverAppToken string `yaml:"pushover_app_token"`
 
-	// NotifyOnComplete triggers a Pushover notification when all jobs finish
-	NotifyOnComplete bool `yaml:"notify_on_complete"`
-
 	// QualityHEVC is the CRF value for HEVC encoding (lower = higher quality, default 26)
 	QualityHEVC int `yaml:"quality_hevc"`
 

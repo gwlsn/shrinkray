@@ -171,7 +171,8 @@ func main() {
 
 	// Create API handler
 	handler := api.NewHandler(browser, queue, workerPool, cfg, cfgPath)
-	handler.SetStore(jobStore) // Enable session/lifetime stats
+	handler.SetStore(jobStore)        // Enable session/lifetime stats
+	handler.SetNotifyStore(jobStore)  // Persist notify checkbox state in DB
 	router := api.NewRouter(handler, shrinkray.WebFS)
 
 	// Start worker pool
