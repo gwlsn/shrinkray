@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-02-20
+
 ### Added
 - **Inline remove button** for completed, failed, and skipped jobs in the queue UI
 - **Skipped stat** in the header stats bar
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Pending Analysis badge** — Jobs waiting for a VMAF analysis slot now show "Pending Analysis" instead of appearing idle
 - **MP4 faststart** — MP4 output now sets the faststart flag for progressive web playback
 - **Live browse metadata** — File sizes and counts update in real time via SSE when jobs complete
+- **Decoupled notification system** — Notifications are now DB-persisted and independent of the SSE stream
 
 ### Fixed
 - Temp path defaults to `os.TempDir()` to prevent race conditions on network filesystems (#103)
@@ -21,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - Major internal refactor: sqlx struct scanning replaces manual SQL column mapping, `processJob` split into four phase methods, long FFmpeg parameter lists replaced with `TranscodeOptions` struct, dead code removed across store, worker, and VMAF packages
+- CodeRabbit configuration added for automatic PR reviews
 
 ## [2.2.1] - 2026-02-09
 

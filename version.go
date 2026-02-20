@@ -1,4 +1,4 @@
 package shrinkray
 
 // Version is the current version of Shrinkray
-const Version = "2.2.1"
+const Version = "2.3.0"
