@@ -245,6 +245,8 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelJob handles DELETE /api/jobs/:id
+// For running/pending jobs: cancels the job.
+// For terminal jobs (complete/failed/cancelled/skipped): removes from queue.
 func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -258,6 +260,13 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Terminal jobs: remove from queue entirely
+	if job.IsTerminal() {
+		h.queue.Remove(id)
+		writeJSON(w, http.StatusOK, map[string]interface{}{"removed": true})
+		return
+	}
+
 	// If job is running, cancel it via worker pool
 	if job.Status == jobs.StatusRunning {
 		h.workerPool.CancelJob(id)
@@ -265,7 +274,6 @@ func (h *Handler) CancelJob(w http.ResponseWriter, r *http.Request) {
 
 	// Cancel in queue
 	if err := h.queue.CancelJob(id); err != nil {
-		// Might already be cancelled/completed
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

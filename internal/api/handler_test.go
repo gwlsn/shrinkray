@@ -426,3 +426,90 @@ func TestJobStreamEndpoint(t *testing.T) {
 	t.Logf("SSE response: %s", w.Body.String()[:min(200, len(w.Body.String()))])
 }
 
+func TestDeleteTerminalJobRemovesIt(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Add a job and complete it
+	job, _ := handler.queue.Add(probe.Path, "compress-hevc", probe, "")
+	handler.queue.StartJob(job.ID, "/tmp/temp.mkv")
+	handler.queue.CompleteJob(job.ID, "/media/video.mkv", 500000)
+
+	// DELETE should remove the terminal job (not return 409)
+	req := httptest.NewRequest("DELETE", "/api/jobs/"+job.ID, nil)
+	req.SetPathValue("id", job.ID)
+	w := httptest.NewRecorder()
+
+	handler.CancelJob(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["removed"] != true {
+		t.Errorf("expected removed=true, got %v", resp)
+	}
+
+	// Job should be gone
+	if handler.queue.Get(job.ID) != nil {
+		t.Error("job should have been removed from queue")
+	}
+}
+
+func TestDeleteTerminalJobAllStates(t *testing.T) {
+	handler, _ := setupTestHandler(t)
+
+	probe := &ffmpeg.ProbeResult{
+		Path:     "/media/video.mkv",
+		Size:     1000000,
+		Duration: 10 * time.Second,
+	}
+
+	// Test all 4 terminal states
+	for _, tc := range []struct {
+		name  string
+		setup func(id string)
+	}{
+		{"complete", func(id string) {
+			handler.queue.StartJob(id, "/tmp/t.mkv")
+			handler.queue.CompleteJob(id, "/media/v.mkv", 500000)
+		}},
+		{"failed", func(id string) {
+			handler.queue.StartJob(id, "/tmp/t.mkv")
+			handler.queue.FailJob(id, "test error")
+		}},
+		{"cancelled", func(id string) {
+			handler.queue.CancelJob(id)
+		}},
+		{"skipped", func(id string) {
+			handler.queue.StartJob(id, "/tmp/t.mkv")
+			handler.queue.SkipJob(id, "already optimized")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			job, _ := handler.queue.Add(probe.Path, "compress-hevc", probe, "")
+			tc.setup(job.ID)
+
+			req := httptest.NewRequest("DELETE", "/api/jobs/"+job.ID, nil)
+			req.SetPathValue("id", job.ID)
+			w := httptest.NewRecorder()
+
+			handler.CancelJob(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			if handler.queue.Get(job.ID) != nil {
+				t.Error("job should have been removed")
+			}
+		})
+	}
+}
+
