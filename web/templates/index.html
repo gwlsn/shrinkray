@@ -3004,13 +3004,9 @@
             }
         }
 
+        // Same DELETE endpoint as cancelJob; backend differentiates by job state
         async function removeJob(id) {
-            try {
-                await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
-                // Job removal handled via SSE 'removed' event
-            } catch (err) {
-                console.error('Remove error:', err);
-            }
+            return cancelJob(id);
         }
 
         function clearQueue() {
