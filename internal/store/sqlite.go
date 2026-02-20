@@ -11,6 +11,7 @@ import (
 
 	"github.com/gwlsn/shrinkray/internal/browse"
 	"github.com/gwlsn/shrinkray/internal/jobs"
+	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
 
@@ -117,7 +118,7 @@ func jobExecArgs(job *jobs.Job) []interface{} {
 
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
-	db   *sql.DB
+	db   *sqlx.DB
 	mu   sync.RWMutex // Protects concurrent access
 	path string
 }
@@ -273,7 +274,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	}
 
 	// Open database with WAL mode for better concurrency
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -428,10 +429,7 @@ func (s *SQLiteStore) SaveJob(job *jobs.Job) error {
 }
 
 func (s *SQLiteStore) saveJobLocked(job *jobs.Job) error {
-	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO jobs (`+jobColumns+`) VALUES (`+jobPlaceholders+`)`,
-		jobExecArgs(job)...,
-	)
+	_, err := s.db.NamedExec(insertJobSQL, toRow(job))
 	return err
 }
 
@@ -444,8 +442,14 @@ func (s *SQLiteStore) GetJob(id string) (*jobs.Job, error) {
 }
 
 func (s *SQLiteStore) getJobLocked(id string) (*jobs.Job, error) {
-	row := s.db.QueryRow(`SELECT `+jobColumns+` FROM jobs WHERE id = ?`, id)
-	return scanJob(row)
+	var row jobRow
+	if err := s.db.Get(&row, `SELECT * FROM jobs WHERE id = ?`, id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return row.toJob(), nil
 }
 
 // DeleteJob removes a job by ID.
@@ -463,22 +467,20 @@ func (s *SQLiteStore) SaveJobs(jobList []*jobs.Job) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.Beginx()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt, err := tx.Prepare(
-		`INSERT OR REPLACE INTO jobs (` + jobColumns + `) VALUES (` + jobPlaceholders + `)`,
-	)
+	stmt, err := tx.PrepareNamed(insertJobSQL)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
 	for _, job := range jobList {
-		if _, err := stmt.Exec(jobExecArgs(job)...); err != nil {
+		if _, err := stmt.Exec(toRow(job)); err != nil {
 			return err
 		}
 	}
@@ -491,29 +493,23 @@ func (s *SQLiteStore) GetAllJobs() ([]*jobs.Job, []string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Get jobs in order
-	rows, err := s.db.Query(`SELECT ` + jobColumnsAliased + `
+	var rows []jobRow
+	err := s.db.Select(&rows, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		ORDER BY o.position ASC, j.created_at ASC`)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
 
-	var jobList []*jobs.Job
-	var order []string
-
-	for rows.Next() {
-		job, err := scanJobRows(rows)
-		if err != nil {
-			return nil, nil, err
-		}
-		jobList = append(jobList, job)
-		order = append(order, job.ID)
+	jobList := make([]*jobs.Job, len(rows))
+	order := make([]string, len(rows))
+	for i := range rows {
+		jobList[i] = rows[i].toJob()
+		order[i] = rows[i].ID
 	}
 
-	return jobList, order, rows.Err()
+	return jobList, order, nil
 }
 
 // GetJobsByStatus returns all jobs with the given status.
@@ -521,7 +517,8 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query(`SELECT `+jobColumnsAliased+`
+	var rows []jobRow
+	err := s.db.Select(&rows, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = ?
@@ -529,18 +526,13 @@ func (s *SQLiteStore) GetJobsByStatus(status jobs.Status) ([]*jobs.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var jobList []*jobs.Job
-	for rows.Next() {
-		job, err := scanJobRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		jobList = append(jobList, job)
+	jobList := make([]*jobs.Job, len(rows))
+	for i := range rows {
+		jobList[i] = rows[i].toJob()
 	}
 
-	return jobList, rows.Err()
+	return jobList, nil
 }
 
 // GetNextPendingJob returns the first pending job in queue order.
@@ -548,18 +540,20 @@ func (s *SQLiteStore) GetNextPendingJob() (*jobs.Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	row := s.db.QueryRow(`SELECT ` + jobColumnsAliased + `
+	var row jobRow
+	err := s.db.Get(&row, `SELECT j.*
 		FROM jobs j
 		LEFT JOIN job_order o ON j.id = o.job_id
 		WHERE j.status = 'pending'
 		ORDER BY o.position ASC, j.created_at ASC
 		LIMIT 1`)
-
-	job, err := scanJob(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	return job, err
+	if err != nil {
+		return nil, err
+	}
+	return row.toJob(), nil
 }
 
 // AppendToOrder adds a job ID to the end of the queue.
