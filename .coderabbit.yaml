@@ -30,8 +30,9 @@ reviews:
   auto_apply_labels: false
   suggested_reviewers: false
 
-  # Commit status so CodeRabbit shows as a check on the PR.
-  review_status: true
+  # Commit status shows as a GitHub check on the PR.
+  # review_status disabled to suppress the "Currently processing" comments and tips.
+  review_status: false
   commit_status: true
   fail_commit_status: false
 
