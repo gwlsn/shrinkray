@@ -169,6 +169,7 @@
         .stat-item.success .stat-value { color: var(--success); }
         .stat-item.running .stat-value { color: var(--accent); }
         .stat-item.error .stat-value { color: var(--error); }
+        .stat-item.skipped .stat-value { color: var(--warning); }
 
         /* Queue stat dropdown */
         .stat-queue-wrapper {
@@ -1898,6 +1899,10 @@
                     <div class="stat-item success">
                         <span class="stat-value" id="stat-complete">0</span>
                         <span class="stat-label">complete</span>
+                    </div>
+                    <div class="stat-item skipped">
+                        <span class="stat-value" id="stat-skipped">0</span>
+                        <span class="stat-label">skipped</span>
                     </div>
                     <div class="stat-item error" id="stat-failed-wrapper">
                         <span class="stat-value" id="stat-failed">0</span>
@@ -3777,6 +3782,9 @@
 
             // Complete count
             document.getElementById('stat-complete').textContent = stats.complete || 0;
+
+            // Skipped count
+            document.getElementById('stat-skipped').textContent = stats.skipped || 0;
 
             // Failed count
             document.getElementById('stat-failed').textContent = stats.failed || 0;
