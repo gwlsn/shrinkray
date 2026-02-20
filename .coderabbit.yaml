@@ -1,0 +1,149 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+reviews:
+  # "chill" = fewer, higher-signal comments focused on bugs and logic errors.
+  # "assertive" = exhaustive feedback including minor style nits (very noisy).
+  profile: "chill"
+
+  # Don't formally block PRs with "Request Changes" state.
+  request_changes_workflow: false
+
+  # Insert a summary into the PR description (replaces @coderabbitai placeholder).
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+
+  # Walkthrough of what changed, collapsed by default to reduce noise.
+  collapse_walkthrough: true
+  changed_files_summary: true
+
+  # Useful context: sequence diagrams for complex flows, related issues/PRs.
+  sequence_diagrams: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+
+  # Suggest labels and reviewers but don't auto-apply.
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+
+  # Commit status so CodeRabbit shows as a check on the PR.
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+
+  # Disable the fluff.
+  poem: false
+  in_progress_fortune: false
+
+  # Cancel review if PR is closed mid-review.
+  abort_on_close: true
+
+  # --- What to review ---
+
+  path_filters:
+    - "**/*.go"
+    - "**/*.html"
+    - "**/*.js"
+    - "**/*.css"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/Dockerfile*"
+    - "**/*.md"
+    - "!**/vendor/**"
+    - "!**/testdata/**"
+    - "!go.sum"
+
+  # --- Per-path review instructions ---
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Check for proper error handling: no silently ignored errors, no bare
+        returns from functions that return error. Verify context.Context is
+        threaded correctly. Flag resource leaks (unclosed files, HTTP bodies,
+        database rows). Never use goto.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Prefer table-driven tests with t.Run subtests. Ensure tests are
+        isolated and do not depend on external state or ordering.
+
+    - path: "**/internal/api/**"
+      instructions: |
+        Review for correct HTTP status codes, input validation, and consistent
+        JSON error responses. SSE endpoints should properly flush and handle
+        client disconnects via context cancellation.
+
+    - path: "**/internal/ffmpeg/**"
+      instructions: |
+        FFmpeg argument ordering matters. Verify hardware acceleration filter
+        chains are correct (hwupload, scale filters). Check that encoder
+        fallback logic is sound. Flag any hardcoded thread counts (should
+        use runtime.GOMAXPROCS or be configurable).
+
+    - path: "**/internal/store/**"
+      instructions: |
+        Verify SQL queries use parameterized arguments (never string
+        interpolation). Check that database migrations are backward-compatible
+        and include schema version bumps.
+
+    - path: "**/web/**"
+      instructions: |
+        Review for accessibility basics, proper event cleanup, and SSE
+        reconnection handling. Check that UI state updates are driven by
+        SSE events, not polling.
+
+  # --- Automatic review triggers ---
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "wip"
+      - "draft"
+      - "do not merge"
+    base_branches:
+      - "^develop$"
+      - "^main$"
+
+  # --- Don't auto-generate docstrings or tests ---
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+  # --- Static analysis tools ---
+  # golangci-lint is disabled here because it already runs in CI (lint.yml).
+  # Enabling it in both places produces duplicate findings.
+
+  tools:
+    golangci-lint:
+      enabled: false
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+
+chat:
+  auto_reply: true
+  art: false
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  learnings:
+    scope: "local"
