@@ -12,9 +12,9 @@ reviews:
   # Auto-approves when all comments are resolved.
   request_changes_workflow: true
 
-  # Insert a summary into the PR description (replaces @coderabbitai placeholder).
+  # Summary goes in CodeRabbit's walkthrough comment, not the PR description.
   high_level_summary: true
-  high_level_summary_placeholder: "@coderabbitai summary"
+  high_level_summary_in_walkthrough: true
 
   # Walkthrough of what changed, collapsed by default to reduce noise.
   collapse_walkthrough: true
