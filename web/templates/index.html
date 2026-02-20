@@ -1288,6 +1288,23 @@
             margin-top: 12px;
         }
 
+        .btn-remove-job {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 1rem;
+            line-height: 1;
+            border-radius: 4px;
+            transition: color 0.15s, background 0.15s;
+        }
+
+        .btn-remove-job:hover {
+            color: #EF4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
+
         .queue-empty {
             padding: 24px 20px;
             text-align: center;
@@ -2987,6 +3004,15 @@
             }
         }
 
+        async function removeJob(id) {
+            try {
+                await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+                // Job removal handled via SSE 'removed' event
+            } catch (err) {
+                console.error('Remove error:', err);
+            }
+        }
+
         function clearQueue() {
             const message = queueFilter === 'all'
                 ? 'This will remove all non-active jobs from the queue (including pending jobs). Your active jobs will not be affected.'
@@ -3148,6 +3174,7 @@
                             ${job.is_hdr ? '<span class="job-badge hdr">HDR</span>' : ''}
                             <span class="job-badge ${job.is_hardware ? 'hardware' : 'software'}">${job.is_hardware ? 'HW' : 'SW'}</span>
                             <span class="job-badge ${statusClass}">${statusLabel}</span>
+                            ${job.status === 'complete' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'skipped' ? `<button class="btn-remove-job" onclick="event.stopPropagation(); removeJob('${job.id}')" title="Remove job">&times;</button>` : ''}
                         </div>
                     </div>
                     ${job.status === 'running' ? `
