@@ -55,6 +55,25 @@ func (e *TranscodeError) Unwrap() error {
 	return e.Err
 }
 
+// TranscodeOptions bundles the encoding configuration for a single transcode.
+// Passed by value so callees (e.g. BuildSampleEncodeArgs) can safely mutate
+// their copy without affecting the caller.
+type TranscodeOptions struct {
+	Preset          *Preset
+	SourceBitrate   int64
+	SourceWidth     int
+	SourceHeight    int
+	Duration        time.Duration
+	TotalFrames     int64
+	QualityHEVC     int
+	QualityAV1      int
+	QualityMod      float64
+	SoftwareDecode  bool
+	OutputFormat    string
+	Tonemap         *TonemapParams
+	SubtitleIndices []int
+}
+
 // Transcoder wraps ffmpeg transcoding functionality
 type Transcoder struct {
 	ffmpegPath string
@@ -65,33 +84,15 @@ func NewTranscoder(ffmpegPath string) *Transcoder {
 	return &Transcoder{ffmpegPath: ffmpegPath}
 }
 
-// Transcode transcodes a video file using the given preset
-// It sends progress updates to the progress channel and returns the result
-// sourceBitrate is the source video bitrate in bits/second (for dynamic bitrate calculation)
-// sourceWidth/sourceHeight are source dimensions (for calculating scaled output)
-// qualityHEVC/qualityAV1 are CRF values to use (0 = use preset defaults)
-// qualityMod is a bitrate modifier for VideoToolbox (0 = use preset defaults)
-// totalFrames is the expected total frame count (for progress fallback when time-based stats unavailable)
-// softwareDecode: if true, use software decode with hardware encode (fallback for hw decode failures)
-// outputFormat: "mkv" or "mp4" - affects audio/subtitle handling
-// tonemap: optional HDR to SDR tonemapping parameters (nil = no tonemapping)
-// subtitleIndices: nil=map all, empty=none, populated=specific indices (for MKV compatibility filtering)
+// Transcode transcodes a video file using the given preset.
+// It sends progress updates to the progress channel and returns the result.
+// ctx, inputPath, outputPath, and progressCh are separate from opts because
+// they represent lifecycle/IO concerns rather than encoding configuration.
 func (t *Transcoder) Transcode(
 	ctx context.Context,
-	inputPath string,
-	outputPath string,
-	preset *Preset,
-	duration time.Duration,
-	sourceBitrate int64,
-	sourceWidth, sourceHeight int,
-	qualityHEVC, qualityAV1 int,
-	qualityMod float64,
-	totalFrames int64,
+	inputPath, outputPath string,
+	opts TranscodeOptions, //nolint:gocritic // by value: 128B copy is negligible vs minutes-long transcode
 	progressCh chan<- Progress,
-	softwareDecode bool,
-	outputFormat string,
-	tonemap *TonemapParams,
-	subtitleIndices []int,
 ) (*TranscodeResult, error) {
 	startTime := time.Now()
 
@@ -112,7 +113,7 @@ func (t *Transcoder) Transcode(
 
 	// Build preset args with source bitrate for dynamic calculation
 	// inputArgs go before -i (hwaccel), outputArgs go after
-	inputArgs, outputArgs := BuildPresetArgs(preset, sourceBitrate, sourceWidth, sourceHeight, qualityHEVC, qualityAV1, qualityMod, softwareDecode, outputFormat, tonemap, subtitleIndices)
+	inputArgs, outputArgs := BuildPresetArgs(opts)
 
 	// Check if hardware decode is actually being used (presence of -hwaccel flag).
 	// This determines whether we need the first-frame watchdog to catch HW decode hangs.
@@ -241,12 +242,12 @@ func (t *Transcoder) Transcode(
 					// "continue" or "end"
 					if value == "continue" || value == "end" {
 						// Calculate percent - prefer time-based, fallback to frame-based
-						if currentProgress.Time > 0 && duration > 0 {
+						if currentProgress.Time > 0 && opts.Duration > 0 {
 							// Time-based progress (most accurate)
-							currentProgress.Percent = float64(currentProgress.Time) / float64(duration) * 100
-						} else if currentProgress.Frame > 0 && totalFrames > 0 {
+							currentProgress.Percent = float64(currentProgress.Time) / float64(opts.Duration) * 100
+						} else if currentProgress.Frame > 0 && opts.TotalFrames > 0 {
 							// Frame-based fallback (for VAAPI and other HW encoders that report N/A for time)
-							currentProgress.Percent = float64(currentProgress.Frame) / float64(totalFrames) * 100
+							currentProgress.Percent = float64(currentProgress.Frame) / float64(opts.TotalFrames) * 100
 						}
 
 						if currentProgress.Percent > 100 {
@@ -254,16 +255,16 @@ func (t *Transcoder) Transcode(
 						}
 
 						// Calculate ETA - use FFmpeg speed if available, otherwise calculate from frames
-						if currentProgress.Speed > 0 && duration > 0 {
+						if currentProgress.Speed > 0 && opts.Duration > 0 {
 							// Time-based ETA (FFmpeg provided speed)
-							remaining := duration - currentProgress.Time
+							remaining := opts.Duration - currentProgress.Time
 							currentProgress.ETA = time.Duration(float64(remaining) / currentProgress.Speed)
-						} else if currentProgress.Frame > 0 && totalFrames > 0 {
+						} else if currentProgress.Frame > 0 && opts.TotalFrames > 0 {
 							// Frame-based fallback for speed and ETA (VAAPI reports N/A for time/speed)
 							elapsed := time.Since(startTime)
-							framesRemaining := totalFrames - currentProgress.Frame
+							framesRemaining := opts.TotalFrames - currentProgress.Frame
 							// Calculate speed as video time encoded divided by wall time
-							videoTimeEncoded := time.Duration(float64(duration) * float64(currentProgress.Frame) / float64(totalFrames))
+							videoTimeEncoded := time.Duration(float64(opts.Duration) * float64(currentProgress.Frame) / float64(opts.TotalFrames))
 							currentProgress.Speed = float64(videoTimeEncoded) / float64(elapsed)
 							// Calculate ETA based on elapsed time and remaining frames
 							currentProgress.ETA = time.Duration(float64(elapsed) * float64(framesRemaining) / float64(currentProgress.Frame))

@@ -437,26 +437,15 @@ func (w *Worker) isScheduleAllowed() bool {
 
 // tryEncoderFallbacks attempts to transcode using fallback encoders after the primary encoder failed.
 // It tries each fallback encoder with HW decode (if appropriate), then SW decode, before moving to the next.
-//
-// Parameters:
-//   - priorError: the error from the failed primary encoder (preserved if no fallbacks work)
-//   - job, preset, etc: transcode parameters
-//
 // Returns the successful result, or priorError if all fallbacks fail.
 func (w *Worker) tryEncoderFallbacks(
 	jobCtx context.Context,
 	job *Job,
-	preset *ffmpeg.Preset,
+	opts ffmpeg.TranscodeOptions, //nolint:gocritic // by value: fallback loop copies and mutates per encoder
 	tempPath string,
-	duration time.Duration,
-	qualityHEVC, qualityAV1 int,
-	qualityMod float64,
-	totalFrames int64,
-	tonemapParams *ffmpeg.TonemapParams,
 	priorError error,
-	subtitleIndices []int,
 ) (*ffmpeg.TranscodeResult, error) {
-	currentEncoder := preset.Encoder
+	currentEncoder := opts.Preset.Encoder
 	lastError := priorError
 
 	for {
@@ -465,7 +454,7 @@ func (w *Worker) tryEncoderFallbacks(
 			return nil, context.Canceled
 		}
 
-		fallback := ffmpeg.GetFallbackEncoder(currentEncoder, preset.Codec)
+		fallback := ffmpeg.GetFallbackEncoder(currentEncoder, opts.Preset.Codec)
 		if fallback == nil {
 			// No more fallbacks available - return the last error we saw
 			return nil, lastError
@@ -476,8 +465,10 @@ func (w *Worker) tryEncoderFallbacks(
 			"failed_encoder", currentEncoder,
 			"fallback_encoder", fallback.Accel)
 
-		// Create fallback preset
-		fallbackPreset := preset.WithEncoder(fallback.Accel)
+		// Build fallback opts: swap encoder, recompute SW decode requirement.
+		// Value copy ensures the caller's opts is unmodified.
+		fallbackOpts := opts
+		fallbackOpts.Preset = opts.Preset.WithEncoder(fallback.Accel)
 
 		// Recompute whether this fallback encoder needs software decode
 		// (each encoder has different decode capabilities)
@@ -486,8 +477,8 @@ func (w *Worker) tryEncoderFallbacks(
 
 		// Try with HW decode first (unless this encoder requires SW decode)
 		if !fallbackNeedsSWDecode {
-			result, err := w.attemptTranscode(jobCtx, job, fallbackPreset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, false, subtitleIndices)
+			fallbackOpts.SoftwareDecode = false
+			result, err := w.attemptTranscode(jobCtx, job, fallbackOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Fallback encoder succeeded", "job_id", job.ID, "encoder", fallback.Accel)
@@ -503,8 +494,8 @@ func (w *Worker) tryEncoderFallbacks(
 
 		// Try SW decode with fallback encoder (unless it's software encoder - no point)
 		if shouldRetryWithSoftwareDecode(fallback.Accel) {
-			result, err := w.attemptTranscode(jobCtx, job, fallbackPreset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, true, subtitleIndices)
+			fallbackOpts.SoftwareDecode = true
+			result, err := w.attemptTranscode(jobCtx, job, fallbackOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Fallback encoder succeeded with SW decode", "job_id", job.ID, "encoder", fallback.Accel)
@@ -528,15 +519,8 @@ func (w *Worker) tryEncoderFallbacks(
 func (w *Worker) attemptTranscode(
 	jobCtx context.Context,
 	job *Job,
-	preset *ffmpeg.Preset,
+	opts ffmpeg.TranscodeOptions, //nolint:gocritic // by value: forwarded to Transcode which also takes by value
 	tempPath string,
-	duration time.Duration,
-	qualityHEVC, qualityAV1 int,
-	qualityMod float64,
-	totalFrames int64,
-	tonemapParams *ffmpeg.TonemapParams,
-	softwareDecode bool,
-	subtitleIndices []int,
 ) (*ffmpeg.TranscodeResult, error) {
 	// Create fresh progress channel (Transcode closes it when done)
 	progressCh := make(chan ffmpeg.Progress, 10)
@@ -547,10 +531,7 @@ func (w *Worker) attemptTranscode(
 		}
 	}()
 
-	return w.transcoder.Transcode(jobCtx, job.InputPath, tempPath,
-		preset, duration, job.Bitrate, job.Width, job.Height,
-		qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh,
-		softwareDecode, w.cfg.OutputFormat, tonemapParams, subtitleIndices)
+	return w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, opts, progressCh)
 }
 
 // processJob handles a single transcoding job
@@ -673,18 +654,7 @@ func (w *Worker) processJob(job *Job) {
 		)
 	}
 
-	// Create progress channel
-	progressCh := make(chan ffmpeg.Progress, 10)
-
-	// Start progress forwarding
-	go func() {
-		for progress := range progressCh {
-			eta := util.FormatDuration(progress.ETA)
-			w.queue.UpdateProgress(job.ID, progress.Percent, progress.Speed, eta)
-		}
-	}()
-
-	// Run the transcode
+	// Compute transcode parameters
 	duration := time.Duration(job.Duration) * time.Millisecond
 	// Calculate total frames for frame-based progress fallback (VAAPI reports N/A for time)
 	totalFrames := int64(float64(job.Duration) / 1000.0 * job.FrameRate)
@@ -742,7 +712,36 @@ func (w *Worker) processJob(job *Job) {
 		}
 	}
 
-	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, preset, duration, job.Bitrate, job.Width, job.Height, qualityHEVC, qualityAV1, qualityMod, totalFrames, progressCh, useSoftwareDecode, w.cfg.OutputFormat, tonemapParams, subtitleIndices)
+	// Build TranscodeOptions once; all retry/fallback paths reuse or copy it.
+	// Passed by value so callees can safely mutate their copy.
+	opts := ffmpeg.TranscodeOptions{
+		Preset:          preset,
+		SourceBitrate:   job.Bitrate,
+		SourceWidth:     job.Width,
+		SourceHeight:    job.Height,
+		Duration:        duration,
+		TotalFrames:     totalFrames,
+		QualityHEVC:     qualityHEVC,
+		QualityAV1:      qualityAV1,
+		QualityMod:      qualityMod,
+		SoftwareDecode:  useSoftwareDecode,
+		OutputFormat:    w.cfg.OutputFormat,
+		Tonemap:         tonemapParams,
+		SubtitleIndices: subtitleIndices,
+	}
+
+	// Create progress channel for the primary transcode attempt
+	progressCh := make(chan ffmpeg.Progress, 10)
+
+	// Start progress forwarding
+	go func() {
+		for progress := range progressCh {
+			eta := util.FormatDuration(progress.ETA)
+			w.queue.UpdateProgress(job.ID, progress.Percent, progress.Speed, eta)
+		}
+	}()
+
+	result, err := w.transcoder.Transcode(jobCtx, job.InputPath, tempPath, opts, progressCh)
 
 	// Recovery strategies for hardware encoder failures
 	if err != nil && jobCtx.Err() != context.Canceled && preset.Encoder != ffmpeg.HWAccelNone {
@@ -751,8 +750,9 @@ func (w *Worker) processJob(job *Job) {
 			logger.Warn("Hardware transcode failed, retrying with software decode",
 				"job_id", job.ID, "error", err.Error())
 
-			result, err = w.attemptTranscode(jobCtx, job, preset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, true, subtitleIndices)
+			retryOpts := opts
+			retryOpts.SoftwareDecode = true
+			result, err = w.attemptTranscode(jobCtx, job, retryOpts, tempPath)
 
 			if err == nil {
 				logger.Info("Software decode fallback succeeded", "job_id", job.ID)
@@ -764,8 +764,7 @@ func (w *Worker) processJob(job *Job) {
 			logger.Warn("Primary encoder failed, trying fallback encoders",
 				"job_id", job.ID, "encoder", preset.Encoder, "error", err.Error())
 
-			result, err = w.tryEncoderFallbacks(jobCtx, job, preset, tempPath,
-				duration, qualityHEVC, qualityAV1, qualityMod, totalFrames, tonemapParams, err, subtitleIndices)
+			result, err = w.tryEncoderFallbacks(jobCtx, job, opts, tempPath, err)
 		}
 	}
 
@@ -966,11 +965,16 @@ func (wp *WorkerPool) runSmartShrinkAnalysis(ctx context.Context, job *Job, pres
 
 	// Create encode callback
 	encodeSample := func(ctx context.Context, samplePath string, quality int, modifier float64) (string, error) {
-		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(
-			preset, job.Width, job.Height,
-			quality, modifier,
-			true, // Force software decode for FFV1 samples
-		)
+		sampleOpts := ffmpeg.TranscodeOptions{
+			Preset:         preset,
+			SourceWidth:    job.Width,
+			SourceHeight:   job.Height,
+			QualityHEVC:    quality,
+			QualityAV1:     quality,
+			QualityMod:     modifier,
+			SoftwareDecode: true, // Force software decode for FFV1 samples
+		}
+		inputArgs, outputArgs := ffmpeg.BuildSampleEncodeArgs(sampleOpts)
 
 		outputPath := samplePath + ".encoded.mkv"
 

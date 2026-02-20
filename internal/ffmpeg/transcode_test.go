@@ -90,7 +90,15 @@ func TestTranscode(t *testing.T) {
 	}()
 
 	totalFrames := int64(probeResult.Duration.Seconds() * probeResult.FrameRate)
-	result, err := transcoder.Transcode(ctx, testFile, outputPath, preset, probeResult.Duration, probeResult.Bitrate, probeResult.Width, probeResult.Height, 0, 0, 0, totalFrames, progressCh, false, "mkv", nil, nil)
+	result, err := transcoder.Transcode(ctx, testFile, outputPath, TranscodeOptions{
+		Preset:        preset,
+		SourceBitrate: probeResult.Bitrate,
+		SourceWidth:   probeResult.Width,
+		SourceHeight:  probeResult.Height,
+		Duration:      probeResult.Duration,
+		TotalFrames:   totalFrames,
+		OutputFormat:  "mkv",
+	}, progressCh)
 	<-done
 
 	if err != nil {
@@ -288,17 +296,15 @@ func TestTranscode_ClosesChannelOnEarlyError(t *testing.T) {
 		ctx,
 		"/nonexistent/path/to/file.mp4",
 		"/tmp/out.mkv",
-		&Preset{Encoder: HWAccelNone, Codec: CodecHEVC},
-		time.Minute,
-		0,
-		1920, 1080,
-		0, 0, 0,
-		1000,
+		TranscodeOptions{
+			Preset:       &Preset{Encoder: HWAccelNone, Codec: CodecHEVC},
+			Duration:     time.Minute,
+			SourceWidth:  1920,
+			SourceHeight: 1080,
+			TotalFrames:  1000,
+			OutputFormat: "mkv",
+		},
 		progressCh,
-		false,
-		"mkv",
-		nil,
-		nil,
 	)
 
 	// Should error
