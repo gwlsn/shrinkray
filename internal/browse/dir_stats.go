@@ -14,7 +14,6 @@ type dirCountState string
 
 const (
 	stateUnknown dirCountState = "unknown" // never computed
-	statePending dirCountState = "pending" // first compute running
 	stateReady   dirCountState = "ready"   // up to date w.r.t. signature
 	stateStale   dirCountState = "stale"   // signature mismatch, recompute queued
 	stateError   dirCountState = "error"   // last recompute failed

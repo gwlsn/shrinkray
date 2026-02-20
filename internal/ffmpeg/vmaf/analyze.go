@@ -80,9 +80,8 @@ func (a *Analyzer) Analyze(ctx context.Context, inputPath string, videoDuration 
 	logger.Info("Binary search complete", "duration", searchDuration.String(), "iterations", result.Iterations)
 
 	return &AnalysisResult{
-		OptimalCRF:  result.Quality,
-		QualityMod:  result.Modifier,
-		VMafScore:   result.VMafScore,
-		SamplesUsed: len(positions),
+		OptimalCRF: result.Quality,
+		QualityMod: result.Modifier,
+		VMafScore:  result.VMafScore,
 	}, nil
 }

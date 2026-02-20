@@ -23,9 +23,7 @@ func lastLines(output string, n int) string {
 
 // Sample represents an extracted video sample
 type Sample struct {
-	Path     string        // Path to extracted sample file
-	Position time.Duration // Position in source video
-	Duration time.Duration // Sample duration
+	Path string // Path to extracted sample file
 }
 
 // SamplePositions returns the 3 fixed positions to sample.
@@ -97,9 +95,7 @@ func ExtractSamples(ctx context.Context, ffmpegPath, inputPath, tempDir string,
 		}
 
 		samples = append(samples, &Sample{
-			Path:     samplePath,
-			Position: startTime,
-			Duration: time.Duration(SampleDuration) * time.Second,
+			Path: samplePath,
 		})
 	}
 

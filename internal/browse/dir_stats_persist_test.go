@@ -22,7 +22,7 @@ func TestExportCounts_IncludesReadyAndStale(t *testing.T) {
 		fileCount: 5, state: stateError,
 	}
 	browser.countCache["/media/loading"] = &dirCount{
-		state: statePending,
+		state: stateUnknown,
 	}
 	browser.countCacheMu.Unlock()
 

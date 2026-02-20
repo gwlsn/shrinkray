@@ -87,7 +87,7 @@ func TestDirSigDiffers_SameDir(t *testing.T) {
 
 func TestDirCountStates(t *testing.T) {
 	// Verify state constants are distinct and non-empty
-	states := []dirCountState{stateUnknown, statePending, stateReady, stateStale, stateError}
+	states := []dirCountState{stateUnknown, stateReady, stateStale, stateError}
 	seen := make(map[dirCountState]bool)
 	for _, s := range states {
 		if s == "" {
@@ -117,8 +117,8 @@ func TestGetDirCount_CacheMiss(t *testing.T) {
 	dc := browser.GetDirCount(ctx, subDir)
 
 	// First access: should be unknown or pending (recompute enqueued)
-	if dc.State != stateUnknown && dc.State != statePending {
-		t.Errorf("expected unknown or pending on cache miss, got %s", dc.State)
+	if dc.State != stateUnknown {
+		t.Errorf("expected unknown on cache miss, got %s", dc.State)
 	}
 
 	// Wait for background recompute to finish
@@ -155,7 +155,7 @@ func TestGetDirCount_DetectsStaleness(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm the cache
-	browser.countVideos(ctx, subDir)
+	browser.recomputeDirCount(subDir)
 
 	// Verify it's cached and ready
 	dc := browser.GetDirCount(ctx, subDir)
@@ -209,7 +209,7 @@ func TestGetDirCount_DeletedDirectory(t *testing.T) {
 	ctx := context.Background()
 
 	// Warm cache
-	browser.countVideos(ctx, subDir)
+	browser.recomputeDirCount(subDir)
 
 	// Delete the directory
 	if err := os.RemoveAll(subDir); err != nil {
@@ -335,10 +335,8 @@ func TestInvalidateCache_PreservesLastKnownValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-
 	// Warm cache
-	browser.countVideos(ctx, subDir)
+	browser.recomputeDirCount(subDir)
 
 	// Verify cached
 	browser.countCacheMu.RLock()
@@ -379,8 +377,7 @@ func TestClearCache_PreservesLastKnownValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-	browser.countVideos(ctx, subDir)
+	browser.recomputeDirCount(subDir)
 
 	// Clear cache
 	browser.ClearCache()

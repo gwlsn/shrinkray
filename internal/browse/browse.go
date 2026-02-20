@@ -58,7 +58,7 @@ type Browser struct {
 	countCacheMu sync.RWMutex
 	countCache   map[string]*dirCount
 
-	// Deduplicates concurrent countVideos calls for the same directory
+	// Deduplicates concurrent recomputeDirCount calls for the same directory
 	countGroup singleflight.Group
 
 	// Limits concurrent directory walks to avoid overwhelming network shares
@@ -219,76 +219,6 @@ func (b *Browser) Browse(ctx context.Context, path string) (*BrowseResult, error
 	})
 
 	return result, nil
-}
-
-// countVideos counts video files in a directory recursively.
-// Uses three layers of optimization:
-//   - Cache: instant return for previously-walked directories
-//   - Singleflight: deduplicates concurrent walks for the same directory
-//   - WalkDir: avoids stat syscalls on non-video files (big win on network FS)
-func (b *Browser) countVideos(ctx context.Context, dirPath string) (int, int64) {
-	// Check cache first (fast path, no allocation)
-	b.countCacheMu.RLock()
-	if cached, ok := b.countCache[dirPath]; ok {
-		b.countCacheMu.RUnlock()
-		return cached.fileCount, cached.totalSize
-	}
-	b.countCacheMu.RUnlock()
-
-	// Singleflight: if another goroutine is already walking this directory,
-	// wait for its result instead of doing duplicate work
-	v, _, _ := b.countGroup.Do(dirPath, func() (interface{}, error) {
-		// Double-check cache (another goroutine in the same group may have filled it)
-		b.countCacheMu.RLock()
-		if cached, ok := b.countCache[dirPath]; ok {
-			b.countCacheMu.RUnlock()
-			return cached, nil
-		}
-		b.countCacheMu.RUnlock()
-
-		// Rate-limit concurrent walks to avoid overwhelming network shares
-		b.countSem <- struct{}{}
-		defer func() { <-b.countSem }()
-
-		var count int
-		var totalSize int64
-		// WalkDir avoids stat on every entry — only calls Info() for video files
-		_ = filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, err error) error {
-			if ctx.Err() != nil {
-				return filepath.SkipAll
-			}
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			if ffmpeg.IsVideoFile(d.Name()) {
-				if info, infoErr := d.Info(); infoErr == nil {
-					count++
-					totalSize += info.Size()
-				}
-			}
-			return nil
-		})
-
-		// Capture the directory's mtime so ClearCache can detect structural changes
-		var dirMtime time.Time
-		if info, err := os.Stat(dirPath); err == nil {
-			dirMtime = info.ModTime()
-		}
-
-		dc := &dirCount{fileCount: count, totalSize: totalSize, sig: dirSig{mtime: dirMtime}, state: stateReady, updatedAt: time.Now()}
-		// Only cache if context wasn't cancelled (partial results would be wrong)
-		if ctx.Err() == nil {
-			b.countCacheMu.Lock()
-			b.countCache[dirPath] = dc
-			b.countCacheMu.Unlock()
-		}
-		return dc, nil
-	})
-
-	if dc, ok := v.(*dirCount); ok {
-		return dc.fileCount, dc.totalSize
-	}
-	return 0, 0
 }
 
 // getProbeResult returns a cached or fresh probe result.
