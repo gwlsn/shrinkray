@@ -84,38 +84,6 @@ CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
 `
 
-// jobColumns lists all job table columns for INSERT statements.
-const jobColumns = `id, input_path, output_path, temp_path, preset_id, encoder, is_hardware,
-	status, progress, speed, eta, error, input_size, output_size, space_saved,
-	duration_ms, bitrate, width, height, frame_rate, video_codec, profile, bit_depth,
-	is_hdr, color_transfer, transcode_secs, phase, vmaf_score, selected_crf, quality_mod, skip_reason,
-	smartshrink_quality, created_at, started_at, completed_at`
-
-// jobColumnsAliased lists all job table columns with "j." prefix for JOIN queries.
-const jobColumnsAliased = `j.id, j.input_path, j.output_path, j.temp_path, j.preset_id, j.encoder, j.is_hardware,
-	j.status, j.progress, j.speed, j.eta, j.error, j.input_size, j.output_size, j.space_saved,
-	j.duration_ms, j.bitrate, j.width, j.height, j.frame_rate, j.video_codec, j.profile, j.bit_depth,
-	j.is_hdr, j.color_transfer, j.transcode_secs, j.phase, j.vmaf_score, j.selected_crf, j.quality_mod, j.skip_reason,
-	j.smartshrink_quality, j.created_at, j.started_at, j.completed_at`
-
-// jobPlaceholders provides the VALUES placeholder string for INSERT statements.
-const jobPlaceholders = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
-
-// jobExecArgs returns the ordered arguments for inserting/updating a job row.
-func jobExecArgs(job *jobs.Job) []interface{} {
-	return []interface{}{
-		job.ID, job.InputPath, nullString(job.OutputPath), nullString(job.TempPath),
-		job.PresetID, job.Encoder, boolToInt(job.IsHardware),
-		string(job.Status), job.Progress, job.Speed, nullString(job.ETA), nullString(job.Error),
-		job.InputSize, nullInt64(job.OutputSize), nullInt64(job.SpaceSaved),
-		nullInt64(job.Duration), nullInt64(job.Bitrate), nullInt(job.Width), nullInt(job.Height),
-		nullFloat64(job.FrameRate), nullString(job.VideoCodec), nullString(job.Profile), nullInt(job.BitDepth),
-		boolToInt(job.IsHDR), nullString(job.ColorTransfer), nullInt64(job.TranscodeTime),
-		string(job.Phase), nullFloat64(job.VMafScore), nullInt(job.SelectedCRF), nullFloat64(job.QualityMod), nullString(job.SkipReason),
-		nullString(job.SmartShrinkQuality), formatTime(job.CreatedAt), formatTimePtr(job.StartedAt), formatTimePtr(job.CompletedAt),
-	}
-}
-
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
 	db   *sqlx.DB
@@ -771,107 +739,7 @@ func (s *SQLiteStore) Path() string {
 	return s.path
 }
 
-// Helper functions for scanning rows
-
-type rowScanner interface {
-	Scan(dest ...interface{}) error
-}
-
-func scanJob(row rowScanner) (*jobs.Job, error) {
-	var job jobs.Job
-	var outputPath, tempPath, eta, errStr sql.NullString
-	var videoCodec, profile sql.NullString
-	var colorTransfer sql.NullString
-	var phase, skipReason sql.NullString
-	var smartShrinkQuality sql.NullString
-	var outputSize, spaceSaved, duration, bitrate, transcodeTime sql.NullInt64
-	var width, height, bitDepth, selectedCRF sql.NullInt64
-	var isHDR sql.NullInt64
-	var frameRate, vmafScore, qualityMod sql.NullFloat64
-	var isHardware int
-	var status string
-	var createdAt, startedAt, completedAt sql.NullString
-
-	err := row.Scan(
-		&job.ID, &job.InputPath, &outputPath, &tempPath,
-		&job.PresetID, &job.Encoder, &isHardware,
-		&status, &job.Progress, &job.Speed, &eta, &errStr,
-		&job.InputSize, &outputSize, &spaceSaved,
-		&duration, &bitrate, &width, &height, &frameRate,
-		&videoCodec, &profile, &bitDepth,
-		&isHDR, &colorTransfer, &transcodeTime,
-		&phase, &vmafScore, &selectedCRF, &qualityMod, &skipReason,
-		&smartShrinkQuality, &createdAt, &startedAt, &completedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	job.OutputPath = outputPath.String
-	job.TempPath = tempPath.String
-	job.ETA = eta.String
-	job.Error = errStr.String
-	job.IsHardware = isHardware != 0
-	job.Status = jobs.Status(status)
-	job.OutputSize = outputSize.Int64
-	job.SpaceSaved = spaceSaved.Int64
-	job.Duration = duration.Int64
-	job.Bitrate = bitrate.Int64
-	job.Width = int(width.Int64)
-	job.Height = int(height.Int64)
-	job.FrameRate = frameRate.Float64
-	job.VideoCodec = videoCodec.String
-	job.Profile = profile.String
-	job.BitDepth = int(bitDepth.Int64)
-	job.IsHDR = isHDR.Int64 != 0
-	job.ColorTransfer = colorTransfer.String
-	job.TranscodeTime = transcodeTime.Int64
-	job.Phase = jobs.Phase(phase.String)
-	job.VMafScore = vmafScore.Float64
-	job.SelectedCRF = int(selectedCRF.Int64)
-	job.QualityMod = qualityMod.Float64
-	job.SkipReason = skipReason.String
-	job.SmartShrinkQuality = smartShrinkQuality.String
-	job.CreatedAt = parseTime(createdAt.String)
-	job.StartedAt = parseTime(startedAt.String)
-	job.CompletedAt = parseTime(completedAt.String)
-
-	return &job, nil
-}
-
-func scanJobRows(rows *sql.Rows) (*jobs.Job, error) {
-	return scanJob(rows)
-}
-
 // Helper functions for SQL values
-
-func nullString(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nullInt(i int) interface{} {
-	if i == 0 {
-		return nil
-	}
-	return i
-}
-
-func nullInt64(i int64) interface{} {
-	if i == 0 {
-		return nil
-	}
-	return i
-}
-
-func nullFloat64(f float64) interface{} {
-	if f == 0 {
-		return nil
-	}
-	return f
-}
 
 func boolToInt(b bool) int {
 	if b {
@@ -883,13 +751,6 @@ func boolToInt(b bool) int {
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
-}
-
-func formatTimePtr(t time.Time) interface{} {
-	if t.IsZero() {
-		return nil
 	}
 	return t.UTC().Format(time.RFC3339)
 }
