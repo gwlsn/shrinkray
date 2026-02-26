@@ -103,7 +103,7 @@ jobs:
 
           # Parse the JSON array of labels, stripping any markdown code fences.
           # Use "|| true" so set -e does not abort on malformed model output.
-          clean_content=$(echo "$content" | sed 's/```json//g; s/```//g' | tr -d '\n' | xargs)
+          clean_content=$(echo "$content" | sed 's/```json//g; s/```//g' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           labels=$(echo "$clean_content" | jq -r '.[]' 2>/dev/null || true)
 
           if [[ -z "$labels" ]]; then
