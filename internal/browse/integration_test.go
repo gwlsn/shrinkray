@@ -374,20 +374,20 @@ func TestIntegration_InvalidateCacheAfterTranscode(t *testing.T) {
 	// Worker calls InvalidateCache for the transcoded file
 	browser.InvalidateCache(inputPath)
 
-	// Verify ancestor is marked stale (not deleted!)
+	// Verify ancestor entries are preserved (not deleted). This check is
+	// stable because presence/absence doesn't race with recompute workers.
+	// The stale *state* assertion lives in TestInvalidateCache_PreservesLastKnownValues
+	// which constructs Browser without background workers to avoid the race.
 	browser.countCacheMu.RLock()
 	seasonDC := browser.countCache[seasonDir]
 	showDC := browser.countCache[filepath.Join(tmpDir, "Show")]
 	browser.countCacheMu.RUnlock()
 
 	if seasonDC == nil {
-		t.Fatal("season dir cache entry was deleted (should be stale)")
+		t.Fatal("season dir cache entry was deleted (should be stale with last-known values)")
 	}
-	if seasonDC.state == stateReady {
-		t.Error("season dir should not be ready after InvalidateCache")
-	}
-	if showDC != nil && showDC.state == stateReady {
-		t.Error("show dir should not be ready after InvalidateCache")
+	if showDC == nil {
+		t.Fatal("show dir cache entry was deleted (should be stale with last-known values)")
 	}
 
 	// Wait for recompute
