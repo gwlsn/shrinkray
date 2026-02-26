@@ -30,12 +30,14 @@ jobs:
           # Truncate body to ~2000 chars to limit token usage
           body="${ISSUE_BODY:0:2000}"
 
-          # Build the system prompt (static, no user input interpolated here)
+          # Build the system prompt (static, no user input interpolated here).
+          # The structured output schema below guarantees valid JSON, so the
+          # prompt only needs to describe what each label means.
           system_prompt='You are a GitHub issue classifier for shrinkray, a video transcoding app (Go backend, web UI, FFmpeg).
 
-          Classify this issue and return a JSON array of label names to apply.
+          Pick exactly 1 type label and 0-3 area labels for the issue.
 
-          Available type/ labels (pick exactly 1):
+          type labels:
           - type/bug: Something is not working
           - type/feature: New feature request
           - type/enhancement: Improvement to existing functionality
@@ -44,23 +46,19 @@ jobs:
           - type/security: Security vulnerability or concern
           - type/question: Question or discussion
 
-          Available area/ labels (pick 0-3):
+          area labels (only pick areas clearly relevant to the issue):
           - area/backend: Go backend, API, server
           - area/web-ui: Frontend web interface
           - area/ffmpeg: FFmpeg, encoding, transcoding
           - area/hwaccel: NVENC, QSV, VAAPI, VideoToolbox hardware acceleration
           - area/vmaf: VMAF scoring, SmartShrink quality presets
           - area/docker: Docker, containerization
-          - area/ci: CI/CD, GitHub Actions
+          - area/ci: CI/CD, GitHub Actions'
 
-          Rules:
-          - Return ONLY a JSON array of strings, e.g. ["type/bug", "area/ffmpeg"]
-          - Pick exactly 1 type/ label
-          - Pick 0-3 area/ labels (only if clearly relevant)
-          - Do NOT pick priority/ or status/ labels
-          - No explanation, just the JSON array'
-
-          # Build JSON payload with jq (handles all escaping of user input safely)
+          # Build JSON payload with jq (handles all escaping of user input safely).
+          # response_format uses OpenAI structured output: the API constrains the
+          # model to return JSON matching this schema exactly, so we never need to
+          # parse markdown fences or fix malformed output.
           payload=$(jq -n \
             --arg system "$system_prompt" \
             --arg title "$ISSUE_TITLE" \
@@ -72,7 +70,33 @@ jobs:
                 {role: "user", content: ("Issue title: " + $title + "\n\nIssue body: " + $body)}
               ],
               temperature: 0,
-              max_tokens: 100
+              max_tokens: 200,
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: "issue_labels",
+                  strict: true,
+                  schema: {
+                    type: "object",
+                    required: ["labels"],
+                    additionalProperties: false,
+                    properties: {
+                      labels: {
+                        type: "array",
+                        items: {
+                          type: "string",
+                          enum: [
+                            "type/bug", "type/feature", "type/enhancement",
+                            "type/docs", "type/chore", "type/security", "type/question",
+                            "area/backend", "area/web-ui", "area/ffmpeg",
+                            "area/hwaccel", "area/vmaf", "area/docker", "area/ci"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }')
 
           # Call OpenAI API
@@ -101,43 +125,21 @@ jobs:
             exit 0
           fi
 
-          # Parse the JSON array of labels, stripping any markdown code fences.
-          # Use "|| true" so set -e does not abort on malformed model output.
-          clean_content=$(echo "$content" | sed 's/```json//g; s/```//g' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-          labels=$(echo "$clean_content" | jq -r '.[]' 2>/dev/null || true)
+          # Structured output guarantees valid JSON with only enum-allowed values.
+          # Parse the labels array directly.
+          labels=$(echo "$content" | jq -r '.labels[]' 2>/dev/null || true)
 
           if [[ -z "$labels" ]]; then
             echo "::warning::Could not parse labels from response: ${content}"
             exit 0
           fi
 
-          # Known valid labels (only type/ and area/ are auto-assignable)
-          valid_labels=(
-            "type/bug" "type/feature" "type/enhancement" "type/docs"
-            "type/chore" "type/security" "type/question"
-            "area/backend" "area/web-ui" "area/ffmpeg" "area/hwaccel"
-            "area/vmaf" "area/docker" "area/ci"
-          )
-
-          is_valid_label() {
-            local check="$1"
-            for v in "${valid_labels[@]}"; do
-              [[ "$v" == "$check" ]] && return 0
-            done
-            return 1
-          }
-
-          echo "Parsed labels from AI:"
+          echo "Labels from AI:"
           applied=0
           while IFS= read -r label; do
-            if is_valid_label "$label"; then
-              echo "  Applying: $label"
-              # Use || true so one failed label does not prevent the rest
-              gh issue edit "$ISSUE_NUMBER" --add-label "$label" --repo "${{ github.repository }}" || echo "  ::warning::Failed to apply $label"
-              applied=$((applied + 1))
-            else
-              echo "  Skipping (unknown or disallowed): $label"
-            fi
+            echo "  Applying: $label"
+            gh issue edit "$ISSUE_NUMBER" --add-label "$label" --repo "${{ github.repository }}" || echo "  ::warning::Failed to apply $label"
+            applied=$((applied + 1))
           done <<< "$labels"
 
           echo "Applied ${applied} label(s) to issue #${ISSUE_NUMBER}."
