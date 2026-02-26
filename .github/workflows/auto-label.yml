@@ -1,0 +1,143 @@
+name: Auto-Label Issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Classify and label issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+
+          # Check that the API key is configured
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "::warning::OPENAI_API_KEY secret not set. Skipping auto-labeling."
+            exit 0
+          fi
+
+          # Truncate body to ~2000 chars to limit token usage
+          body="${ISSUE_BODY:0:2000}"
+
+          # Build the system prompt (static, no user input interpolated here)
+          system_prompt='You are a GitHub issue classifier for shrinkray, a video transcoding app (Go backend, web UI, FFmpeg).
+
+          Classify this issue and return a JSON array of label names to apply.
+
+          Available type/ labels (pick exactly 1):
+          - type/bug: Something is not working
+          - type/feature: New feature request
+          - type/enhancement: Improvement to existing functionality
+          - type/docs: Documentation improvements
+          - type/chore: Maintenance, deps, tooling
+          - type/security: Security vulnerability or concern
+          - type/question: Question or discussion
+
+          Available area/ labels (pick 0-3):
+          - area/backend: Go backend, API, server
+          - area/web-ui: Frontend web interface
+          - area/ffmpeg: FFmpeg, encoding, transcoding
+          - area/hwaccel: NVENC, QSV, VAAPI, VideoToolbox hardware acceleration
+          - area/vmaf: VMAF scoring, SmartShrink quality presets
+          - area/docker: Docker, containerization
+          - area/ci: CI/CD, GitHub Actions
+
+          Rules:
+          - Return ONLY a JSON array of strings, e.g. ["type/bug", "area/ffmpeg"]
+          - Pick exactly 1 type/ label
+          - Pick 0-3 area/ labels (only if clearly relevant)
+          - Do NOT pick priority/ or status/ labels
+          - No explanation, just the JSON array'
+
+          # Build JSON payload with jq (handles all escaping of user input safely)
+          payload=$(jq -n \
+            --arg system "$system_prompt" \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$body" \
+            '{
+              model: "gpt-4.1-mini",
+              messages: [
+                {role: "system", content: $system},
+                {role: "user", content: ("Issue title: " + $title + "\n\nIssue body: " + $body)}
+              ],
+              temperature: 0,
+              max_tokens: 100
+            }')
+
+          # Call OpenAI API
+          response=$(curl -s -w "\n%{http_code}" \
+            --max-time 30 \
+            "https://api.openai.com/v1/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -d "$payload")
+
+          # Split response body and HTTP status code
+          http_code=$(echo "$response" | tail -1)
+          response_body=$(echo "$response" | sed '$d')
+
+          if [[ "$http_code" != "200" ]]; then
+            echo "::warning::OpenAI API returned HTTP ${http_code}. Skipping auto-labeling."
+            echo "Response: ${response_body}"
+            exit 0
+          fi
+
+          # Extract the content from the response
+          content=$(echo "$response_body" | jq -r '.choices[0].message.content // empty')
+
+          if [[ -z "$content" ]]; then
+            echo "::warning::OpenAI returned empty content. Skipping auto-labeling."
+            exit 0
+          fi
+
+          # Parse the JSON array of labels, stripping any markdown code fences.
+          # Use "|| true" so set -e does not abort on malformed model output.
+          clean_content=$(echo "$content" | sed 's/```json//g; s/```//g' | tr -d '\n' | xargs)
+          labels=$(echo "$clean_content" | jq -r '.[]' 2>/dev/null || true)
+
+          if [[ -z "$labels" ]]; then
+            echo "::warning::Could not parse labels from response: ${content}"
+            exit 0
+          fi
+
+          # Known valid labels (only type/ and area/ are auto-assignable)
+          valid_labels=(
+            "type/bug" "type/feature" "type/enhancement" "type/docs"
+            "type/chore" "type/security" "type/question"
+            "area/backend" "area/web-ui" "area/ffmpeg" "area/hwaccel"
+            "area/vmaf" "area/docker" "area/ci"
+          )
+
+          is_valid_label() {
+            local check="$1"
+            for v in "${valid_labels[@]}"; do
+              [[ "$v" == "$check" ]] && return 0
+            done
+            return 1
+          }
+
+          echo "Parsed labels from AI:"
+          applied=0
+          while IFS= read -r label; do
+            if is_valid_label "$label"; then
+              echo "  Applying: $label"
+              # Use || true so one failed label does not prevent the rest
+              gh issue edit "$ISSUE_NUMBER" --add-label "$label" --repo "${{ github.repository }}" || echo "  ::warning::Failed to apply $label"
+              applied=$((applied + 1))
+            else
+              echo "  Skipping (unknown or disallowed): $label"
+            fi
+          done <<< "$labels"
+
+          echo "Applied ${applied} label(s) to issue #${ISSUE_NUMBER}."
